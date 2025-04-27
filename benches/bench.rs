@@ -33,8 +33,12 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             &seq,
             |b, seq| {
                 b.iter(|| {
-                    let mut result = black_box(vec![0; 6]);
-                    for chunk in seq.array_chunks() {
+                    let mut result = vec![0; 6];
+                    // for chunk in seq.array_chunks() {
+                    for i in (0..seq.len()).step_by(32) {
+                        let chunk = unsafe {
+                            &seq.get_unchecked(i..(i + 32)).try_into().unwrap_unchecked()
+                        };
                         match_bases_2_table(&chunk, black_box(query_bases), &mut result);
                         black_box(&mut result);
                     }
@@ -48,8 +52,12 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             &seq,
             |b, seq| {
                 b.iter(|| {
-                    let mut result = black_box(vec![0; 6]);
-                    for chunk in seq.array_chunks() {
+                    let mut result = vec![0; 6];
+                    // for chunk in seq.array_chunks() {
+                    for i in (0..seq.len()).step_by(32) {
+                        let chunk = unsafe {
+                            &seq.get_unchecked(i..(i + 32)).try_into().unwrap_unchecked()
+                        };
                         match_bases_packed_nibbles(&chunk, black_box(query_bases), &mut result);
                         black_box(&mut result);
                     }

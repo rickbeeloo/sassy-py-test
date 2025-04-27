@@ -5,6 +5,7 @@ edition = "2024"
 
 [profile.release]
 incremental = true
+opt-level = 3
 debug = true
 
 [dependencies]
