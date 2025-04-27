@@ -25,6 +25,8 @@ fn benchmark_base_lookup(c: &mut Criterion) {
 
         group.throughput(Throughput::Bytes(size as u64));
 
+        let query_bases = b"ACGTN";
+
         // SIMD
         group.bench_with_input(BenchmarkId::new("SIMD", size), &seq, |b, seq| {
             b.iter(|| {
@@ -33,36 +35,18 @@ fn benchmark_base_lookup(c: &mut Criterion) {
                 let mut g_count = 0u32;
                 let mut c_count = 0u32;
                 let mut n_count = 0u32;
-                for chunk in seq.chunks(256) {
-                    if chunk.len() == 256 {
-                        let result = unsafe { match_bases::<5>(chunk, b"atgcn") };
-                        a_count += result[0]
-                            .to_array()
-                            .iter()
-                            .map(|&m| m.count_ones())
-                            .sum::<u32>();
-                        t_count += result[1]
-                            .to_array()
-                            .iter()
-                            .map(|&m| m.count_ones())
-                            .sum::<u32>();
-                        g_count += result[2]
-                            .to_array()
-                            .iter()
-                            .map(|&m| m.count_ones())
-                            .sum::<u32>();
-                        c_count += result[3]
-                            .to_array()
-                            .iter()
-                            .map(|&m| m.count_ones())
-                            .sum::<u32>();
-                        n_count += result[4]
-                            .to_array()
-                            .iter()
-                            .map(|&m| m.count_ones())
-                            .sum::<u32>();
-                    }
+                let mut result = vec![];
+                for chunk in seq.chunks(32) {
+                    let chunk: [u8; 32] = chunk.try_into().unwrap();
+                    unsafe { match_bases(&chunk, query_bases, &mut result) };
+                    a_count += result[0].count_ones();
+                    t_count += result[1].count_ones();
+                    g_count += result[2].count_ones();
+                    c_count += result[3].count_ones();
+                    n_count += result[4].count_ones();
                 }
+                assert_eq!(a_count + t_count + g_count + c_count, seq.len() as u32);
+                assert_eq!(n_count, seq.len() as u32);
 
                 black_box((a_count, t_count, g_count, c_count, n_count))
             })

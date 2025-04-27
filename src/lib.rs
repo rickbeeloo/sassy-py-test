@@ -46,13 +46,10 @@ pub fn get_encoded(c: u8) -> u8 {
     IUPAC_CODE[(c & 0x1F) as usize]
 }
 
+/// Out has the same length as `query_bases`.
 #[target_feature(enable = "avx2")]
-pub unsafe fn match_bases<const M: usize>(
-    seq: &[u8],
-    bases: &[u8; M],
-) -> ArrayVec<Simd<u64, 4>, 32> {
-    assert!(seq.len() == 256, "Sequence must be exactly 256 bytes");
-    assert!(M <= 32, "At most 32 bases supported");
+pub unsafe fn match_bases(seq: &[u8; 32], query_bases: &[u8], out: &mut Vec<u32>) {
+    out.resize(query_bases.len(), 0);
 
     // constants & tables
     let zero = _mm256_setzero_si256();
@@ -63,68 +60,40 @@ pub unsafe fn match_bases<const M: usize>(
     let lo_tbl = _mm256_permute2x128_si256(tbl256, tbl256, 0x00);
     let hi_tbl = _mm256_permute2x128_si256(tbl256, tbl256, 0x11);
 
-    // Precompute lo/hi masks
-    let mut lo_masks = [_mm256_setzero_si256(); 32]; // Use fixed size 32
-    let mut hi_masks = [_mm256_setzero_si256(); 32];
+    let ptr = seq.as_ptr() as *const __m256i;
+    let chunk = _mm256_loadu_si256(ptr);
 
-    for i in 0..M {
-        let m = _mm256_set1_epi8(get_encoded(bases[i]) as i8);
-        lo_masks[i] = _mm256_and_si256(lo_tbl, m);
-        hi_masks[i] = _mm256_and_si256(hi_tbl, m);
+    let idx5 = _mm256_and_si256(chunk, mask5);
+    let is_lo = _mm256_cmpgt_epi8(thr16, idx5);
+    let low4 = _mm256_and_si256(idx5, mask4);
+
+    for (i, &c) in query_bases.iter().enumerate() {
+        let m = _mm256_set1_epi8(get_encoded(c) as i8);
+        let lo = _mm256_and_si256(lo_tbl, m);
+        let hi = _mm256_and_si256(hi_tbl, m);
+
+        let lo_sh = _mm256_shuffle_epi8(lo, low4);
+        let hi_sh = _mm256_shuffle_epi8(hi, low4);
+        let v = _mm256_blendv_epi8(hi_sh, lo_sh, is_lo);
+        let nz = _mm256_cmpgt_epi8(v, zero);
+        out[i] = _mm256_movemask_epi8(nz) as u32;
     }
-
-    // M × 8×u32 bitmasks
-    let mut acc = [[0u32; 8]; 32]; // Use fixed size 32
-
-    for chunk_idx in 0..8 {
-        let ptr = seq.as_ptr().add(chunk_idx * 32) as *const __m256i;
-        let chunk = _mm256_loadu_si256(ptr);
-
-        let idx5 = _mm256_and_si256(chunk, mask5);
-        let is_lo = _mm256_cmpgt_epi8(thr16, idx5);
-        let low4 = _mm256_and_si256(idx5, mask4);
-
-        for j in 0..M {
-            let lo_sh = _mm256_shuffle_epi8(lo_masks[j], low4);
-            let hi_sh = _mm256_shuffle_epi8(hi_masks[j], low4);
-            let v = _mm256_blendv_epi8(hi_sh, lo_sh, is_lo);
-            let nz = _mm256_cmpgt_epi8(v, zero);
-            acc[j][chunk_idx] = _mm256_movemask_epi8(nz) as u32;
-        }
-    }
-
-    // Pack into lanes and store in arrayvec output
-    let mut out = ArrayVec::<Simd<u64, 4>, 32>::new();
-    for i in 0..M {
-        out.push(Simd::from_array([
-            (acc[i][0] as u64) | ((acc[i][1] as u64) << 32),
-            (acc[i][2] as u64) | ((acc[i][3] as u64) << 32),
-            (acc[i][4] as u64) | ((acc[i][5] as u64) << 32),
-            (acc[i][6] as u64) | ((acc[i][7] as u64) << 32),
-        ]));
-    }
-    out
 }
 
-pub fn get_match_positions(result: &ArrayVec<Simd<u64, 4>, 32>) -> Vec<Vec<usize>> {
+pub fn get_match_positions(result: &[u32]) -> Vec<Vec<usize>> {
     let mut positions = Vec::with_capacity(result.len());
 
-    for (base_idx, base_result) in result.iter().enumerate() {
+    for &base_result in result {
         let mut base_positions = Vec::new();
 
-        // Process each of the 4 u64 chunks
-        for chunk_idx in 0..4 {
-            let chunk = base_result.as_array()[chunk_idx];
-            if chunk == 0 {
-                continue; // Skip if no matches
-            }
+        if base_result == 0 {
+            continue; // Skip if no matches
+        }
 
-            let base_offset = chunk_idx * 64;
-            // Find set bits
-            for bit_pos in 0..64 {
-                if (chunk & (1u64 << bit_pos)) != 0 {
-                    base_positions.push(base_offset + bit_pos);
-                }
+        // Find set bits
+        for bit_pos in 0..32 {
+            if (base_result & (1u32 << bit_pos)) != 0 {
+                base_positions.push(bit_pos);
             }
         }
 
@@ -135,7 +104,7 @@ pub fn get_match_positions(result: &ArrayVec<Simd<u64, 4>, 32>) -> Vec<Vec<usize
 }
 
 // Print the match positions in a readable format
-pub fn print_match_positions(result: &ArrayVec<Simd<u64, 4>, 32>, bases: &[u8]) {
+pub fn print_match_positions(result: &[u32], bases: &[u8]) {
     let positions = get_match_positions(result);
 
     println!("Match positions for each base:");
