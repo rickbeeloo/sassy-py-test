@@ -14,3 +14,6 @@ record bench='' *args='': build
 
 report:
     perf report -n
+
+cpufreq:
+    sudo cpupower frequency-set --governor powersave -d 0.8GHz -u 2.6GHz
