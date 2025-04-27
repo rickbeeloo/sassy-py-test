@@ -5,7 +5,7 @@ use std::arch::x86_64::*;
 
 #[rustfmt::skip]
 pub const IUPAC_CODE: [u8; 32] = {
-    let mut t = [0u8; 32];
+    let mut t = [255u8; 32];
     // Standard bases
     // Map ACGT -> [0,1,3,2], like packed_seq does.
     const A: u8 = 1<<0;
@@ -20,9 +20,11 @@ pub const IUPAC_CODE: [u8; 32] = {
     t[b'C' as usize & 0x1F] = C;
     t[b'G' as usize & 0x1F] = G;
     t[b'T' as usize & 0x1F] = T;
+    t[b'U' as usize & 0x1F] = T;
     t[b'N' as usize & 0x1F] = A|C|T|G;
     
     // IUPAC ambiguity codes
+    // https://www.bioinformatics.org/sms/iupac.html
     t[b'R' as usize & 0x1F] = A|G;
     t[b'Y' as usize & 0x1F] = C|T;
     t[b'S' as usize & 0x1F] = G|C;
