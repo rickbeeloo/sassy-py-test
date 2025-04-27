@@ -42,12 +42,14 @@ pub const IUPAC_CODE: [u8; 32] = {
     t
 };
 
+#[inline(always)]
 pub fn get_encoded(c: u8) -> u8 {
     IUPAC_CODE[(c & 0x1F) as usize]
 }
 
 /// Out has the same length as `query_bases`.
-#[target_feature(enable = "avx2")]
+#[inline(always)]
+// #[target_feature(enable = "avx2")]
 pub unsafe fn match_bases(seq: &[u8; 32], query_bases: &[u8], out: &mut Vec<u32>) {
     out.resize(query_bases.len(), 0);
 
