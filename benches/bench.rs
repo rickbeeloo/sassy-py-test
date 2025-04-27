@@ -4,24 +4,26 @@ use sassy::*;
 use std::time::Duration;
 
 fn generate_test_data(size: usize) -> Vec<u8> {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let bases = vec![b'A', b'T', b'G', b'C'];
     let mut seq = vec![b'A'; size];
     for i in 0..size {
-        seq[i] = bases[rand::Rng::gen_range(&mut rng, 0..4)];
+        seq[i] = bases[rand::Rng::random_range(&mut rng, 0..4)];
     }
     seq
 }
 
 fn benchmark_base_lookup(c: &mut Criterion) {
     let mut group = c.benchmark_group("Base lookup");
-    group.measurement_time(Duration::from_secs(10));
+    group.warm_up_time(Duration::from_secs(1));
+    group.measurement_time(Duration::from_secs(1));
+    group.sample_size(10);
 
     // Test different sequence sizes, for now just one
-    for size in [56 * 10000].iter() {
-        let seq = generate_test_data(*size);
+    for size in [1024 * 1024] {
+        let seq = generate_test_data(size);
 
-        group.throughput(Throughput::Bytes(*size as u64));
+        group.throughput(Throughput::Bytes(size as u64));
 
         // SIMD
         group.bench_with_input(BenchmarkId::new("SIMD", size), &seq, |b, seq| {
