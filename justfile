@@ -1,6 +1,6 @@
 
-bench *args='':
-    cargo criterion --offline --plotting-backend disabled --bench bench -- {{args}}
+bench bench='' *args='':
+    cargo criterion --offline --plotting-backend disabled --bench bench -- "{{bench}}" {{args}}
 
 build:
     cargo build -r --bench bench

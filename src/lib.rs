@@ -52,20 +52,19 @@ const PACKED_NIBBLES: AlignedPacked = AlignedPacked({
     let mut p = [0u8; 16];
     let mut i = 0;
     while i < 16 {
-        let lo = IUPAC_CODE[i]       & 0x0F;
-        let hi = IUPAC_CODE[i + 16]  & 0x0F;
+        let lo = IUPAC_CODE[i] & 0x0F;
+        let hi = IUPAC_CODE[i + 16] & 0x0F;
         // packed 8 bit of low nibbles(0-3) and high nibbles(4-7)
-        p[i]    = (hi << 4) | lo; 
+        p[i] = (hi << 4) | lo;
         i += 1;
     }
     p
 });
 
-
 #[inline(always)]
 pub fn match_bases_packed_nibbles(seq: &[u8; 32], query_bases: &[u8], out: &mut [u32; 32]) {
     unsafe {
-        let zero  = _mm256_setzero_si256();
+        let zero = _mm256_setzero_si256();
         let mask5 = _mm256_set1_epi8(0x1F);
         let mask4 = _mm256_set1_epi8(0x0F);
         let thr15: __m256i = _mm256_set1_epi8(15);
@@ -74,7 +73,7 @@ pub fn match_bases_packed_nibbles(seq: &[u8; 32], query_bases: &[u8], out: &mut 
 
         let ptr = seq.as_ptr() as *const __m256i;
         let chunk = _mm256_loadu_si256(ptr);
-        
+
         let idx5 = _mm256_and_si256(chunk, mask5);
         let low4 = _mm256_and_si256(idx5, mask4);
         let is_hi = _mm256_cmpgt_epi8(idx5, thr15);
@@ -87,7 +86,7 @@ pub fn match_bases_packed_nibbles(seq: &[u8; 32], query_bases: &[u8], out: &mut 
         for (i, &c) in query_bases.iter().enumerate() {
             let m = _mm256_set1_epi8(get_encoded(c) as i8);
             let nz = _mm256_cmpgt_epi8(_mm256_and_si256(nib, m), zero);
-            out[i] = _mm256_movemask_epi8(nz) as u32;
+            *out.get_unchecked_mut(i) = _mm256_movemask_epi8(nz) as u32;
         }
     }
 }
@@ -121,7 +120,7 @@ pub fn match_bases_2_table(seq: &[u8; 32], query_bases: &[u8], out: &mut [u32; 3
             let hi_sh = _mm256_shuffle_epi8(hi, low4);
             let v = _mm256_blendv_epi8(hi_sh, lo_sh, is_lo);
             let nz = _mm256_cmpgt_epi8(v, zero);
-            out[i] = _mm256_movemask_epi8(nz) as u32;
+            *out.get_unchecked_mut(i) = _mm256_movemask_epi8(nz) as u32;
         }
     }
 }

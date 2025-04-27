@@ -28,59 +28,71 @@ fn benchmark_base_lookup(c: &mut Criterion) {
         let query_bases = b"ACGTNY";
 
         // SIMD
-        group.bench_with_input(BenchmarkId::new("SIMD - packed nibbles", size), &seq, |b, seq| {
-            b.iter(|| {
-                let mut a_count = 0u32;
-                let mut t_count = 0u32;
-                let mut g_count = 0u32;
-                let mut c_count = 0u32;
-                let mut n_count = 0u32;
-                let mut y_count = 0u32;
-                let mut result = [0u32; 32];
-                for chunk in seq.chunks(32) {
-                    let chunk: [u8; 32] = chunk.try_into().unwrap();
-                    match_bases_2_table(&chunk, query_bases, &mut result);
-                    a_count += result[0].count_ones();
-                    t_count += result[1].count_ones();
-                    g_count += result[2].count_ones();
-                    c_count += result[3].count_ones();
-                    n_count += result[4].count_ones();
-                    y_count += result[5].count_ones();
-                }
-                assert_eq!(a_count + t_count + g_count + c_count, seq.len() as u32);
-                assert_eq!(n_count, seq.len() as u32);
-                assert_eq!(y_count, c_count + t_count);
-                black_box((a_count, t_count, g_count, c_count, n_count, y_count))
-            })
-        });
+        group.bench_with_input(
+            BenchmarkId::new("SIMD - packed nibbles", size),
+            &seq,
+            |b, seq| {
+                b.iter(|| {
+                    let mut a_count = 0u32;
+                    let mut t_count = 0u32;
+                    let mut g_count = 0u32;
+                    let mut c_count = 0u32;
+                    let mut n_count = 0u32;
+                    let mut y_count = 0u32;
+                    let mut result = [0u32; 32];
+                    for chunk in seq.chunks(32) {
+                        let chunk: [u8; 32] = chunk.try_into().unwrap();
+                        match_bases_2_table(&chunk, query_bases, &mut result);
+                        unsafe {
+                            a_count += black_box(result.get_unchecked(0)).count_ones();
+                            t_count += black_box(result.get_unchecked(1)).count_ones();
+                            g_count += black_box(result.get_unchecked(2)).count_ones();
+                            c_count += black_box(result.get_unchecked(3)).count_ones();
+                            n_count += black_box(result.get_unchecked(4)).count_ones();
+                            y_count += black_box(result.get_unchecked(5)).count_ones();
+                        }
+                    }
+                    assert_eq!(a_count + t_count + g_count + c_count, seq.len() as u32);
+                    assert_eq!(n_count, seq.len() as u32);
+                    assert_eq!(y_count, c_count + t_count);
+                    black_box((a_count, t_count, g_count, c_count, n_count, y_count))
+                })
+            },
+        );
 
-          // SIMD
-          group.bench_with_input(BenchmarkId::new("SIMD - two tables", size), &seq, |b, seq| {
-            b.iter(|| {
-                let mut a_count = 0u32;
-                let mut t_count = 0u32;
-                let mut g_count = 0u32;
-                let mut c_count = 0u32;
-                let mut n_count = 0u32;
-                let mut y_count = 0u32;
-                let mut result = [0u32; 32];
-                for chunk in seq.chunks(32) {
-                    let chunk: [u8; 32] = chunk.try_into().unwrap();
-                    match_bases_packed_nibbles(&chunk, query_bases, &mut result);
-                    a_count += result[0].count_ones();
-                    t_count += result[1].count_ones();
-                    g_count += result[2].count_ones();
-                    c_count += result[3].count_ones();
-                    n_count += result[4].count_ones();
-                    y_count += result[5].count_ones();
-                }
-                assert_eq!(a_count + t_count + g_count + c_count, seq.len() as u32);
-                assert_eq!(n_count, seq.len() as u32);
-                assert_eq!(y_count, c_count + t_count);
+        // SIMD
+        group.bench_with_input(
+            BenchmarkId::new("SIMD - two tables", size),
+            &seq,
+            |b, seq| {
+                b.iter(|| {
+                    let mut a_count = 0u32;
+                    let mut t_count = 0u32;
+                    let mut g_count = 0u32;
+                    let mut c_count = 0u32;
+                    let mut n_count = 0u32;
+                    let mut y_count = 0u32;
+                    let mut result = [0u32; 32];
+                    for chunk in seq.chunks(32) {
+                        let chunk: [u8; 32] = chunk.try_into().unwrap();
+                        match_bases_packed_nibbles(&chunk, query_bases, &mut result);
+                        unsafe {
+                            a_count += black_box(result.get_unchecked(0)).count_ones();
+                            t_count += black_box(result.get_unchecked(1)).count_ones();
+                            g_count += black_box(result.get_unchecked(2)).count_ones();
+                            c_count += black_box(result.get_unchecked(3)).count_ones();
+                            n_count += black_box(result.get_unchecked(4)).count_ones();
+                            y_count += black_box(result.get_unchecked(5)).count_ones();
+                        }
+                    }
+                    assert_eq!(a_count + t_count + g_count + c_count, seq.len() as u32);
+                    assert_eq!(n_count, seq.len() as u32);
+                    assert_eq!(y_count, c_count + t_count);
 
-                black_box((a_count, t_count, g_count, c_count, n_count, y_count))
-            })
-        });
+                    black_box((a_count, t_count, g_count, c_count, n_count, y_count))
+                })
+            },
+        );
 
         // Scalar, just to compare to counting nts
         group.bench_with_input(BenchmarkId::new("Scalar", size), &seq, |b, seq| {
