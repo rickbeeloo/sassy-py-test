@@ -61,8 +61,9 @@ const PACKED_NIBBLES: AlignedPacked = AlignedPacked({
     p
 });
 
+/// NOTE: `out` must have the same length as `query_bases`.
 #[inline(always)]
-pub fn match_bases_packed_nibbles(seq: &[u8; 32], query_bases: &[u8], out: &mut [u32; 32]) {
+pub fn match_bases_packed_nibbles(seq: &[u8; 32], query_bases: &[u8], out: &mut [u32]) {
     unsafe {
         let zero = _mm256_setzero_si256();
         let mask5 = _mm256_set1_epi8(0x1F);
@@ -91,9 +92,9 @@ pub fn match_bases_packed_nibbles(seq: &[u8; 32], query_bases: &[u8], out: &mut 
     }
 }
 
+/// NOTE: `out` must have the same length as `query_bases`.
 #[inline(always)]
-// #[target_feature(enable = "avx2")]
-pub fn match_bases_2_table(seq: &[u8; 32], query_bases: &[u8], out: &mut [u32; 32]) {
+pub fn match_bases_2_table(seq: &[u8; 32], query_bases: &[u8], out: &mut [u32]) {
     unsafe {
         // constants & tables
         let zero = _mm256_setzero_si256();
