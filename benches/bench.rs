@@ -29,7 +29,7 @@ fn benchmark_base_lookup(c: &mut Criterion) {
 
         // SIMD
         group.bench_with_input(
-            BenchmarkId::new("SIMD - packed nibbles", size),
+            BenchmarkId::new("SIMD - packed two tables", size),
             &seq,
             |b, seq| {
                 b.iter(|| {
@@ -47,23 +47,18 @@ fn benchmark_base_lookup(c: &mut Criterion) {
         );
 
         // SIMD
-        group.bench_with_input(
-            BenchmarkId::new("SIMD - two tables", size),
-            &seq,
-            |b, seq| {
-                b.iter(|| {
-                    let mut result = vec![0; 6];
-                    // for chunk in seq.array_chunks() {
-                    for i in (0..seq.len()).step_by(32) {
-                        let chunk = unsafe {
-                            &seq.get_unchecked(i..(i + 32)).try_into().unwrap_unchecked()
-                        };
-                        match_bases_packed_nibbles(&chunk, black_box(query_bases), &mut result);
-                        black_box(&mut result);
-                    }
-                })
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("SIMD - nibbles", size), &seq, |b, seq| {
+            b.iter(|| {
+                let mut result = vec![0; 6];
+                // for chunk in seq.array_chunks() {
+                for i in (0..seq.len()).step_by(32) {
+                    let chunk =
+                        unsafe { &seq.get_unchecked(i..(i + 32)).try_into().unwrap_unchecked() };
+                    match_bases_packed_nibbles(&chunk, black_box(query_bases), &mut result);
+                    black_box(&mut result);
+                }
+            })
+        });
 
         // Scalar, just to compare to counting nts
         group.bench_with_input(BenchmarkId::new("Scalar", size), &seq, |b, seq| {
