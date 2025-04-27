@@ -160,22 +160,3 @@ pub fn print_match_positions(result: &ArrayVec<Simd<u64, 4>, 32>, bases: &[u8]) 
         }
     }
 }
-
-fn main() {
-    // Normal > IUPAC
-    let mut seq = vec![b'g'; 256];
-    seq[0] = b'a';
-    seq[1] = b'y'; // C or T
-    let bases = b"ATGC";
-    let result = unsafe { match_bases(&seq, bases) };
-    print_match_positions(&result, bases);
-
-    // IUPAC > normal
-    let mut seq = vec![b'g'; 256];
-    seq[0] = b'a';
-    seq[1] = b'y'; // C or T
-    seq[2] = b'C';
-    let bases = b"Y";
-    let result = unsafe { match_bases(&seq, bases) };
-    print_match_positions(&result, bases);
-}
