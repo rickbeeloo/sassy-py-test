@@ -36,10 +36,10 @@ fn benchmark_base_lookup(c: &mut Criterion) {
                 let mut c_count = 0u32;
                 let mut n_count = 0u32;
                 let mut y_count = 0u32;
-                let mut result = vec![];
+                let mut result = [0u32; 32];
                 for chunk in seq.chunks(32) {
                     let chunk: [u8; 32] = chunk.try_into().unwrap();
-                    match_bases_packed_nibbles(&chunk, query_bases, &mut result);
+                    match_bases_2_table(&chunk, query_bases, &mut result);
                     a_count += result[0].count_ones();
                     t_count += result[1].count_ones();
                     g_count += result[2].count_ones();
@@ -63,10 +63,10 @@ fn benchmark_base_lookup(c: &mut Criterion) {
                 let mut c_count = 0u32;
                 let mut n_count = 0u32;
                 let mut y_count = 0u32;
-                let mut result = vec![];
+                let mut result = [0u32; 32];
                 for chunk in seq.chunks(32) {
                     let chunk: [u8; 32] = chunk.try_into().unwrap();
-                    match_bases_2_table(&chunk, query_bases, &mut result);
+                    match_bases_packed_nibbles(&chunk, query_bases, &mut result);
                     a_count += result[0].count_ones();
                     t_count += result[1].count_ones();
                     g_count += result[2].count_ones();

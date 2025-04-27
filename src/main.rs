@@ -6,7 +6,7 @@ fn main() {
     seq[0] = b'a';
     seq[1] = b'y'; // C or T
     let bases = b"ATGC";
-    let mut result = vec![];
+    let mut result = [0u32; 32];
     match_bases_packed_nibbles(&seq, bases, &mut result);
     print_match_positions(&result, bases);
 

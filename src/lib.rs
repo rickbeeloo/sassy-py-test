@@ -62,11 +62,8 @@ const PACKED_NIBBLES: AlignedPacked = AlignedPacked({
 });
 
 
-
 #[inline(always)]
-pub fn match_bases_packed_nibbles(seq: &[u8; 32], query_bases: &[u8], out: &mut Vec<u32>) {
-    out.resize(query_bases.len(), 0);
-
+pub fn match_bases_packed_nibbles(seq: &[u8; 32], query_bases: &[u8], out: &mut [u32; 32]) {
     unsafe {
         let zero  = _mm256_setzero_si256();
         let mask5 = _mm256_set1_epi8(0x1F);
@@ -78,29 +75,26 @@ pub fn match_bases_packed_nibbles(seq: &[u8; 32], query_bases: &[u8], out: &mut 
         let ptr = seq.as_ptr() as *const __m256i;
         let chunk = _mm256_loadu_si256(ptr);
         
-        let idx5  = _mm256_and_si256(chunk, mask5);
-        let low4  = _mm256_and_si256(idx5, mask4);
+        let idx5 = _mm256_and_si256(chunk, mask5);
+        let low4 = _mm256_and_si256(idx5, mask4);
         let is_hi = _mm256_cmpgt_epi8(idx5, thr15);
 
         let shuffled = _mm256_shuffle_epi8(tbl256, low4);
-        let lo_nib   = _mm256_and_si256(shuffled, mask4);
-        let hi_nib   = _mm256_and_si256(_mm256_srli_epi16(shuffled, 4), mask4);
+        let lo_nib = _mm256_and_si256(shuffled, mask4);
+        let hi_nib = _mm256_and_si256(_mm256_srli_epi16(shuffled, 4), mask4);
+        let nib = _mm256_blendv_epi8(lo_nib, hi_nib, is_hi);
 
         for (i, &c) in query_bases.iter().enumerate() {
             let m = _mm256_set1_epi8(get_encoded(c) as i8);
-            let nib = _mm256_blendv_epi8(lo_nib, hi_nib, is_hi);
-            let nz  = _mm256_cmpgt_epi8(_mm256_and_si256(nib, m), zero);
-            out[i]  = _mm256_movemask_epi8(nz) as u32;
+            let nz = _mm256_cmpgt_epi8(_mm256_and_si256(nib, m), zero);
+            out[i] = _mm256_movemask_epi8(nz) as u32;
         }
     }
 }
 
-
 #[inline(always)]
 // #[target_feature(enable = "avx2")]
-pub fn match_bases_2_table(seq: &[u8; 32], query_bases: &[u8], out: &mut Vec<u32>) {
-    out.resize(query_bases.len(), 0);
-
+pub fn match_bases_2_table(seq: &[u8; 32], query_bases: &[u8], out: &mut [u32; 32]) {
     unsafe {
         // constants & tables
         let zero = _mm256_setzero_si256();
