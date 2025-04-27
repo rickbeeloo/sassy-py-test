@@ -3,6 +3,10 @@ name = "sassy"
 version = "0.1.0"
 edition = "2024"
 
+[profile.release]
+incremental = true
+debug = true
+
 [dependencies]
 arrayvec = "0.7.6"
 criterion = "0.5.1"
