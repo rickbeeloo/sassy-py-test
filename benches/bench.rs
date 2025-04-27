@@ -1,4 +1,4 @@
-#![feature(portable_simd)]
+#![feature(portable_simd, array_chunks)]
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use sassy::*;
 use std::time::Duration;
@@ -34,8 +34,7 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             |b, seq| {
                 b.iter(|| {
                     let mut result = black_box(vec![0; 6]);
-                    for chunk in seq.chunks(32) {
-                        let chunk: [u8; 32] = chunk.try_into().unwrap();
+                    for chunk in seq.array_chunks() {
                         match_bases_2_table(&chunk, black_box(query_bases), &mut result);
                         black_box(&mut result);
                     }
@@ -50,8 +49,7 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             |b, seq| {
                 b.iter(|| {
                     let mut result = black_box(vec![0; 6]);
-                    for chunk in seq.chunks(32) {
-                        let chunk: [u8; 32] = chunk.try_into().unwrap();
+                    for chunk in seq.array_chunks() {
                         match_bases_packed_nibbles(&chunk, black_box(query_bases), &mut result);
                         black_box(&mut result);
                     }
