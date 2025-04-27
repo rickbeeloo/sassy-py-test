@@ -25,30 +25,60 @@ fn benchmark_base_lookup(c: &mut Criterion) {
 
         group.throughput(Throughput::Bytes(size as u64));
 
-        let query_bases = b"ACGTN";
+        let query_bases = b"ACGTNY";
 
         // SIMD
-        group.bench_with_input(BenchmarkId::new("SIMD", size), &seq, |b, seq| {
+        group.bench_with_input(BenchmarkId::new("SIMD - packed nibbles", size), &seq, |b, seq| {
             b.iter(|| {
                 let mut a_count = 0u32;
                 let mut t_count = 0u32;
                 let mut g_count = 0u32;
                 let mut c_count = 0u32;
                 let mut n_count = 0u32;
+                let mut y_count = 0u32;
                 let mut result = vec![];
                 for chunk in seq.chunks(32) {
                     let chunk: [u8; 32] = chunk.try_into().unwrap();
-                    match_bases(&chunk, query_bases, &mut result);
+                    match_bases_packed_nibbles(&chunk, query_bases, &mut result);
                     a_count += result[0].count_ones();
                     t_count += result[1].count_ones();
                     g_count += result[2].count_ones();
                     c_count += result[3].count_ones();
                     n_count += result[4].count_ones();
+                    y_count += result[5].count_ones();
                 }
                 assert_eq!(a_count + t_count + g_count + c_count, seq.len() as u32);
                 assert_eq!(n_count, seq.len() as u32);
+                assert_eq!(y_count, c_count + t_count);
+                black_box((a_count, t_count, g_count, c_count, n_count, y_count))
+            })
+        });
 
-                black_box((a_count, t_count, g_count, c_count, n_count))
+          // SIMD
+          group.bench_with_input(BenchmarkId::new("SIMD - two tables", size), &seq, |b, seq| {
+            b.iter(|| {
+                let mut a_count = 0u32;
+                let mut t_count = 0u32;
+                let mut g_count = 0u32;
+                let mut c_count = 0u32;
+                let mut n_count = 0u32;
+                let mut y_count = 0u32;
+                let mut result = vec![];
+                for chunk in seq.chunks(32) {
+                    let chunk: [u8; 32] = chunk.try_into().unwrap();
+                    match_bases_2_table(&chunk, query_bases, &mut result);
+                    a_count += result[0].count_ones();
+                    t_count += result[1].count_ones();
+                    g_count += result[2].count_ones();
+                    c_count += result[3].count_ones();
+                    n_count += result[4].count_ones();
+                    y_count += result[5].count_ones();
+                }
+                assert_eq!(a_count + t_count + g_count + c_count, seq.len() as u32);
+                assert_eq!(n_count, seq.len() as u32);
+                assert_eq!(y_count, c_count + t_count);
+
+                black_box((a_count, t_count, g_count, c_count, n_count, y_count))
             })
         });
 
@@ -60,7 +90,7 @@ fn benchmark_base_lookup(c: &mut Criterion) {
                 let mut g_count = 0u32;
                 let mut c_count = 0u32;
                 let mut n_count = 0u32;
-
+                let mut y_count = 0u32;
                 for &nt in seq {
                     match nt {
                         b'A' | b'a' => a_count += 1,
@@ -68,11 +98,12 @@ fn benchmark_base_lookup(c: &mut Criterion) {
                         b'G' | b'g' => g_count += 1,
                         b'T' | b't' => t_count += 1,
                         b'N' | b'n' => n_count += 1,
+                        b'Y' | b'y' => y_count += 1,
                         _ => {}
                     }
                 }
 
-                black_box((a_count, t_count, g_count, c_count, n_count))
+                black_box((a_count, t_count, g_count, c_count, n_count, y_count))
             })
         });
     }
