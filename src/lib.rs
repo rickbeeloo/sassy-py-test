@@ -1,6 +1,4 @@
 #![feature(portable_simd)]
-use arrayvec::ArrayVec;
-use core::simd::Simd;
 use std::arch::x86_64::*;
 
 #[rustfmt::skip]
@@ -50,35 +48,37 @@ pub fn get_encoded(c: u8) -> u8 {
 /// Out has the same length as `query_bases`.
 #[inline(always)]
 // #[target_feature(enable = "avx2")]
-pub unsafe fn match_bases(seq: &[u8; 32], query_bases: &[u8], out: &mut Vec<u32>) {
+pub fn match_bases(seq: &[u8; 32], query_bases: &[u8], out: &mut Vec<u32>) {
     out.resize(query_bases.len(), 0);
 
-    // constants & tables
-    let zero = _mm256_setzero_si256();
-    let mask5 = _mm256_set1_epi8(0x1F);
-    let mask4 = _mm256_set1_epi8(0x0F);
-    let thr16 = _mm256_set1_epi8(16);
-    let tbl256 = _mm256_loadu_si256(IUPAC_CODE.as_ptr() as *const __m256i);
-    let lo_tbl = _mm256_permute2x128_si256(tbl256, tbl256, 0x00);
-    let hi_tbl = _mm256_permute2x128_si256(tbl256, tbl256, 0x11);
+    unsafe {
+        // constants & tables
+        let zero = _mm256_setzero_si256();
+        let mask5 = _mm256_set1_epi8(0x1F);
+        let mask4 = _mm256_set1_epi8(0x0F);
+        let thr16 = _mm256_set1_epi8(16);
+        let tbl256 = _mm256_loadu_si256(IUPAC_CODE.as_ptr() as *const __m256i);
+        let lo_tbl = _mm256_permute2x128_si256(tbl256, tbl256, 0x00);
+        let hi_tbl = _mm256_permute2x128_si256(tbl256, tbl256, 0x11);
 
-    let ptr = seq.as_ptr() as *const __m256i;
-    let chunk = _mm256_loadu_si256(ptr);
+        let ptr = seq.as_ptr() as *const __m256i;
+        let chunk = _mm256_loadu_si256(ptr);
 
-    let idx5 = _mm256_and_si256(chunk, mask5);
-    let is_lo = _mm256_cmpgt_epi8(thr16, idx5);
-    let low4 = _mm256_and_si256(idx5, mask4);
+        let idx5 = _mm256_and_si256(chunk, mask5);
+        let is_lo = _mm256_cmpgt_epi8(thr16, idx5);
+        let low4 = _mm256_and_si256(idx5, mask4);
 
-    for (i, &c) in query_bases.iter().enumerate() {
-        let m = _mm256_set1_epi8(get_encoded(c) as i8);
-        let lo = _mm256_and_si256(lo_tbl, m);
-        let hi = _mm256_and_si256(hi_tbl, m);
+        for (i, &c) in query_bases.iter().enumerate() {
+            let m = _mm256_set1_epi8(get_encoded(c) as i8);
+            let lo = _mm256_and_si256(lo_tbl, m);
+            let hi = _mm256_and_si256(hi_tbl, m);
 
-        let lo_sh = _mm256_shuffle_epi8(lo, low4);
-        let hi_sh = _mm256_shuffle_epi8(hi, low4);
-        let v = _mm256_blendv_epi8(hi_sh, lo_sh, is_lo);
-        let nz = _mm256_cmpgt_epi8(v, zero);
-        out[i] = _mm256_movemask_epi8(nz) as u32;
+            let lo_sh = _mm256_shuffle_epi8(lo, low4);
+            let hi_sh = _mm256_shuffle_epi8(hi, low4);
+            let v = _mm256_blendv_epi8(hi_sh, lo_sh, is_lo);
+            let nz = _mm256_cmpgt_epi8(v, zero);
+            out[i] = _mm256_movemask_epi8(nz) as u32;
+        }
     }
 }
 

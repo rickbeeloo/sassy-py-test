@@ -38,7 +38,7 @@ fn benchmark_base_lookup(c: &mut Criterion) {
                 let mut result = vec![];
                 for chunk in seq.chunks(32) {
                     let chunk: [u8; 32] = chunk.try_into().unwrap();
-                    unsafe { match_bases(&chunk, query_bases, &mut result) };
+                    match_bases(&chunk, query_bases, &mut result);
                     a_count += result[0].count_ones();
                     t_count += result[1].count_ones();
                     g_count += result[2].count_ones();

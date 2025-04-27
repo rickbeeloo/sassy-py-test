@@ -7,7 +7,7 @@ fn main() {
     seq[1] = b'y'; // C or T
     let bases = b"ATGC";
     let mut result = vec![];
-    unsafe { match_bases(&seq, bases, &mut result) };
+    match_bases(&seq, bases, &mut result);
     print_match_positions(&result, bases);
 
     // IUPAC > normal
@@ -16,6 +16,6 @@ fn main() {
     seq[1] = b'y'; // C or T
     seq[2] = b'C';
     let bases = b"Y";
-    unsafe { match_bases(&seq, bases, &mut result) };
+    match_bases(&seq, bases, &mut result);
     print_match_positions(&result, bases);
 }
