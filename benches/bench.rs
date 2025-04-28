@@ -20,17 +20,18 @@ fn benchmark_base_lookup(c: &mut Criterion) {
     group.sample_size(10);
 
     // Test different sequence sizes, for now just one
+
+    #[allow(clippy::single_element_loop)]
     for size in [1024 * 1024] {
         let seq = generate_test_data(size);
 
         group.throughput(Throughput::Bytes(size as u64));
 
-        let query_bases = b"ACTGNY";
         let query_bases_defaults = b"NY";
 
         // SIMD
         group.bench_with_input(
-            BenchmarkId::new("SIMD - packed nibbles atgc defaults", size),
+            BenchmarkId::new("SIMD - packed nibbles_u32", size),
             &seq,
             |b, seq| {
                 b.iter(|| {
@@ -40,7 +41,34 @@ fn benchmark_base_lookup(c: &mut Criterion) {
                         let chunk = unsafe {
                             &seq.get_unchecked(i..(i + 32)).try_into().unwrap_unchecked()
                         };
-                        packed_nibbles(&chunk, black_box(query_bases_defaults), &mut result);
+                        packed_nibbles_portable_32(
+                            chunk,
+                            black_box(query_bases_defaults),
+                            &mut result,
+                        );
+                        black_box(&mut result);
+                    }
+                })
+            },
+        );
+
+        // SIMD
+        group.bench_with_input(
+            BenchmarkId::new("SIMD - packed nibbles_u64", size),
+            &seq,
+            |b, seq| {
+                b.iter(|| {
+                    let mut result = vec![0; 6];
+                    // for chunk in seq.array_chunks() {
+                    for i in (0..seq.len()).step_by(64) {
+                        let chunk = unsafe {
+                            &seq.get_unchecked(i..(i + 64)).try_into().unwrap_unchecked()
+                        };
+                        packed_nibbles_portable_64(
+                            chunk,
+                            black_box(query_bases_defaults),
+                            &mut result,
+                        );
                         black_box(&mut result);
                     }
                 })
