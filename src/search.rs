@@ -52,7 +52,7 @@ pub fn search<P: Profile>(query: &[u8], text: &[u8], deltas: &mut Vec<V<u64>>) {
             if start <= text.len() - 64 {
                 text_chunks[lane] = text[start..start + 64].try_into().unwrap();
             } else {
-                text_chunks[lane] = [0; 64];
+                text_chunks[lane] = [b'X'; 64];
                 if start <= text.len() {
                     let slice = &text[start..];
                     text_chunks[lane][..slice.len()].copy_from_slice(slice);
