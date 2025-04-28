@@ -1,5 +1,5 @@
 #![feature(portable_simd, array_chunks)]
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use sassy::*;
 use std::time::Duration;
 
@@ -26,10 +26,11 @@ fn benchmark_base_lookup(c: &mut Criterion) {
         group.throughput(Throughput::Bytes(size as u64));
 
         let query_bases = b"ACGTNY";
+        let query_bases_defaults = b"NY";
 
         // SIMD
         group.bench_with_input(
-            BenchmarkId::new("SIMD - packed nibbles", size),
+            BenchmarkId::new("SIMD - nibble defaults", size),
             &seq,
             |b, seq| {
                 b.iter(|| {
@@ -39,7 +40,11 @@ fn benchmark_base_lookup(c: &mut Criterion) {
                         let chunk = unsafe {
                             &seq.get_unchecked(i..(i + 32)).try_into().unwrap_unchecked()
                         };
-                        match_bases_2_table(&chunk, black_box(query_bases), &mut result);
+                        match_bases_packed_nibbles_defaults(
+                            &chunk,
+                            black_box(query_bases_defaults),
+                            &mut result,
+                        );
                         black_box(&mut result);
                     }
                 })
@@ -58,7 +63,7 @@ fn benchmark_base_lookup(c: &mut Criterion) {
                         let chunk = unsafe {
                             &seq.get_unchecked(i..(i + 32)).try_into().unwrap_unchecked()
                         };
-                        match_bases_packed_nibbles(&chunk, black_box(query_bases), &mut result);
+                        match_bases_2_table(&chunk, black_box(query_bases), &mut result);
                         black_box(&mut result);
                     }
                 })
