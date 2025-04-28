@@ -56,15 +56,15 @@ fn benchmark_base_lookup(c: &mut Criterion) {
                 black_box(sassy::search::<Iupac>(black_box(query), seq, &mut out));
             })
         });
-        let query = b"ACTGCAACTGCAACGACGTAACACCTACTAAC";
-        group.bench_with_input(BenchmarkId::new("search_32", size), &seq, |b, seq| {
+        let query = b"ACTGCAANTGCAACGACGTA";
+        group.bench_with_input(BenchmarkId::new("search_20_N", size), &seq, |b, seq| {
             let mut out = vec![];
             b.iter(|| {
                 black_box(sassy::search::<Iupac>(black_box(query), seq, &mut out));
             })
         });
-        let query = b"ACTGCAANTGCAACGACGTA";
-        group.bench_with_input(BenchmarkId::new("search_20_N", size), &seq, |b, seq| {
+        let query = b"ACTGCAACTGCAACGACGTAACACCTACTAAC";
+        group.bench_with_input(BenchmarkId::new("search_32", size), &seq, |b, seq| {
             let mut out = vec![];
             b.iter(|| {
                 black_box(sassy::search::<Iupac>(black_box(query), seq, &mut out));
