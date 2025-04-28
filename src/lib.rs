@@ -1,4 +1,8 @@
-#![feature(portable_simd)]
+#![feature(portable_simd, int_roundings)]
+mod bitpacking;
+mod delta_encoding;
+mod profile;
+
 use std::{
     arch::x86_64::*,
     mem::transmute,

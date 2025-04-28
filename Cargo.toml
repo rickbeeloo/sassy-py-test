@@ -12,6 +12,7 @@ debug = true
 arrayvec = "0.7.6"
 criterion = "0.5.1"
 rand = "0.9.0"
+pa-types.git = "https://github.com/pairwise-alignment/pa-types"
 
 [[bench]]
 name = "bench"
