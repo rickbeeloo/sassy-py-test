@@ -1,5 +1,5 @@
 #![feature(portable_simd, array_chunks)]
-use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use sassy::*;
 use std::time::Duration;
 
@@ -25,7 +25,7 @@ fn benchmark_base_lookup(c: &mut Criterion) {
 
         group.throughput(Throughput::Bytes(size as u64));
 
-        let query_bases = b"ACGTNY";
+        let query_bases = b"ACTGNY";
         let query_bases_defaults = b"NY";
 
         // SIMD

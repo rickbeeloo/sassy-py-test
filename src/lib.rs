@@ -95,9 +95,9 @@ pub fn packed_nibbles(seq: &[u8; 32], extra_bases: &[u8], out: &mut [u32]) {
         let c_match = _mm256_cmpgt_epi8(_mm256_and_si256(nib, c_mask), zero);
 
         *out.get_unchecked_mut(0) = _mm256_movemask_epi8(a_match) as u32;
-        *out.get_unchecked_mut(1) = _mm256_movemask_epi8(t_match) as u32;
-        *out.get_unchecked_mut(2) = _mm256_movemask_epi8(g_match) as u32;
-        *out.get_unchecked_mut(3) = _mm256_movemask_epi8(c_match) as u32;
+        *out.get_unchecked_mut(1) = _mm256_movemask_epi8(c_match) as u32;
+        *out.get_unchecked_mut(2) = _mm256_movemask_epi8(t_match) as u32;
+        *out.get_unchecked_mut(3) = _mm256_movemask_epi8(g_match) as u32;
 
         for (i, &c) in extra_bases.iter().enumerate() {
             let m = _mm256_set1_epi8(get_encoded(c) as i8);
