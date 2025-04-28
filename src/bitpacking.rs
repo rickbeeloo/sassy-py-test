@@ -3,7 +3,7 @@ use std::simd::{LaneCount, Simd, SupportedLaneCount};
 
 use crate::{
     delta_encoding::{HEncoding, VEncoding},
-    profile::Profile,
+    profiles::trai_def::Profile,
 };
 
 /// Implements Myers '99 bitpacking based algorithm. Terminology is as in the

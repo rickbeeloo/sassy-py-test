@@ -8,6 +8,9 @@ build:
 stat bench='' *args='': build
     perf stat cargo bench --bench bench -- --profile-time 5 "{{bench}}" {{args}}
 
+flame bench='' *args='':
+    cargo flamegraph --bench bench -- --profile-time 5 "{{bench}}" 
+
 record bench='' *args='': build
     perf record cargo bench --bench bench -- --profile-time 2 "{{bench}}" {{args}}
     perf report -n

@@ -4,8 +4,8 @@ use pa_types::Cost;
 
 use crate::{
     bitpacking::compute_block_simd,
-    delta_encoding::{VEncoding, V},
-    profile::Profile,
+    delta_encoding::{V, VEncoding},
+    profiles::trai_def::Profile,
 };
 
 /// Search for query in text.
@@ -39,7 +39,13 @@ pub fn search<P: Profile>(query: &[u8], text: &[u8], deltas: &mut Vec<V<u64>>) {
     let mut hp = vec![S::splat(1); query.len()];
     let mut hm = vec![S::splat(0); query.len()];
 
-    let mut text_profile: [_; 4] = Default::default();
+    let mut text_profile: [P::B; 4] = [
+        profiler.alloc_out(),
+        profiler.alloc_out(),
+        profiler.alloc_out(),
+        profiler.alloc_out(),
+    ];
+
     let mut text_chunks: [[u8; 64]; 4] = [[0; 64]; 4];
 
     for i in 0..num_simds {
@@ -74,7 +80,7 @@ pub fn search<P: Profile>(query: &[u8], text: &[u8], deltas: &mut Vec<V<u64>>) {
 pub fn find_below_threshold(
     query: &[u8],
     threshold: Cost,
-    deltas: &Vec<V<u64>>,
+    deltas: &[V<u64>],
     positions: &mut Vec<usize>,
 ) {
     let mut cur_cost = query.len() as Cost;
