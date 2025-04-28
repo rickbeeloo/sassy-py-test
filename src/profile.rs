@@ -28,7 +28,7 @@ impl Profile for Iupac {
     type B = Vec<u64>;
 
     fn encode_query(a: &[u8]) -> (Self, Vec<Self::A>) {
-        let mut bases = vec![b'A', b'C', b'G', b'T'];
+        let mut bases = vec![b'A', b'C', b'T', b'G'];
         let mut query_profile = Vec::with_capacity(a.len());
         for &c in a {
             if !bases.contains(&c) {

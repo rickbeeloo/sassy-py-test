@@ -17,17 +17,17 @@ pub const IUPAC_CODE: [u8; 32] = {
     // Map ACGT -> [0,1,3,2], like packed_seq does.
     const A: u8 = 1<<0;
     const C: u8 = 1<<1;
-    const G: u8 = 1<<3;
     const T: u8 = 1<<2;
+    const G: u8 = 1<<3;
 
     // Map common chars.
     // Lower case has the same last 5 bits as upper case.
     // (Thanks ASCII :)
     t[b'A' as usize & 0x1F] = A;
     t[b'C' as usize & 0x1F] = C;
-    t[b'G' as usize & 0x1F] = G;
     t[b'T' as usize & 0x1F] = T;
     t[b'U' as usize & 0x1F] = T;
+    t[b'G' as usize & 0x1F] = G;
     t[b'N' as usize & 0x1F] = A|C|T|G;
     
     // IUPAC ambiguity codes
@@ -91,7 +91,7 @@ pub fn packed_nibbles_portable_32(seq: &[u8; 32], extra_bases: &[u8], out: &mut 
         let hi_nib = shuffled >> 4;
         let nib = is_hi.select(hi_nib, lo_nib);
 
-        for (i, base) in [b'A', b'T', b'G', b'C'].iter().enumerate() {
+        for (i, base) in [b'A', b'C', b'T', b'G'].iter().enumerate() {
             let m = u8x32::splat(get_encoded(*base));
             let nz = (nib & m).simd_gt(zero);
             *out.get_unchecked_mut(i) = nz.to_bitmask() as u32;
@@ -136,7 +136,7 @@ pub fn packed_nibbles_portable_64(seq: &[u8; 64], extra_bases: &[u8], out: &mut 
         let nib0 = is_hi_0.select(hi_nib0, lo_nib0);
         let nib1 = is_hi_1.select(hi_nib1, lo_nib1);
 
-        for (i, &base) in [b'A', b'T', b'G', b'C'].iter().enumerate() {
+        for (i, &base) in [b'A', b'C', b'T', b'G'].iter().enumerate() {
             let m = u8x32::splat(get_encoded(base));
 
             let match0 = (nib0 & m).simd_gt(zero);
@@ -207,9 +207,9 @@ mod test {
         packed_nibbles_portable_32(&seq, b"", &mut result);
         let positions = get_match_positions_u32(&result);
         let a_positions = positions[0].clone();
-        let t_positions = positions[1].clone();
-        let g_positions = positions[2].clone();
-        let c_positions = positions[3].clone();
+        let c_positions = positions[1].clone();
+        let t_positions = positions[2].clone();
+        let g_positions = positions[3].clone();
         assert_eq!(a_positions, vec![0]);
         assert_eq!(t_positions, vec![1]);
         assert_eq!(g_positions, (2..32).collect::<Vec<_>>());
@@ -243,9 +243,9 @@ mod test {
         packed_nibbles_portable_64(&seq, b"", &mut result);
         let positions = get_match_positions_u64(&result);
         let a_positions = positions[0].clone();
-        let t_positions = positions[1].clone();
-        let g_positions = positions[2].clone();
-        let c_positions = positions[3].clone();
+        let c_positions = positions[1].clone();
+        let t_positions = positions[2].clone();
+        let g_positions = positions[3].clone();
         assert_eq!(a_positions, vec![0]);
         assert_eq!(t_positions, vec![1, 34]);
         assert_eq!(
