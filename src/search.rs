@@ -12,14 +12,14 @@ use crate::{
 /// - Process those chunks in parallel.
 /// - Do at least 2*query.len() overlap between the chunks.
 pub fn search<P: Profile>(query: &[u8], text: &[u8]) -> Vec<V<u64>> {
-    let query_profile = P::encode_a(query);
+    let (profiler, query_profile) = P::encode_query(query);
 
     // Number of 64char lanes.
     let num_lanes = text.len().div_ceil(64);
     // Number of simd units to cover everything.
     let num_simds = text.len().div_ceil(256);
     // Length of each of the four chunks.
-    // TODO: overlap.
+    // FIXME: overlap.
     let chunk_len = num_lanes.div_ceil(4);
 
     let mut output = vec![V::zero(); num_lanes];
@@ -36,13 +36,15 @@ pub fn search<P: Profile>(query: &[u8], text: &[u8]) -> Vec<V<u64>> {
         let mut vp = S::splat(0);
         let mut vm = S::splat(0);
 
-        let text_profile: [_; 4] = from_fn(|lane| {
-            P::encode_b(
+        let mut text_profile: [_; 4] = Default::default();
+        for lane in 0..4 {
+            profiler.encode_ref(
                 &text[lane * chunk_len * 64 + 64 * i..][..64]
                     .try_into()
                     .unwrap(),
+                &mut text_profile[lane],
             )
-        });
+        }
 
         for (q_char, (hp, hm)) in zip(&query_profile, zip(&mut hp, &mut hm)) {
             let eq = from_fn(|lane| P::eq(&q_char, &text_profile[lane])).into();
@@ -53,4 +55,12 @@ pub fn search<P: Profile>(query: &[u8], text: &[u8]) -> Vec<V<u64>> {
         }
     }
     output
+}
+
+#[test]
+fn test_search() {
+    let query = b"ACTGNA";
+
+    let text = [b'A'; 512];
+    search::<Iupac>(query, &text);
 }

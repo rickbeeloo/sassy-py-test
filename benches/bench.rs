@@ -29,7 +29,6 @@ fn benchmark_base_lookup(c: &mut Criterion) {
 
         let query_bases_defaults = b"NY";
 
-        // SIMD
         group.bench_with_input(BenchmarkId::new("profile u32", size), &seq, |b, seq| {
             b.iter(|| {
                 let mut result = vec![0; 6];
@@ -40,7 +39,6 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             })
         });
 
-        // SIMD
         group.bench_with_input(BenchmarkId::new("profile u64", size), &seq, |b, seq| {
             b.iter(|| {
                 let mut result = vec![0; 6];
@@ -51,11 +49,28 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             })
         });
 
-        let query = b"ACTGCANCTGCAACGACGTA";
-        let query_bases_defaults = b"N";
-        group.bench_with_input(BenchmarkId::new("search", size), &seq, |b, seq| {
+        let query = b"ACTGCAACTGCAACGACGTA";
+        group.bench_with_input(BenchmarkId::new("search_20", size), &seq, |b, seq| {
             b.iter(|| {
-                black_box(sassy::search(black_box(query), seq));
+                black_box(sassy::search::<Iupac>(black_box(query), seq));
+            })
+        });
+        let query = b"ACTGCAACTGCAACGACGTAACACCTACTAAC";
+        group.bench_with_input(BenchmarkId::new("search_32", size), &seq, |b, seq| {
+            b.iter(|| {
+                black_box(sassy::search::<Iupac>(black_box(query), seq));
+            })
+        });
+        let query = b"ACTGCAANTGCAACGACGTA";
+        group.bench_with_input(BenchmarkId::new("search_20_N", size), &seq, |b, seq| {
+            b.iter(|| {
+                black_box(sassy::search::<Iupac>(black_box(query), seq));
+            })
+        });
+        let query = b"ACTGCAANTGCAACGAYGTAACARCTACTAAC";
+        group.bench_with_input(BenchmarkId::new("search_32_NRY", size), &seq, |b, seq| {
+            b.iter(|| {
+                black_box(sassy::search::<Iupac>(black_box(query), seq));
             })
         });
     }

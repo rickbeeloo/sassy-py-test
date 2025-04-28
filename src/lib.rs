@@ -278,4 +278,5 @@ mod test {
     }
 }
 
+pub use profile::Iupac;
 pub use search::search;
