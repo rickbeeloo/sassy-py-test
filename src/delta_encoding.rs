@@ -1,3 +1,5 @@
+#![allow(unused)] // TODO: Drop this
+
 use pa_types::{Cost, I};
 
 pub trait VEncoding<Base> {

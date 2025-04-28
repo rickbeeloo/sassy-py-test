@@ -1,5 +1,5 @@
 //! The basic bitpacking algorithm from Myers'99.
-use std::simd::{LaneCount, Simd, SimdElement, SupportedLaneCount};
+use std::simd::{LaneCount, Simd, SupportedLaneCount};
 
 use crate::{
     delta_encoding::{HEncoding, VEncoding},
@@ -28,6 +28,7 @@ use crate::{
 ///
 /// 20 operations, excluding `eq`.
 #[inline(always)]
+#[allow(unused)] // TODO: Drop this
 pub fn compute_block<P: Profile, H: HEncoding<u64>, V: VEncoding<u64>>(
     h0: &mut H,
     v: &mut V,
