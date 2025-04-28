@@ -103,7 +103,7 @@ pub fn match_bases_packed_nibbles_defaults(seq: &[u8; 32], extra_bases: &[u8], o
         for (i, &c) in extra_bases.iter().enumerate() {
             let m = _mm256_set1_epi8(get_encoded(c) as i8);
             let nz = _mm256_cmpgt_epi8(_mm256_and_si256(nib, m), zero);
-            *out.get_unchecked_mut(i) = _mm256_movemask_epi8(nz) as u32;
+            *out.get_unchecked_mut(i + 4) = _mm256_movemask_epi8(nz) as u32;
         }
     }
 }
