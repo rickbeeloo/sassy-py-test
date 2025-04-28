@@ -33,12 +33,13 @@ pub fn search<P: Profile>(query: &[u8], text: &[u8], output: &mut Vec<V<u64>>) {
     let mut hp = vec![S::splat(1); query.len()];
     let mut hm = vec![S::splat(0); query.len()];
 
+    let mut text_profile: [_; 4] = Default::default();
+
     for i in 0..num_simds {
         // The alignment can start anywhere, so start with deltas of 0.
         let mut vp = S::splat(0);
         let mut vm = S::splat(0);
 
-        let mut text_profile: [_; 4] = Default::default();
         for lane in 0..4 {
             profiler.encode_ref(
                 &text[lane * chunk_len * 64 + 64 * i..][..64]
