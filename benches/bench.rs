@@ -1,6 +1,6 @@
 #![feature(portable_simd, array_chunks)]
-use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
-use sassy::profiles::{ascii::*, dna::*, iupac::*};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use sassy::profiles::*;
 use std::time::Duration;
 
 fn generate_dna_sequence(size: usize) -> Vec<u8> {
@@ -36,48 +36,46 @@ fn benchmark_base_lookup(c: &mut Criterion) {
         let ascii_seq = generate_ascii_sequence(size);
         group.throughput(Throughput::Bytes(size as u64));
 
-        let query_bases_defaults = b"NY";
-        let query_ascii_bases = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        group.bench_with_input(
+            BenchmarkId::new("encode_iupac", size),
+            &dna_seq,
+            |b, seq| {
+                let profiler = Iupac::encode_query(b"NY").0;
+                let mut result = profiler.alloc_out();
+                b.iter(|| {
+                    for chunk in seq.array_chunks() {
+                        profiler.encode_ref(chunk, &mut result);
+                        black_box(&mut result);
+                    }
+                })
+            },
+        );
 
-        group.bench_with_input(BenchmarkId::new("iupac_u32", size), &dna_seq, |b, seq| {
+        group.bench_with_input(BenchmarkId::new("encode_dna", size), &dna_seq, |b, seq| {
+            let profiler = Dna::encode_query(b"NY").0;
+            let mut result = profiler.alloc_out();
             b.iter(|| {
-                let mut result = vec![0; 6];
                 for chunk in seq.array_chunks() {
-                    iupac_u32_search(chunk, black_box(query_bases_defaults), &mut result);
+                    profiler.encode_ref(chunk, &mut result);
                     black_box(&mut result);
                 }
             })
         });
 
-        group.bench_with_input(BenchmarkId::new("iupac_u64", size), &dna_seq, |b, seq| {
-            b.iter(|| {
-                let mut result = vec![0; 6];
-                for chunk in seq.array_chunks() {
-                    iupac_u64_search(chunk, black_box(query_bases_defaults), &mut result);
-                    black_box(&mut result);
-                }
-            })
-        });
-
-        group.bench_with_input(BenchmarkId::new("dna_u64", size), &dna_seq, |b, seq| {
-            b.iter(|| {
-                let mut result = [0u64; 4];
-                for chunk in seq.array_chunks() {
-                    dna_u64_search(chunk, &mut result);
-                    black_box(&mut result);
-                }
-            })
-        });
-
-        group.bench_with_input(BenchmarkId::new("ascii_u64", size), &ascii_seq, |b, seq| {
-            b.iter(|| {
-                let mut result = vec![0; query_ascii_bases.len()];
-                for chunk in seq.array_chunks() {
-                    ascii_u64_search(chunk, black_box(query_ascii_bases), &mut result);
-                    black_box(&mut result);
-                }
-            })
-        });
+        group.bench_with_input(
+            BenchmarkId::new("encode_ascii", size),
+            &ascii_seq,
+            |b, seq| {
+                let profiler = Ascii::encode_query(b"ABCDEFGHIJKLMNOPQRSTUVWXYZ").0;
+                let mut result = profiler.alloc_out();
+                b.iter(|| {
+                    for chunk in seq.array_chunks() {
+                        profiler.encode_ref(chunk, &mut result);
+                        black_box(&mut result);
+                    }
+                })
+            },
+        );
 
         let query = b"AHOVHSHJDHFAPVHAJDJ";
         group.bench_with_input(

@@ -21,7 +21,21 @@ impl Profile for Dna {
 
     #[inline(always)]
     fn encode_ref(&self, b: &[u8; 64], out: &mut Self::B) {
-        dna_u64_search(b, out);
+        unsafe {
+            let chunk0 = u8x32::from_array(b[0..32].try_into().unwrap());
+            let chunk1 = u8x32::from_array(b[32..64].try_into().unwrap());
+            let chunk0_shifted = chunk0 >> 1;
+            let chunk1_shifted = chunk1 >> 1;
+            let masked0 = chunk0_shifted & u8x32::splat(0x03);
+            let masked1 = chunk1_shifted & u8x32::splat(0x03);
+            for (i, code) in CODES.iter().enumerate() {
+                let eq0 = masked0.simd_eq(*code);
+                let eq1 = masked1.simd_eq(*code);
+                let low = eq0.to_bitmask();
+                let high = eq1.to_bitmask();
+                *out.get_unchecked_mut(i) = (high << 32) | low;
+            }
+        };
     }
 
     #[inline(always)]
@@ -48,25 +62,6 @@ const CODES: [u8x32; 4] = [
     u8x32::splat(3u8), // G
 ];
 
-#[inline(always)]
-pub fn dna_u64_search(seq: &[u8; 64], out: &mut [u64; 4]) {
-    unsafe {
-        let chunk0 = u8x32::from_array(seq[0..32].try_into().unwrap());
-        let chunk1 = u8x32::from_array(seq[32..64].try_into().unwrap());
-        let chunk0_shifted = chunk0 >> 1;
-        let chunk1_shifted = chunk1 >> 1;
-        let masked0 = chunk0_shifted & u8x32::splat(0x03);
-        let masked1 = chunk1_shifted & u8x32::splat(0x03);
-        for (i, code) in CODES.iter().enumerate() {
-            let eq0 = masked0.simd_eq(*code);
-            let eq1 = masked1.simd_eq(*code);
-            let low = eq0.to_bitmask();
-            let high = eq1.to_bitmask();
-            *out.get_unchecked_mut(i) = (high << 32) | low;
-        }
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
@@ -91,7 +86,25 @@ mod test {
         seq[1] = b'A';
         seq[63] = b'C';
         let mut out = [0u64; 4];
-        dna_u64_search(&seq, &mut out); // A, C, T, G
+        {
+            let seq: &[u8; 64] = &seq;
+            let out: &mut [u64; 4] = &mut out;
+            unsafe {
+                let chunk0 = u8x32::from_array(seq[0..32].try_into().unwrap());
+                let chunk1 = u8x32::from_array(seq[32..64].try_into().unwrap());
+                let chunk0_shifted = chunk0 >> 1;
+                let chunk1_shifted = chunk1 >> 1;
+                let masked0 = chunk0_shifted & u8x32::splat(0x03);
+                let masked1 = chunk1_shifted & u8x32::splat(0x03);
+                for (i, code) in CODES.iter().enumerate() {
+                    let eq0 = masked0.simd_eq(*code);
+                    let eq1 = masked1.simd_eq(*code);
+                    let low = eq0.to_bitmask();
+                    let high = eq1.to_bitmask();
+                    *out.get_unchecked_mut(i) = (high << 32) | low;
+                }
+            }
+        }; // A, C, T, G
         let positions = get_match_positions(&out);
         assert_eq!(positions[0], vec![0, 1]);
         assert_eq!(positions[1], vec![63]);
@@ -105,7 +118,25 @@ mod test {
         seq[0] = b'a';
         seq[1] = b'A';
         let mut out = [0u64; 4];
-        dna_u64_search(&seq, &mut out);
+        {
+            let seq: &[u8; 64] = &seq;
+            let out: &mut [u64; 4] = &mut out;
+            unsafe {
+                let chunk0 = u8x32::from_array(seq[0..32].try_into().unwrap());
+                let chunk1 = u8x32::from_array(seq[32..64].try_into().unwrap());
+                let chunk0_shifted = chunk0 >> 1;
+                let chunk1_shifted = chunk1 >> 1;
+                let masked0 = chunk0_shifted & u8x32::splat(0x03);
+                let masked1 = chunk1_shifted & u8x32::splat(0x03);
+                for (i, code) in CODES.iter().enumerate() {
+                    let eq0 = masked0.simd_eq(*code);
+                    let eq1 = masked1.simd_eq(*code);
+                    let low = eq0.to_bitmask();
+                    let high = eq1.to_bitmask();
+                    *out.get_unchecked_mut(i) = (high << 32) | low;
+                }
+            }
+        };
         let positions = get_match_positions(&out);
         assert_eq!(positions[0], vec![0, 1]);
     }

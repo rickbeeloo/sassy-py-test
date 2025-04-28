@@ -61,11 +61,12 @@ pub fn ascii_u64_search(seq: &[u8; 64], bases: &[u8], out: &mut [u64]) {
 }
 
 #[inline(always)]
-pub fn ascii_u64_search_case_insensitive(seq: &[u8; 64], bases: &[u8], out: &mut [u64]) {
+fn ascii_u64_search_case_insensitive(seq: &[u8; 64], bases: &[u8], out: &mut [u64]) {
     unsafe {
         let chunk0 = u8x32::from_array(seq[0..32].try_into().unwrap());
         let chunk1 = u8x32::from_array(seq[32..64].try_into().unwrap());
 
+        // FIXME: Be more precise for non-letters.
         let lower0 = chunk0 | u8x32::splat(0x20);
         let lower1 = chunk1 | u8x32::splat(0x20);
 
