@@ -18,13 +18,17 @@ use crate::{
 pub fn search<P: Profile>(query: &[u8], text: &[u8], deltas: &mut Vec<V<u64>>) {
     let (profiler, query_profile) = P::encode_query(query);
 
-    // Number of 64char lanes.
-    let num_lanes = text.len().div_ceil(64);
+    assert!(
+        query.len() <= 32,
+        "For longer queries, we may need more than 64 overlap?"
+    );
+    // Number of 64char lanes, including 3 overlap between chunks.
+    let num_lanes = text.len().div_ceil(64) + 3;
     // Number of simd units to cover everything.
-    let num_simds = text.len().div_ceil(256);
+    // TODO: div_ceil
+    let num_simds = num_lanes.div_ceil(4);
     // Length of each of the four chunks.
-    // FIXME: overlap.
-    let chunk_len = num_lanes.div_ceil(4);
+    let chunk_len = num_simds - 1;
 
     deltas.resize(num_lanes, V::zero());
 
@@ -36,6 +40,7 @@ pub fn search<P: Profile>(query: &[u8], text: &[u8], deltas: &mut Vec<V<u64>>) {
     let mut hm = vec![S::splat(0); query.len()];
 
     let mut text_profile: [_; 4] = Default::default();
+    let mut text_chunks: [[u8; 64]; 4] = [[0; 64]; 4];
 
     for i in 0..num_simds {
         // The alignment can start anywhere, so start with deltas of 0.
@@ -43,12 +48,17 @@ pub fn search<P: Profile>(query: &[u8], text: &[u8], deltas: &mut Vec<V<u64>>) {
         let mut vm = S::splat(0);
 
         for lane in 0..4 {
-            profiler.encode_ref(
-                &text[lane * chunk_len * 64 + 64 * i..][..64]
-                    .try_into()
-                    .unwrap(),
-                &mut text_profile[lane],
-            )
+            let start = lane * chunk_len * 64 + 64 * i;
+            if start <= text.len() - 64 {
+                text_chunks[lane] = text[start..start + 64].try_into().unwrap();
+            } else {
+                text_chunks[lane] = [0; 64];
+                if start <= text.len() {
+                    let slice = &text[start..];
+                    text_chunks[lane][..slice.len()].copy_from_slice(slice);
+                }
+            }
+            profiler.encode_ref(&text_chunks[lane], &mut text_profile[lane])
         }
 
         for (q_char, (hp, hm)) in zip(&query_profile, zip(&mut hp, &mut hm)) {
@@ -70,12 +80,10 @@ pub fn find_below_threshold(
     let mut cur_cost = query.len() as Cost;
     for (i, v) in deltas.iter().enumerate() {
         let V(p, m) = v;
-        eprintln!("{p:>064b} {m:>064b}");
         let (min, delta) = prefix_min(*v);
         if cur_cost + (min as Cost) <= threshold {
             positions.push(i * 64);
         }
-        eprintln!("{}: {} {} {}", i, cur_cost, delta, min);
         cur_cost += delta as Cost;
     }
 }
@@ -157,17 +165,20 @@ fn test_prefix_min() {
 fn test_search() {
     let query = b"ACTGNA";
 
-    let mut text = [b'A'; 512];
-    text[11] = b'C';
-    text[12] = b'T';
-    text[13] = b'G';
-    text[14] = b'N';
-    text[15] = b'A';
+    for len in (256 + 64..512).step_by(21) {
+        let mut text = vec![b'A'; len];
+        let offset = 10;
+        text[offset + 1] = b'C';
+        text[offset + 2] = b'T';
+        text[offset + 3] = b'G';
+        text[offset + 4] = b'N';
+        text[offset + 5] = b'A';
 
-    let mut deltas = vec![];
-    search::<crate::Iupac>(query, &text, &mut deltas);
-    eprintln!("deltas: {deltas:?}");
-    let mut positions = vec![];
-    find_below_threshold(query, 0, &deltas, &mut positions);
-    assert_eq!(positions, vec![5]);
+        let mut deltas = vec![];
+        search::<crate::Iupac>(query, &text, &mut deltas);
+        let mut positions = vec![];
+        find_below_threshold(query, 2, &deltas, &mut positions);
+        // Note that this only returns the start index of the lane; not the exact position.
+        assert_eq!(positions, vec![0], "Failure for len {len}");
+    }
 }

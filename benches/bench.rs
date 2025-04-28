@@ -88,8 +88,8 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             b.iter(|| {
                 sassy::search::<Iupac>(black_box(query), seq, &mut deltas);
                 positions.clear();
-                sassy::find_below_threshold(black_box(query), 0, &deltas, &mut positions);
-                eprintln!("len: {}", positions.len());
+                sassy::find_below_threshold(black_box(query), 8, &deltas, &mut positions);
+                black_box(&positions);
             })
         });
     }
