@@ -79,7 +79,6 @@ pub fn find_below_threshold(
 ) {
     let mut cur_cost = query.len() as Cost;
     for (i, v) in deltas.iter().enumerate() {
-        let V(p, m) = v;
         let (min, delta) = prefix_min(*v);
         if cur_cost + (min as Cost) <= threshold {
             positions.push(i * 64);
