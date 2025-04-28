@@ -6,8 +6,7 @@ fn main() {
     seq[0] = b'a';
     seq[1] = b'y'; // C or T
     let mut result = [0u32; 32];
-    match_bases_packed_nibbles_defaults(&seq, b"", &mut result);
-    print_match_positions(&result, b"ATGC");
+    packed_nibbles(&seq, b"", &mut result);
 
     // IUPAC > normal
     let mut seq = [b'g'; 32];
@@ -15,6 +14,5 @@ fn main() {
     seq[1] = b'y'; // C or T
     seq[2] = b'C';
     let mut result = [0u32; 32];
-    match_bases_packed_nibbles_defaults(&seq, b"Y", &mut result);
-    print_match_positions(&result, b"ATGCY");
+    packed_nibbles(&seq, b"Y", &mut result);
 }
