@@ -30,52 +30,29 @@ fn benchmark_base_lookup(c: &mut Criterion) {
         let query_bases_defaults = b"NY";
 
         // SIMD
-        group.bench_with_input(
-            BenchmarkId::new("SIMD - packed nibbles_u32", size),
-            &seq,
-            |b, seq| {
-                b.iter(|| {
-                    let mut result = vec![0; 6];
-                    // for chunk in seq.array_chunks() {
-                    for i in (0..seq.len()).step_by(32) {
-                        let chunk = unsafe {
-                            &seq.get_unchecked(i..(i + 32)).try_into().unwrap_unchecked()
-                        };
-                        packed_nibbles_portable_32(
-                            chunk,
-                            black_box(query_bases_defaults),
-                            &mut result,
-                        );
-                        black_box(&mut result);
-                    }
-                })
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("profile u32", size), &seq, |b, seq| {
+            b.iter(|| {
+                let mut result = vec![0; 6];
+                for chunk in seq.array_chunks() {
+                    packed_nibbles_portable_32(chunk, black_box(query_bases_defaults), &mut result);
+                    black_box(&mut result);
+                }
+            })
+        });
 
         // SIMD
-        group.bench_with_input(
-            BenchmarkId::new("SIMD - packed nibbles_u64", size),
-            &seq,
-            |b, seq| {
-                b.iter(|| {
-                    let mut result = vec![0; 6];
-                    // for chunk in seq.array_chunks() {
-                    for i in (0..seq.len()).step_by(64) {
-                        let chunk = unsafe {
-                            &seq.get_unchecked(i..(i + 64)).try_into().unwrap_unchecked()
-                        };
-                        packed_nibbles_portable_64(
-                            chunk,
-                            black_box(query_bases_defaults),
-                            &mut result,
-                        );
-                        black_box(&mut result);
-                    }
-                })
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("profile u64", size), &seq, |b, seq| {
+            b.iter(|| {
+                let mut result = vec![0; 6];
+                for chunk in seq.array_chunks() {
+                    packed_nibbles_portable_64(chunk, black_box(query_bases_defaults), &mut result);
+                    black_box(&mut result);
+                }
+            })
+        });
+
         // Scalar, just to compare to counting nts
-        group.bench_with_input(BenchmarkId::new("Scalar", size), &seq, |b, seq| {
+        group.bench_with_input(BenchmarkId::new("scalar", size), &seq, |b, seq| {
             b.iter(|| {
                 let mut a_count = 0u32;
                 let mut t_count = 0u32;
