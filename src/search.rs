@@ -9,8 +9,8 @@ use pa_types::Cost;
 
 use crate::{
     bitpacking::compute_block_simd,
-    delta_encoding::{V, VEncoding},
-    profiles::trai_def::Profile,
+    delta_encoding::{VEncoding, V},
+    profiles::Profile,
 };
 
 /// Search for query in text.
@@ -262,7 +262,7 @@ fn test_search() {
         text[offset + 5] = b'A';
 
         let mut deltas = vec![];
-        search::<crate::Iupac>(query, &text, &mut deltas);
+        search::<crate::profiles::Iupac>(query, &text, &mut deltas);
         let mut positions = vec![];
         find_below_threshold(query, 2, &deltas, &mut positions);
         // Note that this only returns the start index of the lane; not the exact position.

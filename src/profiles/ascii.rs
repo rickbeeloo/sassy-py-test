@@ -1,4 +1,4 @@
-use crate::profiles::trai_def::Profile;
+use crate::profiles::Profile;
 use std::simd::{cmp::SimdPartialEq, u8x32};
 
 #[derive(Clone, Debug)]

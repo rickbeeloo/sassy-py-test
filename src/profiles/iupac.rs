@@ -1,4 +1,4 @@
-use crate::profiles::trai_def::Profile;
+use crate::profiles::Profile;
 use std::{
     arch::x86_64::*,
     mem::transmute,
