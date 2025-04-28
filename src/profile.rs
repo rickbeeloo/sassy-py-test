@@ -39,13 +39,14 @@ impl Profile for Iupac {
         (Iupac { bases }, query_profile)
     }
 
+    #[inline(always)]
     fn encode_ref(&self, b: &[u8; 64], out: &mut Self::B) {
         out.resize(self.bases.len(), 0);
         packed_nibbles_portable_64(b, &self.bases[4..], out);
     }
 
+    #[inline(always)]
     fn eq(ca: &usize, cb: &Vec<u64>) -> u64 {
-        cb[*ca]
-        // unsafe { *cb.get_unchecked(*ca) }
+        unsafe { *cb.get_unchecked(*ca) }
     }
 }

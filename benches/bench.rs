@@ -51,26 +51,30 @@ fn benchmark_base_lookup(c: &mut Criterion) {
 
         let query = b"ACTGCAACTGCAACGACGTA";
         group.bench_with_input(BenchmarkId::new("search_20", size), &seq, |b, seq| {
+            let mut out = vec![];
             b.iter(|| {
-                black_box(sassy::search::<Iupac>(black_box(query), seq));
+                black_box(sassy::search::<Iupac>(black_box(query), seq, &mut out));
             })
         });
         let query = b"ACTGCAACTGCAACGACGTAACACCTACTAAC";
         group.bench_with_input(BenchmarkId::new("search_32", size), &seq, |b, seq| {
+            let mut out = vec![];
             b.iter(|| {
-                black_box(sassy::search::<Iupac>(black_box(query), seq));
+                black_box(sassy::search::<Iupac>(black_box(query), seq, &mut out));
             })
         });
         let query = b"ACTGCAANTGCAACGACGTA";
         group.bench_with_input(BenchmarkId::new("search_20_N", size), &seq, |b, seq| {
+            let mut out = vec![];
             b.iter(|| {
-                black_box(sassy::search::<Iupac>(black_box(query), seq));
+                black_box(sassy::search::<Iupac>(black_box(query), seq, &mut out));
             })
         });
         let query = b"ACTGCAANTGCAACGAYGTAACARCTACTAAC";
         group.bench_with_input(BenchmarkId::new("search_32_NRY", size), &seq, |b, seq| {
+            let mut out = vec![];
             b.iter(|| {
-                black_box(sassy::search::<Iupac>(black_box(query), seq));
+                black_box(sassy::search::<Iupac>(black_box(query), seq, &mut out));
             })
         });
     }

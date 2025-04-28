@@ -11,7 +11,9 @@ use crate::{
 /// - Split the text into 4 equally long 64byte-aligned chunks.
 /// - Process those chunks in parallel.
 /// - Do at least 2*query.len() overlap between the chunks.
-pub fn search<P: Profile>(query: &[u8], text: &[u8]) -> Vec<V<u64>> {
+///
+/// Returns the results in a reused output vector.
+pub fn search<P: Profile>(query: &[u8], text: &[u8], output: &mut Vec<V<u64>>) {
     let (profiler, query_profile) = P::encode_query(query);
 
     // Number of 64char lanes.
@@ -22,7 +24,7 @@ pub fn search<P: Profile>(query: &[u8], text: &[u8]) -> Vec<V<u64>> {
     // FIXME: overlap.
     let chunk_len = num_lanes.div_ceil(4);
 
-    let mut output = vec![V::zero(); num_lanes];
+    output.resize(num_lanes, V::zero());
 
     type Base = u64;
     type VV = V<Base>;
@@ -54,7 +56,6 @@ pub fn search<P: Profile>(query: &[u8], text: &[u8]) -> Vec<V<u64>> {
             output[lane * chunk_len + i] = <VV as VEncoding<Base>>::from(vp[lane], vm[lane]);
         }
     }
-    output
 }
 
 #[test]
@@ -62,5 +63,5 @@ fn test_search() {
     let query = b"ACTGNA";
 
     let text = [b'A'; 512];
-    search::<Iupac>(query, &text);
+    search::<crate::Iupac>(query, &text, &mut vec![]);
 }
