@@ -277,3 +277,5 @@ mod test {
         assert_eq!(y_positions, vec![1, 2, 50, 63]);
     }
 }
+
+pub use search::search;

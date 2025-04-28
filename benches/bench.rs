@@ -51,28 +51,11 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             })
         });
 
-        // Scalar, just to compare to counting nts
-        group.bench_with_input(BenchmarkId::new("scalar", size), &seq, |b, seq| {
+        let query = b"ACTGCANCTGCAACGACGTA";
+        let query_bases_defaults = b"N";
+        group.bench_with_input(BenchmarkId::new("search", size), &seq, |b, seq| {
             b.iter(|| {
-                let mut a_count = 0u32;
-                let mut t_count = 0u32;
-                let mut g_count = 0u32;
-                let mut c_count = 0u32;
-                let mut n_count = 0u32;
-                let mut y_count = 0u32;
-                for &nt in seq {
-                    match nt {
-                        b'A' | b'a' => a_count += 1,
-                        b'C' | b'c' => c_count += 1,
-                        b'G' | b'g' => g_count += 1,
-                        b'T' | b't' => t_count += 1,
-                        b'N' | b'n' => n_count += 1,
-                        b'Y' | b'y' => y_count += 1,
-                        _ => {}
-                    }
-                }
-
-                black_box((a_count, t_count, g_count, c_count, n_count, y_count))
+                black_box(sassy::search(black_box(query), seq));
             })
         });
     }
