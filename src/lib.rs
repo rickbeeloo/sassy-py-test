@@ -80,8 +80,10 @@ pub fn packed_nibbles(seq: &[u8; 32], extra_bases: &[u8], out: &mut [u32]) {
         let is_hi = idx5.simd_gt(u8x32::splat(15));
 
         let shuffled: u8x32 = transmute(_mm256_shuffle_epi8(transmute(tbl256), transmute(low4)));
+        // This &mask4 is redundant because we only ever look at the low 4 bits anyway,
+        // but removing it worsens codegen.
         let lo_nib = shuffled & mask4;
-        let hi_nib = (shuffled >> 4) & mask4;
+        let hi_nib = shuffled >> 4;
         let nib = is_hi.select(hi_nib, lo_nib);
 
         let a_match = (nib & u8x32::splat(get_encoded(b'A'))).simd_gt(zero);
