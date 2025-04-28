@@ -107,6 +107,32 @@ fn benchmark_base_lookup(c: &mut Criterion) {
 
         let query = b"ACTGCAACTGCAACGACGTA";
         group.bench_with_input(
+            BenchmarkId::new("dna_search_20_k3", size),
+            &dna_seq,
+            |b, seq| {
+                let mut deltas = vec![];
+                b.iter(|| {
+                    sassy::search_k::<Dna>(black_box(query), seq, &mut deltas, 3);
+                    black_box(&deltas);
+                })
+            },
+        );
+
+        let query = b"ACTGCAACTGCAACGACGTA";
+        group.bench_with_input(
+            BenchmarkId::new("dna_search_20_k1", size),
+            &dna_seq,
+            |b, seq| {
+                let mut deltas = vec![];
+                b.iter(|| {
+                    sassy::search_k::<Dna>(black_box(query), seq, &mut deltas, 1);
+                    black_box(&deltas);
+                })
+            },
+        );
+
+        let query = b"ACTGCAACTGCAACGACGTA";
+        group.bench_with_input(
             BenchmarkId::new("iupac_search_20", size),
             &dna_seq,
             |b, seq| {

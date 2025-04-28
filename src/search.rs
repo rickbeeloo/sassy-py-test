@@ -1,4 +1,9 @@
-use std::{arch::x86_64::_pext_u64, array::from_fn, iter::zip, simd::Simd};
+use std::{
+    arch::x86_64::_pext_u64,
+    array::from_fn,
+    iter::zip,
+    simd::{Simd, cmp::SimdPartialOrd, num::SimdUint},
+};
 
 use pa_types::Cost;
 
@@ -70,6 +75,83 @@ pub fn search<P: Profile>(query: &[u8], text: &[u8], deltas: &mut Vec<V<u64>>) {
         for (q_char, (hp, hm)) in zip(&query_profile, zip(&mut hp, &mut hm)) {
             let eq = from_fn(|lane| P::eq(&q_char, &text_profile[lane])).into();
             compute_block_simd(hp, hm, &mut vp, &mut vm, eq);
+        }
+        for lane in 0..4 {
+            deltas[lane * chunk_len + i] = <VV as VEncoding<Base>>::from(vp[lane], vm[lane]);
+        }
+    }
+}
+
+/// Not tested
+pub fn search_k<P: Profile>(query: &[u8], text: &[u8], deltas: &mut Vec<V<u64>>, k: u64) {
+    let (profiler, query_profile) = P::encode_query(query);
+
+    assert!(
+        query.len() <= 32,
+        "For longer queries, we may need more than 64 overlap?"
+    );
+    // Number of 64char lanes, including 3 overlap between chunks.
+    let num_lanes = text.len().div_ceil(64) + 3;
+    // Number of simd units to cover everything.
+    // TODO: div_ceil
+    let num_simds = num_lanes.div_ceil(4);
+    // Length of each of the four chunks.
+    let chunk_len = num_simds - 1;
+    // Max number of edits across chunks
+    let edits_bound: Simd<i32, 4> = Simd::splat(k as i32);
+
+    deltas.resize(num_lanes, V::zero());
+
+    type Base = u64;
+    type VV = V<Base>;
+    type S = Simd<Base, 4>;
+
+    let mut hp = vec![S::splat(1); query.len()];
+    let mut hm = vec![S::splat(0); query.len()];
+
+    let mut text_profile: [P::B; 4] = [
+        profiler.alloc_out(),
+        profiler.alloc_out(),
+        profiler.alloc_out(),
+        profiler.alloc_out(),
+    ];
+
+    let mut text_chunks: [[u8; 64]; 4] = [[0; 64]; 4];
+
+    for i in 0..num_simds {
+        // The alignment can start anywhere, so start with deltas of 0.
+        let mut vp = S::splat(0);
+        let mut vm = S::splat(0);
+
+        for lane in 0..4 {
+            let start = lane * chunk_len * 64 + 64 * i;
+            if start <= text.len() - 64 {
+                text_chunks[lane] = text[start..start + 64].try_into().unwrap();
+            } else {
+                text_chunks[lane] = [b'X'; 64];
+                if start <= text.len() {
+                    let slice = &text[start..];
+                    text_chunks[lane][..slice.len()].copy_from_slice(slice);
+                }
+            }
+            profiler.encode_ref(&text_chunks[lane], &mut text_profile[lane])
+        }
+
+        let mut edits = Simd::splat(0);
+        for (q_char, (hp, hm)) in zip(&query_profile, zip(&mut hp, &mut hm)) {
+            let eq = from_fn(|lane| P::eq(q_char, &text_profile[lane])).into();
+            compute_block_simd(hp, hm, &mut vp, &mut vm, eq);
+
+            // Get edit change
+            let hp_i32: Simd<i32, 4> = hp.cast();
+            let hm_i32: Simd<i32, 4> = hm.cast();
+            let inc = hp_i32 - hm_i32;
+            edits += inc;
+
+            // If we have more than k edits (across all lanes), we can stop.
+            if (edits.simd_gt(edits_bound)).all() {
+                break;
+            }
         }
         for lane in 0..4 {
             deltas[lane * chunk_len + i] = <VV as VEncoding<Base>>::from(vp[lane], vm[lane]);
