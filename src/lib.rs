@@ -279,4 +279,5 @@ mod test {
 }
 
 pub use profile::Iupac;
+pub use search::find_below_threshold;
 pub use search::search;

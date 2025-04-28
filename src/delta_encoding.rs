@@ -23,7 +23,7 @@ pub trait VEncoding<Base> {
 }
 
 #[derive(Clone, Default, Copy, PartialEq, Eq, Debug)]
-pub struct V<Base>(Base, Base);
+pub struct V<Base>(pub Base, pub Base);
 
 macro_rules! impl_vencoding {
     ($($t:ty),+) => {

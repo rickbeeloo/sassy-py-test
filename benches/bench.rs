@@ -51,30 +51,45 @@ fn benchmark_base_lookup(c: &mut Criterion) {
 
         let query = b"ACTGCAACTGCAACGACGTA";
         group.bench_with_input(BenchmarkId::new("search_20", size), &seq, |b, seq| {
-            let mut out = vec![];
+            let mut deltas = vec![];
             b.iter(|| {
-                black_box(sassy::search::<Iupac>(black_box(query), seq, &mut out));
+                sassy::search::<Iupac>(black_box(query), seq, &mut deltas);
+                black_box(&deltas);
             })
         });
         let query = b"ACTGCAANTGCAACGACGTA";
         group.bench_with_input(BenchmarkId::new("search_20_N", size), &seq, |b, seq| {
-            let mut out = vec![];
+            let mut deltas = vec![];
             b.iter(|| {
-                black_box(sassy::search::<Iupac>(black_box(query), seq, &mut out));
+                sassy::search::<Iupac>(black_box(query), seq, &mut deltas);
+                black_box(&deltas);
             })
         });
         let query = b"ACTGCAACTGCAACGACGTAACACCTACTAAC";
         group.bench_with_input(BenchmarkId::new("search_32", size), &seq, |b, seq| {
-            let mut out = vec![];
+            let mut deltas = vec![];
             b.iter(|| {
-                black_box(sassy::search::<Iupac>(black_box(query), seq, &mut out));
+                sassy::search::<Iupac>(black_box(query), seq, &mut deltas);
+                black_box(&deltas);
             })
         });
         let query = b"ACTGCAANTGCAACGAYGTAACARCTACTAAC";
         group.bench_with_input(BenchmarkId::new("search_32_NRY", size), &seq, |b, seq| {
-            let mut out = vec![];
+            let mut deltas = vec![];
             b.iter(|| {
-                black_box(sassy::search::<Iupac>(black_box(query), seq, &mut out));
+                sassy::search::<Iupac>(black_box(query), seq, &mut deltas);
+                black_box(&deltas);
+            })
+        });
+        let query = b"ACTGCAACTGCAACGACGTAACACCTACTAAC";
+        group.bench_with_input(BenchmarkId::new("find_32", size), &seq, |b, seq| {
+            let mut deltas = vec![];
+            let mut positions = vec![];
+            b.iter(|| {
+                sassy::search::<Iupac>(black_box(query), seq, &mut deltas);
+                positions.clear();
+                sassy::find_below_threshold(black_box(query), 0, &deltas, &mut positions);
+                eprintln!("len: {}", positions.len());
             })
         });
     }
