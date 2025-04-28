@@ -2,6 +2,7 @@
 mod bitpacking;
 mod delta_encoding;
 mod profile;
+mod search;
 
 use std::{
     arch::x86_64::*,
