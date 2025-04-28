@@ -1,5 +1,9 @@
 #![feature(portable_simd)]
-use std::arch::x86_64::*;
+use std::{
+    arch::x86_64::*,
+    mem::transmute,
+    simd::{cmp::SimdPartialOrd, u8x16, u8x32},
+};
 
 #[rustfmt::skip]
 pub const IUPAC_CODE: [u8; 32] = {
@@ -65,44 +69,35 @@ const PACKED_NIBBLES: AlignedPacked = AlignedPacked({
 #[inline(always)]
 pub fn packed_nibbles(seq: &[u8; 32], extra_bases: &[u8], out: &mut [u32]) {
     unsafe {
-        let zero = _mm256_setzero_si256();
-        let mask5 = _mm256_set1_epi8(0x1F);
-        let mask4 = _mm256_set1_epi8(0x0F);
-        let thr15: __m256i = _mm256_set1_epi8(15);
-        let tbl128 = _mm_load_si128(PACKED_NIBBLES.0.as_ptr() as *const __m128i);
-        let tbl256 = _mm256_broadcastsi128_si256(tbl128);
+        let zero = u8x32::splat(0);
+        let mask4 = u8x32::splat(0x0F);
+        let tbl256 = u8x32::from_array(transmute([PACKED_NIBBLES.0, PACKED_NIBBLES.0]));
 
-        let ptr = seq.as_ptr() as *const __m256i;
-        let chunk = _mm256_loadu_si256(ptr);
+        let chunk = u8x32::from_array(*seq);
 
-        let idx5 = _mm256_and_si256(chunk, mask5);
-        let low4 = _mm256_and_si256(idx5, mask4);
-        let is_hi = _mm256_cmpgt_epi8(idx5, thr15);
+        let idx5 = chunk & u8x32::splat(0x1F);
+        let low4 = idx5 & mask4;
+        let is_hi = idx5.simd_gt(u8x32::splat(15));
 
-        let shuffled = _mm256_shuffle_epi8(tbl256, low4);
-        let lo_nib = _mm256_and_si256(shuffled, mask4);
-        let hi_nib = _mm256_and_si256(_mm256_srli_epi16(shuffled, 4), mask4);
-        let nib = _mm256_blendv_epi8(lo_nib, hi_nib, is_hi);
+        let shuffled: u8x32 = transmute(_mm256_shuffle_epi8(transmute(tbl256), transmute(low4)));
+        let lo_nib = shuffled & mask4;
+        let hi_nib = (shuffled >> 4) & mask4;
+        let nib = is_hi.select(hi_nib, lo_nib);
 
-        let a_mask = _mm256_set1_epi8(get_encoded(b'A') as i8);
-        let t_mask = _mm256_set1_epi8(get_encoded(b'T') as i8);
-        let g_mask = _mm256_set1_epi8(get_encoded(b'G') as i8);
-        let c_mask = _mm256_set1_epi8(get_encoded(b'C') as i8);
+        let a_match = (nib & u8x32::splat(get_encoded(b'A'))).simd_gt(zero);
+        let c_match = (nib & u8x32::splat(get_encoded(b'T'))).simd_gt(zero);
+        let t_match = (nib & u8x32::splat(get_encoded(b'G'))).simd_gt(zero);
+        let g_match = (nib & u8x32::splat(get_encoded(b'C'))).simd_gt(zero);
 
-        let a_match = _mm256_cmpgt_epi8(_mm256_and_si256(nib, a_mask), zero);
-        let t_match = _mm256_cmpgt_epi8(_mm256_and_si256(nib, t_mask), zero);
-        let g_match = _mm256_cmpgt_epi8(_mm256_and_si256(nib, g_mask), zero);
-        let c_match = _mm256_cmpgt_epi8(_mm256_and_si256(nib, c_mask), zero);
-
-        *out.get_unchecked_mut(0) = _mm256_movemask_epi8(a_match) as u32;
-        *out.get_unchecked_mut(1) = _mm256_movemask_epi8(c_match) as u32;
-        *out.get_unchecked_mut(2) = _mm256_movemask_epi8(t_match) as u32;
-        *out.get_unchecked_mut(3) = _mm256_movemask_epi8(g_match) as u32;
+        *out.get_unchecked_mut(0) = a_match.to_bitmask() as u32;
+        *out.get_unchecked_mut(1) = c_match.to_bitmask() as u32;
+        *out.get_unchecked_mut(2) = t_match.to_bitmask() as u32;
+        *out.get_unchecked_mut(3) = g_match.to_bitmask() as u32;
 
         for (i, &c) in extra_bases.iter().enumerate() {
-            let m = _mm256_set1_epi8(get_encoded(c) as i8);
-            let nz = _mm256_cmpgt_epi8(_mm256_and_si256(nib, m), zero);
-            *out.get_unchecked_mut(i + 4) = _mm256_movemask_epi8(nz) as u32;
+            let m = u8x32::splat(get_encoded(c));
+            let nz = (nib & m).simd_gt(zero);
+            *out.get_unchecked_mut(i + 4) = nz.to_bitmask() as u32;
         }
     }
 }
