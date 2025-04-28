@@ -16,4 +16,6 @@ report:
     perf report -n
 
 cpufreq:
-    sudo cpupower frequency-set --governor powersave -d 0.8GHz -u 2.6GHz
+    sudo cpupower frequency-set --governor powersave -d 2.6GHz -u 2.6GHz
+cpufreq-high:
+    sudo cpupower frequency-set --governor powersave -d 5.0GHz -u 5.0GHz
