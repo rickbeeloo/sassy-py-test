@@ -30,7 +30,7 @@ fn benchmark_base_lookup(c: &mut Criterion) {
 
         // SIMD
         group.bench_with_input(
-            BenchmarkId::new("SIMD - packed two tables", size),
+            BenchmarkId::new("SIMD - packed nibbles atgc defaults", size),
             &seq,
             |b, seq| {
                 b.iter(|| {
