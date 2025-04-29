@@ -2,7 +2,10 @@ use crate::profiles::Profile;
 use std::{
     arch::x86_64::*,
     mem::transmute,
-    simd::{cmp::SimdPartialOrd, u8x32},
+    simd::{
+        cmp::{SimdPartialEq, SimdPartialOrd},
+        u8x32,
+    },
 };
 
 #[derive(Clone, Debug)]
@@ -102,9 +105,52 @@ impl Profile for Iupac {
         self.bases.len()
     }
 
-    #[inline(always)] // TODO: implement
+    #[inline(always)]
     fn valid_seq(&self, seq: &[u8]) -> bool {
-        true // assuming every u8 is valid ascii
+        const LANES: usize = 32;
+        type V = u8x32;
+        let len = seq.len();
+        let mut i = 0;
+        unsafe {
+            let mask4 = V::splat(0x0F);
+            let tbl256 = V::from_array(transmute([PACKED_NIBBLES.0, PACKED_NIBBLES.0]));
+            while i + LANES <= len {
+                let chunk = V::from_slice(&seq[i..i + LANES]);
+                let upper = chunk & V::splat(!0x20);
+
+                // Check if > '@' (64) and <= 'X' (88)
+                let in_range = upper.simd_ge(V::splat(b'A')) & upper.simd_le(V::splat(b'Y'));
+                if !in_range.all() {
+                    return false;
+                }
+
+                let idx5 = upper & V::splat(0x1F);
+                let low4 = idx5 & mask4;
+                let is_hi = idx5.simd_ge(V::splat(15));
+                let shuffled: V =
+                    transmute(_mm256_shuffle_epi8(transmute(tbl256), transmute(low4)));
+                let lo_nib = shuffled & mask4;
+                let hi_nib = shuffled >> 4;
+                let nib = is_hi.select(hi_nib, lo_nib);
+
+                if nib.simd_eq(V::splat(255)).any() {
+                    return false;
+                }
+
+                i += LANES;
+            }
+        }
+
+        // Scalar for rest
+        while i < len {
+            let c = seq[i] & !0x20;
+            if c <= b'@' || c >= b'Z' || IUPAC_CODE[(c & 0x1F) as usize] == 255 {
+                return false;
+            }
+            i += 1;
+        }
+
+        true
     }
 }
 
@@ -283,5 +329,74 @@ mod test {
         profiler.encode_ref(&seq, &mut result);
         let positions = get_match_positions_u64(&result);
         assert_eq!(positions[0], vec![0, 1, 3, 4]);
+    }
+
+    #[test]
+    fn test_iupac_valid_seq_all() {
+        let iupac = Iupac::encode_query(b"ACGT").0;
+        let all_codes = b"ACTUGNRYSWKMBDHVX";
+        for &c in all_codes {
+            assert!(iupac.valid_seq(&[c]));
+            assert!(iupac.valid_seq(&[c.to_ascii_lowercase()]));
+        }
+        // Mixed case should also be valid
+        assert!(iupac.valid_seq(b"AaCcTtUuGgNnRrYySsWwKkMmBbDdHhVvXx"));
+    }
+
+    #[test]
+    fn test_iupac_different_lengths() {
+        let iupac = Iupac::encode_query(b"ACGT").0;
+        let valid_codes = b"ACTUGNRYSWKMBDHVX";
+        for len in [1, 31, 32, 33, 63, 64, 65, 127, 128, 129] {
+            let seq = valid_codes
+                .iter()
+                .cycle()
+                .take(len)
+                .copied()
+                .collect::<Vec<_>>();
+            assert!(iupac.valid_seq(&seq), "Failed at length {}", len);
+        }
+    }
+
+    #[test]
+    fn test_iupac_valid_seq_empty() {
+        let iupac = Iupac::encode_query(b"ACGT").0;
+        assert!(iupac.valid_seq(b"")); // Not sure if this should be valid or not
+    }
+
+    #[test]
+    fn test_invalid_iupac_codes() {
+        let iupac = Iupac::encode_query(b"ACGT").0;
+        // Test invalid characters
+        let invalid_cases = [
+            // Below 'A'
+            b"@CGT", b"?CGT", b"1CGT", b" CGT", // Above 'X'
+            b"ACGZ", b"ACG[", b"ACG{", b"ACG~",
+            // Control characters, \n, \t, \r, etc
+            b"ACG\n", b"ACG\t", b"ACG\r", b"\0CGT",
+        ];
+
+        for case in invalid_cases {
+            assert!(!iupac.valid_seq(case));
+        }
+    }
+
+    #[test]
+    fn test_iupac_boundary_chars() {
+        let iupac = Iupac::encode_query(b"ACGT").0;
+
+        // Test exact boundaries
+        assert!(!iupac.valid_seq(b"@")); // 64 - invalid
+        assert!(iupac.valid_seq(b"A")); // 65 - valid
+        assert!(iupac.valid_seq(b"X")); // 88 - valid
+        assert!(iupac.valid_seq(b"Y")); // 89 - valid
+        assert!(!iupac.valid_seq(b"Z")); // 90 - invalid
+
+        // Same but in 32 bytes to trigger SIMD
+        let mut seq = b"ACGT".repeat(8); // 32 bytes
+        seq[31] = b'Y';
+        assert!(iupac.valid_seq(&seq));
+        seq[31] = b'Z';
+        assert!(!iupac.valid_seq(&seq));
     }
 }

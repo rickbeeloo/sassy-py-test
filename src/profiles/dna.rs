@@ -203,6 +203,12 @@ mod test {
     }
 
     #[test]
+    fn test_dna_valid_seq_empty() {
+        let dna = Dna::encode_query(b"ACGT").0;
+        assert!(dna.valid_seq(b"")); // Not sure if this should be valid or not
+    }
+
+    #[test]
     fn test_dna_valid_seq() {
         // scalar, dna (as <32); valid
         let dna = Dna::encode_query(b"ACGT").0;
