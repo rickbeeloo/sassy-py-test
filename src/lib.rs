@@ -10,7 +10,7 @@ pub mod profiles {
 
     pub use profile::Profile;
 
-    pub use ascii::Ascii;
+    pub use ascii::{Ascii, CaseInsensitiveAscii, CaseSensitiveAscii};
     pub use dna::Dna;
     pub use iupac::Iupac;
 }

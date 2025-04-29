@@ -1,12 +1,21 @@
 use crate::profiles::Profile;
-use std::simd::{cmp::SimdPartialEq, u8x32};
+use std::{
+    mem::transmute,
+    simd::{
+        cmp::{SimdPartialEq, SimdPartialOrd},
+        u8x32,
+    },
+};
 
 #[derive(Clone, Debug)]
-pub struct Ascii {
+pub struct Ascii<const CASE_SENSITIVE: bool = true> {
     bases: Vec<u8>,
 }
 
-impl Profile for Ascii {
+pub type CaseSensitiveAscii = Ascii<true>;
+pub type CaseInsensitiveAscii = Ascii<false>;
+
+impl<const CASE_SENSITIVE: bool> Profile for Ascii<CASE_SENSITIVE> {
     type A = usize;
     type B = Vec<u64>;
 
@@ -24,7 +33,11 @@ impl Profile for Ascii {
 
     #[inline(always)]
     fn encode_ref(&self, b: &[u8; 64], out: &mut Self::B) {
-        ascii_u64_search(b, &self.bases, out);
+        if CASE_SENSITIVE {
+            ascii_u64_search(b, &self.bases, out);
+        } else {
+            ascii_u64_search_case_insensitive(b, &self.bases, out);
+        }
     }
 
     #[inline(always)]
@@ -60,15 +73,23 @@ pub fn ascii_u64_search(seq: &[u8; 64], bases: &[u8], out: &mut [u64]) {
     }
 }
 
+// FIXME: Tests
 #[inline(always)]
 fn ascii_u64_search_case_insensitive(seq: &[u8; 64], bases: &[u8], out: &mut [u64]) {
     unsafe {
         let chunk0 = u8x32::from_array(seq[0..32].try_into().unwrap());
         let chunk1 = u8x32::from_array(seq[32..64].try_into().unwrap());
 
-        // FIXME: Be more precise for non-letters.
-        let lower0 = chunk0 | u8x32::splat(0x20);
-        let lower1 = chunk1 | u8x32::splat(0x20);
+        const A: u8 = b'A';
+        const Z: u8 = b'Z';
+        let to_lowercase = b'a' - b'A';
+        let is_char0 = chunk0.simd_ge(u8x32::splat(A)) & chunk0.simd_le(u8x32::splat(Z));
+        let is_char1 = chunk1.simd_ge(u8x32::splat(A)) & chunk1.simd_le(u8x32::splat(Z));
+        // Transmute from i8x32 to u8x32
+        let lower0 =
+            chunk0 | (u8x32::splat(to_lowercase) & transmute::<_, u8x32>(is_char0.to_int()));
+        let lower1 =
+            chunk1 | (u8x32::splat(to_lowercase) & transmute::<_, u8x32>(is_char1.to_int()));
 
         for (i, &base) in bases.iter().enumerate() {
             let m = u8x32::splat(base | 0x20);

@@ -66,7 +66,7 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             BenchmarkId::new("encode_ascii", size),
             &ascii_seq,
             |b, seq| {
-                let profiler = Ascii::encode_query(b"ABCDEFGHIJKLMNOPQRSTUVWXYZ").0;
+                let profiler = Ascii::<true>::encode_query(b"ABCDEFGHIJKLMNOPQRSTUVWXYZ").0;
                 let mut result = profiler.alloc_out();
                 b.iter(|| {
                     for chunk in seq.array_chunks() {
