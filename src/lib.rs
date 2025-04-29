@@ -17,4 +17,4 @@ pub mod profiles {
 mod search;
 
 pub use search::find_below_threshold;
-pub use search::{search, search_k};
+pub use search::{search, search_bounded};

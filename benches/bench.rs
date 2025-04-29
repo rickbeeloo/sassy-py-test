@@ -110,7 +110,7 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             |b, seq| {
                 let mut deltas = vec![];
                 b.iter(|| {
-                    sassy::search_k::<Dna>(black_box(query), seq, &mut deltas, 3);
+                    sassy::search_bounded::<Dna>(black_box(query), seq, &mut deltas, 3);
                     black_box(&deltas);
                 })
             },
@@ -123,7 +123,7 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             |b, seq| {
                 let mut deltas = vec![];
                 b.iter(|| {
-                    sassy::search_k::<Dna>(black_box(query), seq, &mut deltas, 1);
+                    sassy::search_bounded::<Dna>(black_box(query), seq, &mut deltas, 1);
                     black_box(&deltas);
                 })
             },
