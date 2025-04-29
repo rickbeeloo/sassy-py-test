@@ -52,7 +52,7 @@ fn benchmark_base_lookup(c: &mut Criterion) {
         );
 
         group.bench_with_input(BenchmarkId::new("encode_dna", size), &dna_seq, |b, seq| {
-            let profiler = Dna::encode_query(b"NY").0;
+            let profiler = Dna::encode_query(b"ACTG").0;
             let mut result = profiler.alloc_out();
             b.iter(|| {
                 for chunk in seq.array_chunks() {
