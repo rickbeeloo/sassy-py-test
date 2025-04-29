@@ -2,7 +2,7 @@ use std::{
     arch::x86_64::_pext_u64,
     array::from_fn,
     iter::zip,
-    simd::{Simd, cmp::SimdPartialOrd, num::SimdUint},
+    simd::{cmp::SimdPartialOrd, num::SimdUint, Simd},
 };
 
 use pa_types::Cost;
@@ -60,7 +60,7 @@ pub fn search<P: Profile>(query: &[u8], text: &[u8], deltas: &mut Vec<V<u64>>) {
 
         for lane in 0..4 {
             let start = lane * chunk_len * 64 + 64 * i;
-            if start <= text.len() - 64 {
+            if start + 64 <= text.len() {
                 text_chunks[lane] = text[start..start + 64].try_into().unwrap();
             } else {
                 text_chunks[lane] = [b'X'; 64];
@@ -252,7 +252,7 @@ fn test_prefix_min() {
 fn test_search() {
     let query = b"ACTGNA";
 
-    for len in (256 + 64..512).step_by(21) {
+    for len in (16..512).step_by(21) {
         let mut text = vec![b'A'; len];
         let offset = 10;
         text[offset + 1] = b'C';
