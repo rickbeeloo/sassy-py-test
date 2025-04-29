@@ -54,6 +54,11 @@ impl<const CASE_SENSITIVE: bool> Profile for Ascii<CASE_SENSITIVE> {
     fn n_bases(&self) -> usize {
         self.bases.len()
     }
+
+    #[inline(always)]
+    fn valid_seq(&self, seq: &[u8]) -> bool {
+        true // assuming every u8 is valid ascii
+    }
 }
 
 #[inline(always)]

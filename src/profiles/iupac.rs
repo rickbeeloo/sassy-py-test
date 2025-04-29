@@ -101,6 +101,11 @@ impl Profile for Iupac {
     fn n_bases(&self) -> usize {
         self.bases.len()
     }
+
+    #[inline(always)] // TODO: implement
+    fn valid_seq(&self, seq: &[u8]) -> bool {
+        true // assuming every u8 is valid ascii
+    }
 }
 
 #[rustfmt::skip]

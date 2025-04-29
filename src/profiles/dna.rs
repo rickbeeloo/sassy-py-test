@@ -1,5 +1,8 @@
 use crate::profiles::Profile;
-use std::simd::{cmp::SimdPartialEq, u8x32};
+use std::{
+    simd::cmp::SimdPartialEq,
+    simd::{Simd, u8x32},
+};
 
 #[derive(Clone, Debug)]
 pub struct Dna {
@@ -51,6 +54,46 @@ impl Profile for Dna {
     #[inline(always)]
     fn n_bases(&self) -> usize {
         self.bases.len()
+    }
+
+    #[inline(always)]
+    fn valid_seq(&self, seq: &[u8]) -> bool {
+        // we’ll do 32-byte chunks
+        const LANES: usize = 32;
+        type V = Simd<u8, LANES>;
+
+        let len = seq.len();
+        let mut i = 0;
+
+        // Split in 32-byte chunks (u8 * 32)
+        while i + LANES <= len {
+            let chunk = V::from_slice(&seq[i..i + LANES]);
+            // lowercase, setting 5th bit, might transform some ascii to
+            // other ascii but that's fine
+            let lowered = chunk | V::splat(0x20);
+            let is_a = lowered.simd_eq(V::splat(b'a'));
+            let is_c = lowered.simd_eq(V::splat(b'c'));
+            let is_g = lowered.simd_eq(V::splat(b'g'));
+            let is_t = lowered.simd_eq(V::splat(b't'));
+            let ok = is_a | is_c | is_g | is_t;
+            if !ok.all() {
+                return false;
+            }
+
+            i += LANES;
+        }
+
+        // Whatever non 32 tail is left
+        while i < len {
+            println!("Tail check");
+            let c = seq[i] | 0x20; // lowercase
+            if c != b'a' && c != b'c' && c != b'g' && c != b't' {
+                return false;
+            }
+            i += 1;
+        }
+
+        true
     }
 }
 
@@ -139,5 +182,43 @@ mod test {
         };
         let positions = get_match_positions(&out);
         assert_eq!(positions[0], vec![0, 1]);
+    }
+
+    fn non_actg_bytes(n: isize) -> Vec<u8> {
+        // Create a vector of all bytes that are not DNA bases
+        let non_dna_chars = (0u8..=255)
+            .filter(|&b| !matches!(b.to_ascii_uppercase(), b'A' | b'C' | b'G' | b'T'))
+            .collect::<Vec<u8>>();
+
+        if n == -1 {
+            // return all (unqiue) non dna bytes
+            non_dna_chars
+        } else {
+            let mut seq = vec![0u8; n as usize];
+            for i in 0..n as usize {
+                seq[i] = non_dna_chars[rand::random_range(0..non_dna_chars.len())];
+            }
+            seq
+        }
+    }
+
+    #[test]
+    fn test_dna_valid_seq() {
+        // scalar, dna (as <32); valid
+        let dna = Dna::encode_query(b"ACGT").0;
+        assert!(dna.valid_seq(b"ACGTactg"));
+
+        // scalar, non-dna; invalid
+        // -1 is all ascii which are not dna
+        let non_actg = non_actg_bytes(-1);
+        assert!(!dna.valid_seq(&non_actg));
+
+        // 32-byte chunks, dna; valid
+        let seq = [b'A', b'C', b'T', b'G', b'a', b'c', b't', b'g'].repeat(32);
+        assert!(dna.valid_seq(&seq));
+
+        // 32-byte chunks, non-dna; invalid
+        let seq = non_actg_bytes(256);
+        assert!(!dna.valid_seq(&seq));
     }
 }

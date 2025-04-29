@@ -11,4 +11,6 @@ pub trait Profile: Clone + std::fmt::Debug {
     /// Allocate a buffer of at most n_bases in search (and reuse)
     fn alloc_out(&self) -> Self::B;
     fn n_bases(&self) -> usize;
+    /// Verify whether a seqeunce matching the profile characters
+    fn valid_seq(&self, seq: &[u8]) -> bool;
 }
