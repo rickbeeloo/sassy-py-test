@@ -62,12 +62,12 @@ fn get_trace(
     let state = &block_states[block_idx];
     let mut curr_i = query_len;
     let mut curr_j = local_pos;
-    let mut edits = 0;
+    let mut edits = k;
 
     let vp_bits = state.vp[lane];
     let vm_bits = state.vm[lane];
 
-    while curr_i > 0 && curr_j > 0 && edits < k {
+    while curr_i > 0 && curr_j > 0 {
         let hp_bit = (state.hp[curr_i - 1][lane] >> (curr_j - 1)) & 1;
         let hm_bit = (state.hm[curr_i - 1][lane] >> (curr_j - 1)) & 1;
         let vp_bit = (vp_bits >> (curr_j - 1)) & 1;
@@ -75,6 +75,10 @@ fn get_trace(
 
         let global_j = block_idx * 64 + curr_j; // Convert to global position
 
+        println!(
+            "hp_bit: {}, hm_bit: {}, vp_bit: {}, vm_bit: {}",
+            hp_bit, hm_bit, vp_bit, vm_bit
+        );
         if hp_bit == 1 && hm_bit == 0 {
             trace.push((curr_i, global_j - 1));
             curr_j -= 1;
@@ -90,6 +94,7 @@ fn get_trace(
         } else if vp_bit == 0 && vm_bit == 1 {
             trace.push((curr_i - 1, global_j));
             curr_i -= 1;
+            curr_j -= 1;
             edits += 1;
         } else {
             trace.push((curr_i - 1, global_j - 1));
@@ -105,8 +110,6 @@ fn get_trace(
 
     if edits == k {
         trace.reverse();
-    } else {
-        trace.clear();
     }
 
     trace
@@ -117,8 +120,8 @@ fn test_traceback() {
     let query = b"ACGTGGA";
     let text = b"TTTTACGTGGATTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTACGTGGATTTTTTT";
     let block_states = compute_traceback(query, text);
-    let trace = get_trace(0, 10, 1, &block_states, query.len());
+    let trace = get_trace(0, 10, 0, &block_states, query.len());
     println!("Trace 1: {:?}", trace);
-    let trace = get_trace(0, text.len() - 8, 1, &block_states, query.len());
+    let trace = get_trace(0, text.len() - 14, 0, &block_states, query.len());
     println!("Trace 2: {:?}", trace);
 }
