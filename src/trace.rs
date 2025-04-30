@@ -52,33 +52,35 @@ fn get_trace(
     query_len: usize,
 ) -> Vec<(usize, usize)> {
     let mut trace = Vec::new();
-    let block_idx = position / 64;
-    let local_pos = position % 64;
+    let mut block_idx = position / 64;
+    let mut curr_j = position % 64;
 
     if block_idx >= block_states.len() {
         return trace;
     }
 
-    let state = &block_states[block_idx];
     let mut curr_i = query_len;
-    let mut curr_j = local_pos;
     let mut edits = k;
 
-    let vp_bits = state.vp[lane];
-    let vm_bits = state.vm[lane];
+    while curr_i > 0 && (block_idx > 0 || curr_j > 0) {
+        let state = &block_states[block_idx];
+        let vp_bits = state.vp[lane];
+        let vm_bits = state.vm[lane];
 
-    while curr_i > 0 && curr_j > 0 {
+        // If we've reached the start of a block, move to previous block
+        if curr_j == 0 {
+            block_idx -= 1;
+            curr_j = 64;
+            continue;
+        }
+
         let hp_bit = (state.hp[curr_i - 1][lane] >> (curr_j - 1)) & 1;
         let hm_bit = (state.hm[curr_i - 1][lane] >> (curr_j - 1)) & 1;
         let vp_bit = (vp_bits >> (curr_j - 1)) & 1;
         let vm_bit = (vm_bits >> (curr_j - 1)) & 1;
 
-        let global_j = block_idx * 64 + curr_j; // Convert to global position
+        let global_j = block_idx * 64 + curr_j;
 
-        println!(
-            "hp_bit: {}, hm_bit: {}, vp_bit: {}, vm_bit: {}",
-            hp_bit, hm_bit, vp_bit, vm_bit
-        );
         if hp_bit == 1 && hm_bit == 0 {
             trace.push((curr_i, global_j - 1));
             curr_j -= 1;
@@ -101,11 +103,6 @@ fn get_trace(
             curr_i -= 1;
             curr_j -= 1;
         }
-
-        // If we reach the start of this block but still have edits to find
-        if curr_j == 0 && block_idx > 0 {
-            panic!("Reached end already??")
-        }
     }
 
     if edits == k {
@@ -122,6 +119,20 @@ fn test_traceback() {
     let block_states = compute_traceback(query, text);
     let trace = get_trace(0, 10, 0, &block_states, query.len());
     println!("Trace 1: {:?}", trace);
+    assert_eq!(
+        trace,
+        [(6, 10), (5, 9), (4, 8), (3, 7), (2, 5), (1, 5), (0, 3)]
+    );
     let trace = get_trace(0, text.len() - 14, 0, &block_states, query.len());
-    println!("Trace 2: {:?}", trace);
+    println!("Trace 2: {:?}", trace); // FIXME: This is wrong
+}
+
+#[test]
+fn test_and_block_boundary() {
+    let query = b"ACGTGGA";
+    let mut text = [b'G'; 128];
+    text[64 - 3..64 + 4].copy_from_slice(query);
+    let block_states = compute_traceback(query, &text);
+    let trace = get_trace(0, 64 + 3, 0, &block_states, query.len());
+    println!("Trace 1: {:?}", trace); // FIXME: This is wrong when crossing block boundary
 }
