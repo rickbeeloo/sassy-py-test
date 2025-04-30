@@ -236,8 +236,7 @@ fn test_search() {
         let mut deltas = vec![];
         search::<crate::profiles::Iupac>(query, &text, &mut deltas);
         let mut positions = vec![];
-        let mut costs = vec![];
-        find_below_threshold(query, 2, &deltas, &mut positions, &mut costs);
+        find_below_threshold(query, 2, &deltas, &mut positions, &mut vec![]);
         // Note that this only returns the start index of the lane; not the exact position.
         assert_eq!(positions, vec![0], "Failure for len {len}");
 
