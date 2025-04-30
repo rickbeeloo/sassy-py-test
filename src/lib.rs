@@ -17,6 +17,7 @@ pub mod profiles {
 
 mod minima;
 mod search;
+mod trace;
 
 pub use minima::find_below_threshold;
 pub use search::{search, search_bounded};
