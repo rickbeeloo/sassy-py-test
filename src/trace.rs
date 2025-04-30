@@ -7,12 +7,18 @@ use crate::delta_encoding::V;
 use crate::profiles::Dna;
 use crate::profiles::Profile;
 
+/// Costs for states in a single column of an alignment (corresponding to 1 query char vs all the text).
 struct ColCosts {
+    /// Cost to the top of the col.
+    /// Typically simple its index.
     offset: Cost,
+    /// Deltas between adjacent rows.
     deltas: Vec<V<u64>>,
 }
 
-fn compute_traceback(query: &[u8], text: &[u8]) -> Vec<ColCosts> {
+/// Compute the full n*m matrix corresponding to the query * text alignment.
+/// TODO: SIMD variant that takes 1 query, and 4 text slices of the same length.
+fn fill(query: &[u8], text: &[u8]) -> Vec<ColCosts> {
     let (profiler, query_profile) = Dna::encode_query(query);
     let mut col_costs: Vec<_> = (0..=query.len())
         .map(|i| ColCosts {
@@ -43,6 +49,8 @@ fn compute_traceback(query: &[u8], text: &[u8]) -> Vec<ColCosts> {
     col_costs
 }
 
+/// Get the trace corresponding to the given matrix of DP values.
+/// TODO: SIMD or ILP variant? Complicated, because they stop at different types.
 fn get_trace(col_costs: &[ColCosts]) -> Vec<(usize, usize)> {
     let mut trace = Vec::new();
     let mut i = col_costs.len() - 1;
@@ -99,12 +107,12 @@ fn test_traceback() {
     let query = b"ACGTGGA";
     let text = b"TTTTACGTGGATTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTACGTGGATTTTTTT";
     let end = 11;
-    let col_costs = compute_traceback(query, &text[..end]);
+    let col_costs = fill(query, &text[..end]);
     let trace = get_trace(&col_costs);
     println!("Trace 1: {:?}", trace);
     //  [(6, 10), (5, 9), (4, 8), (3, 7), (2, 5), (1, 5), (0, 3)]
     // should be [(6, 10), (5, 9), (4, 8), (3, 7), (2, 6), (1, 5), (0, 4)]
-    let col_costs = compute_traceback(query, &text[..text.len() - 7]);
+    let col_costs = fill(query, &text[..text.len() - 7]);
     let trace = get_trace(&col_costs);
     println!("Trace 2: {:?}", trace); // FIXME: This is wrong
 }
@@ -114,7 +122,7 @@ fn test_and_block_boundary() {
     let query = b"ACGTGGA";
     let mut text = [b'G'; 128];
     text[64 - 3..64 + 4].copy_from_slice(query);
-    let col_costs = compute_traceback(query, &text[..64 + 4]);
+    let col_costs = fill(query, &text[..64 + 4]);
     let trace = get_trace(&col_costs);
     println!("Trace 1: {:?}", trace); // FIXME: This is wrong when crossing block boundary
 }
