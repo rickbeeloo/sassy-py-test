@@ -1,113 +1,95 @@
-use crate::bitpacking::compute_block_simd;
+use pa_types::Cost;
+use pa_types::I;
+
+use crate::bitpacking::compute_block;
+use crate::delta_encoding::VEncoding;
 use crate::delta_encoding::V;
 use crate::profiles::Dna;
 use crate::profiles::Profile;
-use std::simd::Simd;
 
-#[derive(Debug)]
-struct BlockState {
-    vp: Simd<u64, 4>,
-    vm: Simd<u64, 4>,
-    hp: Vec<Simd<u64, 4>>,
-    hm: Vec<Simd<u64, 4>>,
+struct ColCosts {
+    offset: Cost,
+    deltas: Vec<V<u64>>,
 }
 
-fn compute_traceback(query: &[u8], text: &[u8]) -> Vec<BlockState> {
-    type Base = u64;
-    type S = Simd<Base, 4>;
-
+fn compute_traceback(query: &[u8], text: &[u8]) -> Vec<ColCosts> {
     let (profiler, query_profile) = Dna::encode_query(query);
-    let mut block_states = Vec::new();
+    let mut col_costs: Vec<_> = (0..=query.len())
+        .map(|i| ColCosts {
+            offset: i as Cost,
+            deltas: vec![V::<u64>::zero(); text.len().div_ceil(64)],
+        })
+        .collect();
 
-    // Process each block of 64 characters
-    for (block_idx, block) in text.chunks(64).enumerate() {
-        let mut vp = S::splat(0);
-        let mut vm = S::splat(0);
-        let mut hp = vec![S::splat(1); query.len()];
-        let mut hm = vec![S::splat(0); query.len()];
+    let mut h = vec![(1, 0); query.len()];
 
-        let mut profile_out = profiler.alloc_out();
+    let mut text_profile = profiler.alloc_out();
+
+    // Process chunks of 64 chars, that end exactly at the end of the text.
+    for (i, block) in text.rchunks(64).rev().enumerate() {
         let mut slice: [u8; 64] = [b'X'; 64];
-        slice[..block.len()].copy_from_slice(block);
+        slice[64 - block.len()..].copy_from_slice(block);
 
-        for (j, q) in query.iter().enumerate() {
-            profiler.encode_ref(&slice, &mut profile_out);
-            let eq = Dna::eq(&query_profile[j], &profile_out);
-            let s = Simd::from_array([eq, eq, eq, eq]);
-            compute_block_simd(&mut hp[j], &mut hm[j], &mut vp, &mut vm, s);
+        profiler.encode_ref(&slice, &mut text_profile);
+
+        let mut v = V::<u64>::zero();
+
+        for j in 0..query.len() {
+            compute_block::<Dna, _, _>(&mut h[j], &mut v, &query_profile[j], &text_profile);
+            col_costs[j + 1].deltas[i] = v.clone();
         }
-
-        // Store the state for this block
-        block_states.push(BlockState { vp, vm, hp, hm });
     }
 
-    block_states
+    col_costs
 }
 
-fn get_trace(
-    lane: usize,
-    position: usize,
-    k: usize,
-    block_states: &[BlockState],
-    query_len: usize,
-) -> Vec<(usize, usize)> {
+fn get_trace(col_costs: &[ColCosts]) -> Vec<(usize, usize)> {
     let mut trace = Vec::new();
-    let mut block_idx = position / 64;
-    let mut curr_j = position % 64;
+    let mut i = col_costs.len() - 1;
+    let mut j = 64 * col_costs[0].deltas.len();
 
-    if block_idx >= block_states.len() {
-        return trace;
-    }
+    let cost = |i: usize, j: usize| -> Cost {
+        col_costs[i].offset + V::<u64>::value_to(&col_costs[i].deltas, j as I)
+    };
 
-    let mut curr_i = query_len;
-    let mut edits = k;
+    // remaining dist to (i,j)
+    let mut g = cost(i, j);
 
-    while curr_i > 0 && (block_idx > 0 || curr_j > 0) {
-        let state = &block_states[block_idx];
-        let vp_bits = state.vp[lane];
-        let vm_bits = state.vm[lane];
+    while i > 0 {
+        assert!(j > 0, "Traceback reached top of filled region.");
 
-        // If we've reached the start of a block, move to previous block
-        if curr_j == 0 {
-            block_idx -= 1;
-            curr_j = 64;
+        trace.push((i, j));
+
+        // Match
+        if cost(i - 1, j - 1) == g {
+            i -= 1;
+            j -= 1;
             continue;
         }
+        // We make some kind of mutation.
+        g -= 1;
 
-        let hp_bit = (state.hp[curr_i - 1][lane] >> (curr_j - 1)) & 1;
-        let hm_bit = (state.hm[curr_i - 1][lane] >> (curr_j - 1)) & 1;
-        let vp_bit = (vp_bits >> (curr_j - 1)) & 1;
-        let vm_bit = (vm_bits >> (curr_j - 1)) & 1;
-
-        let global_j = block_idx * 64 + curr_j;
-
-        if hp_bit == 1 && hm_bit == 0 {
-            trace.push((curr_i, global_j - 1));
-            curr_j -= 1;
-            edits += 1;
-        } else if vp_bit == 1 && vm_bit == 0 {
-            trace.push((curr_i - 1, global_j));
-            curr_i -= 1;
-            edits += 1;
-        } else if hp_bit == 0 && hm_bit == 1 {
-            trace.push((curr_i, global_j - 1));
-            curr_j -= 1;
-            edits += 1;
-        } else if vp_bit == 0 && vm_bit == 1 {
-            trace.push((curr_i - 1, global_j));
-            curr_i -= 1;
-            curr_j -= 1;
-            edits += 1;
-        } else {
-            trace.push((curr_i - 1, global_j - 1));
-            curr_i -= 1;
-            curr_j -= 1;
+        // Insert text char.
+        if cost(i, j - 1) == g {
+            j -= 1;
+            g -= 1;
+            continue;
         }
+        // Mismatch.
+        if cost(i - 1, j - 1) == g {
+            i -= 1;
+            j -= 1;
+            continue;
+        }
+        // Delete query char.
+        if cost(i - 1, j) == g {
+            i -= 1;
+            continue;
+        }
+        panic!("Trace failed!");
     }
 
-    if edits == k {
-        trace.reverse();
-    }
+    trace.reverse();
 
     trace
 }
@@ -116,12 +98,14 @@ fn get_trace(
 fn test_traceback() {
     let query = b"ACGTGGA";
     let text = b"TTTTACGTGGATTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTACGTGGATTTTTTT";
-    let block_states = compute_traceback(query, text);
-    let trace = get_trace(0, 10, 0, &block_states, query.len());
+    let end = 11;
+    let col_costs = compute_traceback(query, &text[..end]);
+    let trace = get_trace(&col_costs);
     println!("Trace 1: {:?}", trace);
     //  [(6, 10), (5, 9), (4, 8), (3, 7), (2, 5), (1, 5), (0, 3)]
     // should be [(6, 10), (5, 9), (4, 8), (3, 7), (2, 6), (1, 5), (0, 4)]
-    let trace = get_trace(0, text.len() - 14, 0, &block_states, query.len());
+    let col_costs = compute_traceback(query, &text[..text.len() - 7]);
+    let trace = get_trace(&col_costs);
     println!("Trace 2: {:?}", trace); // FIXME: This is wrong
 }
 
@@ -130,7 +114,7 @@ fn test_and_block_boundary() {
     let query = b"ACGTGGA";
     let mut text = [b'G'; 128];
     text[64 - 3..64 + 4].copy_from_slice(query);
-    let block_states = compute_traceback(query, &text);
-    let trace = get_trace(0, 64 + 3, 0, &block_states, query.len());
+    let col_costs = compute_traceback(query, &text[..64 + 4]);
+    let trace = get_trace(&col_costs);
     println!("Trace 1: {:?}", trace); // FIXME: This is wrong when crossing block boundary
 }
