@@ -4,7 +4,7 @@ use pa_types::Cost;
 
 use crate::{
     bitpacking::compute_block_simd,
-    delta_encoding::{VEncoding, V},
+    delta_encoding::{V, VEncoding},
     profiles::Profile,
 };
 
@@ -132,12 +132,15 @@ pub fn find_below_threshold(
     threshold: Cost,
     deltas: &[V<u64>],
     positions: &mut Vec<usize>,
+    costs: &mut Vec<Cost>,
 ) {
     let mut cur_cost = query.len() as Cost;
     for (i, v) in deltas.iter().enumerate() {
         let (min, delta) = prefix_min(*v);
         if cur_cost + (min as Cost) <= threshold {
             positions.push(i * 64);
+            // Cost at start of block
+            costs.push(cur_cost as Cost);
         }
         cur_cost += delta as Cost;
     }
@@ -233,7 +236,8 @@ fn test_search() {
         let mut deltas = vec![];
         search::<crate::profiles::Iupac>(query, &text, &mut deltas);
         let mut positions = vec![];
-        find_below_threshold(query, 2, &deltas, &mut positions);
+        let mut costs = vec![];
+        find_below_threshold(query, 2, &deltas, &mut positions, &mut costs);
         // Note that this only returns the start index of the lane; not the exact position.
         assert_eq!(positions, vec![0], "Failure for len {len}");
 

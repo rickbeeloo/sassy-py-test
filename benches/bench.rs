@@ -1,5 +1,5 @@
 #![feature(portable_simd, array_chunks)]
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use sassy::profiles::*;
 use std::time::Duration;
 
@@ -154,6 +154,7 @@ fn benchmark_base_lookup(c: &mut Criterion) {
                 })
             },
         );
+
         let query = b"ACTGCAACTGCAACGACGTAACACCTACTAAC";
         group.bench_with_input(
             BenchmarkId::new("iupac_search_32", size),
@@ -166,6 +167,7 @@ fn benchmark_base_lookup(c: &mut Criterion) {
                 })
             },
         );
+
         let query = b"ACTGCAANTGCAACGAYGTAACARCTACTAAC";
         group.bench_with_input(
             BenchmarkId::new("iupac_search_32_NRY", size),
@@ -178,6 +180,7 @@ fn benchmark_base_lookup(c: &mut Criterion) {
                 })
             },
         );
+
         let query = b"ACTGCAACTGCAACGACGTAACACCTACTAAC";
         group.bench_with_input(
             BenchmarkId::new("iupac_find_32", size),
@@ -188,13 +191,43 @@ fn benchmark_base_lookup(c: &mut Criterion) {
                 b.iter(|| {
                     sassy::search::<Iupac>(black_box(query), seq, &mut deltas);
                     positions.clear();
-                    sassy::find_below_threshold(black_box(query), 8, &deltas, &mut positions);
+                    let mut costs = vec![];
+                    sassy::find_below_threshold(
+                        black_box(query),
+                        8,
+                        &deltas,
+                        &mut positions,
+                        &mut costs,
+                    );
                     black_box(&positions);
                 })
             },
         );
-    }
 
+        group.bench_with_input(
+            BenchmarkId::new("dna_input_validation_valid", size),
+            &dna_seq,
+            |b, seq| {
+                b.iter(|| {
+                    let profiler = Dna::encode_query(b"").0;
+                    let is_valid = profiler.valid_seq(seq);
+                    black_box(is_valid);
+                })
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("iupac_input_validation_valid", size),
+            &dna_seq,
+            |b, seq| {
+                b.iter(|| {
+                    let profiler = Iupac::encode_query(b"").0;
+                    let is_valid = profiler.valid_seq(seq);
+                    black_box(is_valid);
+                })
+            },
+        );
+    }
     group.finish();
 }
 

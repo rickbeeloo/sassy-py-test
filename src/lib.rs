@@ -14,7 +14,9 @@ pub mod profiles {
     pub use dna::Dna;
     pub use iupac::Iupac;
 }
+
 mod search;
+mod minima;
 
 pub use search::find_below_threshold;
 pub use search::{search, search_bounded};
