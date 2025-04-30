@@ -2,10 +2,7 @@ use crate::profiles::Profile;
 use std::{
     arch::x86_64::*,
     mem::transmute,
-    simd::{
-        cmp::{SimdPartialEq, SimdPartialOrd},
-        u8x32,
-    },
+    simd::{cmp::SimdPartialOrd, u8x32},
 };
 
 #[derive(Clone, Debug)]
@@ -113,27 +110,30 @@ impl Profile for Iupac {
         let mut i = 0;
         unsafe {
             let mask4 = V::splat(0x0F);
-            let tbl256 = V::from_array(transmute([PACKED_NIBBLES.0, PACKED_NIBBLES.0]));
+            let tbl256 = V::from_array(transmute([
+                PACKED_NIBBLES_INDICATOR.0,
+                PACKED_NIBBLES_INDICATOR.0,
+            ]));
             while i + LANES <= len {
                 let chunk = V::from_slice(&seq[i..i + LANES]);
                 let upper = chunk & V::splat(!0x20);
 
-                // Check if > '@' (64) and <= 'X' (88)
-                let in_range = upper.simd_ge(V::splat(b'A')) & upper.simd_le(V::splat(b'Y'));
+                // Check if >= '@' (64) (=b'A'-1) and < 128.
+                let in_range = upper.simd_ge(V::splat(64)) & upper.simd_lt(V::splat(128));
                 if !in_range.all() {
                     return false;
                 }
 
                 let idx5 = upper & V::splat(0x1F);
                 let low4 = idx5 & mask4;
-                let is_hi = idx5.simd_ge(V::splat(15));
+                let is_hi = idx5.simd_ge(V::splat(16));
                 let shuffled: V =
                     transmute(_mm256_shuffle_epi8(transmute(tbl256), transmute(low4)));
                 let lo_nib = shuffled & mask4;
                 let hi_nib = shuffled >> 4;
                 let nib = is_hi.select(hi_nib, lo_nib);
 
-                if nib.simd_eq(V::splat(255)).any() {
+                if !nib.simd_gt(V::splat(0)).all() {
                     return false;
                 }
 
@@ -207,6 +207,20 @@ const PACKED_NIBBLES: AlignedPacked = AlignedPacked({
     while i < 16 {
         let lo = IUPAC_CODE[i] & 0x0F;
         let hi = IUPAC_CODE[i + 16] & 0x0F;
+        // packed 8 bit of low nibbles(0-3) and high nibbles(4-7)
+        p[i] = (hi << 4) | lo;
+        i += 1;
+    }
+    p
+});
+
+/// Nibbles are 1111 for IUPAC chars, and 0000 for non-IUPAC chars.
+const PACKED_NIBBLES_INDICATOR: AlignedPacked = AlignedPacked({
+    let mut p = [0u8; 16];
+    let mut i = 0;
+    while i < 16 {
+        let lo = if IUPAC_CODE[i] < 255 { 0b1111 } else { 0 };
+        let hi = if IUPAC_CODE[i + 16] < 255 { 0b1111 } else { 0 };
         // packed 8 bit of low nibbles(0-3) and high nibbles(4-7)
         p[i] = (hi << 4) | lo;
         i += 1;
