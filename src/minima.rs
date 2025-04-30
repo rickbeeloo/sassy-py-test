@@ -1,6 +1,8 @@
 use crate::delta_encoding::{V, VEncoding};
 use pa_types::Cost;
+use std::arch::x86_64::_pext_u64;
 
+#[inline(always)]
 pub fn find_local_minima(
     initial_cost: Cost,
     minima_bits: &[V<u64>],
@@ -35,6 +37,73 @@ pub fn find_local_minima(
         valleys.push((minima_bits.len() * 64 - 1, cur_cost));
     }
     valleys
+}
+
+pub fn find_below_threshold(
+    query: &[u8],
+    threshold: Cost,
+    deltas: &[V<u64>],
+    positions: &mut Vec<usize>,
+    costs: &mut Vec<Cost>,
+) {
+    let mut cur_cost = query.len() as Cost;
+    for (i, v) in deltas.iter().enumerate() {
+        let (min, delta) = prefix_min(*v);
+        if cur_cost + (min as Cost) <= threshold {
+            positions.push(i * 64);
+            // Cost at start of block
+            costs.push(cur_cost as Cost);
+        }
+        cur_cost += delta as Cost;
+    }
+}
+
+/// For each byte: (min_cost, end_cost)
+/// Each 1 in a byte indicates -1.
+/// Each 0 in a byte indicates +1.
+const TABLE: [(i8, i8); 256] = {
+    let mut table = [(0, 0); 256];
+
+    let mut i = 0;
+    while i < 256 {
+        let mut min = 0;
+        let mut cur = 0;
+        let mut j = 0;
+        while j < 8 {
+            let bit = (i >> j) & 1;
+            let delta = if bit == 1 { -1 } else { 1 };
+            cur += delta;
+            if cur < min {
+                min = cur;
+            }
+            j += 1;
+        }
+        table[i] = (min, cur);
+        i += 1;
+    }
+
+    table
+};
+
+/// Return the min_cost in the word, and total cost across the word.
+#[inline(always)]
+pub fn prefix_min(v: V<u64>) -> (i8, i8) {
+    // extract only the relevant chars
+    let (p, m) = v.pm();
+    let delta = p | m;
+    let num_p = p.count_ones();
+    let num_m = m.count_ones();
+    let deltas = unsafe { _pext_u64(m, delta) };
+    let mut min = 0;
+    let mut cur = 0;
+    for i in 0..8 {
+        let byte = (deltas >> (i * 8)) as u8 as usize;
+        let (min_cost, end_cost) = TABLE[byte];
+        min = min.min(cur + min_cost);
+        cur += end_cost;
+    }
+
+    (min, num_p as i8 - num_m as i8)
 }
 
 #[cfg(test)]

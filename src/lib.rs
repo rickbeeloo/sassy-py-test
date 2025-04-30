@@ -15,8 +15,8 @@ pub mod profiles {
     pub use iupac::Iupac;
 }
 
-mod search;
 mod minima;
+mod search;
 
-pub use search::find_below_threshold;
+pub use minima::find_below_threshold;
 pub use search::{search, search_bounded};
