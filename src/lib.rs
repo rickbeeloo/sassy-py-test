@@ -22,13 +22,21 @@ mod trace;
 use log::debug;
 pub use minima::find_below_threshold;
 use minima::find_local_minima;
-use pa_types::Cost;
+use pa_types::{Cigar, Cost, Pos};
 pub use search::{search_positions, search_positions_bounded};
 
 use profiles::Profile;
 use trace::{get_trace, simd_fill};
 
-pub fn search<P: Profile>(query: &[u8], text: &[u8], k: usize) -> Vec<(Cost, Vec<(usize, usize)>)> {
+#[derive(Debug, Clone)]
+pub struct Match {
+    pub start: Pos,
+    pub end: Pos,
+    pub cost: Cost,
+    pub cigar: Cigar,
+}
+
+pub fn search<P: Profile>(query: &[u8], text: &[u8], k: usize) -> Vec<Match> {
     let mut deltas = vec![];
     search_positions::<P>(query, text, &mut deltas);
     debug!("TEXT Len {}", text.len());
@@ -56,9 +64,11 @@ pub fn search<P: Profile>(query: &[u8], text: &[u8], k: usize) -> Vec<(Cost, Vec
 
         for lane in 0..matches.len() {
             // FIXME: Adjust returned positions for start-index offset.
-            traces.push((
-                matches[lane].1,
-                get_trace::<P>(query, offsets[lane], text_slices[lane], &costs[lane]),
+            traces.push(get_trace::<P>(
+                query,
+                offsets[lane],
+                text_slices[lane],
+                &costs[lane],
             ));
         }
     }

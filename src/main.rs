@@ -68,11 +68,12 @@ fn main() {
 
                     let _write_lock = write_lock.lock().unwrap();
                     for m in matches {
-                        let cost = m.0;
-                        let start = m.1.first().unwrap().1;
-                        let end = m.1.last().unwrap().1;
+                        let cost = m.cost;
+                        let start = m.start.1 as usize;
+                        let end = m.end.1 as usize;
                         let slice = str::from_utf8(&text[start..end]).unwrap();
-                        println!("{id}\t{cost}\t{start}\t{end}\t{slice}");
+                        let cigar = m.cigar.to_string();
+                        println!("{id}\t{cost}\t{start}\t{end}\t{slice}\t{cigar}");
                     }
                 }
             });

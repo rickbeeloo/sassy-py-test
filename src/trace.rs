@@ -1,4 +1,6 @@
+use pa_types::Cigar;
 use pa_types::Cost;
+use pa_types::Pos;
 use pa_types::I;
 
 use crate::bitpacking::compute_block;
@@ -8,6 +10,7 @@ use crate::profiles::Dna;
 use crate::profiles::Profile;
 
 use crate::bitpacking::compute_block_simd;
+use crate::Match;
 use std::array::from_fn;
 use std::simd::Simd;
 
@@ -113,7 +116,7 @@ pub fn get_trace<P: Profile>(
     text_offset: usize,
     text: &[u8],
     col_costs: &[ColCosts],
-) -> Vec<(usize, usize)> {
+) -> Match {
     let mut trace = Vec::new();
     let mut i = query.len();
     let mut j = text.len();
@@ -124,6 +127,9 @@ pub fn get_trace<P: Profile>(
 
     // remaining dist to (i,j)
     let mut g = cost(i, j);
+    let total_cost = g;
+
+    let mut cigar = Cigar::default();
 
     loop {
         // eprintln!("({i}, {j}) {g}");
@@ -135,7 +141,7 @@ pub fn get_trace<P: Profile>(
 
         // Match
         if j > 0 && cost(i - 1, j - 1) == g && P::is_match(query[i - 1], text[j - 1]) {
-            // eprintln!("match");
+            cigar.push(pa_types::CigarOp::Match);
             i -= 1;
             j -= 1;
             continue;
@@ -145,20 +151,20 @@ pub fn get_trace<P: Profile>(
 
         // Insert text char.
         if j > 0 && cost(i, j - 1) == g {
-            // eprintln!("insert");
+            cigar.push(pa_types::CigarOp::Ins);
             j -= 1;
             continue;
         }
         // Mismatch.
         if j > 0 && cost(i - 1, j - 1) == g {
-            // eprintln!("mismatch");
+            cigar.push(pa_types::CigarOp::Sub);
             i -= 1;
             j -= 1;
             continue;
         }
         // Delete query char.
         if cost(i - 1, j) == g {
-            // eprintln!("delete");
+            cigar.push(pa_types::CigarOp::Del);
             i -= 1;
             continue;
         }
@@ -170,9 +176,14 @@ pub fn get_trace<P: Profile>(
 
     assert_eq!(g, 0, "Remaining cost after the trace must be 0.");
 
-    trace.reverse();
+    cigar.reverse();
 
-    trace
+    Match {
+        cost: total_cost,
+        start: Pos(0, (text_offset + j) as I),
+        end: Pos(query.len() as I, (text_offset + text.len()) as I),
+        cigar,
+    }
 }
 
 #[test]
