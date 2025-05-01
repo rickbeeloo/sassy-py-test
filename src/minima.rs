@@ -3,25 +3,21 @@ use pa_types::Cost;
 use std::arch::x86_64::_pext_u64;
 
 // Note: also reports minima at the end of the range.
-pub fn find_local_minima(
-    initial_cost: Cost,
-    minima_bits: &[V<u64>],
-    k: Cost,
-) -> Vec<(usize, Cost)> {
+pub fn find_local_minima(initial_cost: Cost, deltas: &[V<u64>], k: Cost) -> Vec<(usize, Cost)> {
     let mut valleys = Vec::new();
     let mut is_decreasing = false;
     let mut prev_cost = initial_cost;
     let mut cur_cost = initial_cost;
 
-    for (word_idx, v) in minima_bits.iter().enumerate() {
+    for (word_idx, v) in deltas.iter().enumerate() {
         let (p, m) = v.pm();
 
         for bit in 0..64 {
             // Calculate cost
-            let p_bit = ((p >> bit) & 1) == 1;
-            let m_bit = ((m >> bit) & 1) == 1;
+            let p_bit = (p >> bit) & 1;
+            let m_bit = (m >> bit) & 1;
             cur_cost += (p_bit as Cost) - (m_bit as Cost);
-            if cur_cost < k {
+            if cur_cost <= k {
                 if cur_cost > prev_cost && is_decreasing {
                     // Going up, but we were going down
                     valleys.push((word_idx * 64 + bit - 1, prev_cost)); // relative prev pos
@@ -35,8 +31,8 @@ pub fn find_local_minima(
     }
 
     // If we ended while decreasing, add the final position
-    if is_decreasing {
-        valleys.push((minima_bits.len() * 64 - 1, cur_cost));
+    if cur_cost <= k && is_decreasing {
+        valleys.push((deltas.len() * 64 - 1, cur_cost));
     }
     valleys
 }
