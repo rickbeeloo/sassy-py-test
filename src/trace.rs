@@ -182,6 +182,7 @@ pub fn get_trace<P: Profile>(
         cost: total_cost,
         start: Pos(0, (text_offset + j) as I),
         end: Pos(query.len() as I, (text_offset + text.len()) as I),
+        strand: crate::Strand::Fwd,
         cigar,
     }
 }

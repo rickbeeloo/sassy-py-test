@@ -19,7 +19,6 @@ mod minima;
 mod search;
 mod trace;
 
-use log::debug;
 pub use minima::find_below_threshold;
 use minima::find_local_minima;
 use pa_types::{Cigar, Cost, Pos};
@@ -33,19 +32,20 @@ pub struct Match {
     pub start: Pos,
     pub end: Pos,
     pub cost: Cost,
+    pub strand: Strand,
     pub cigar: Cigar,
+}
+
+#[derive(Debug, Clone)]
+pub enum Strand {
+    Fwd,
+    Rc,
 }
 
 pub fn search<P: Profile>(query: &[u8], text: &[u8], k: usize) -> Vec<Match> {
     let mut deltas = vec![];
     search_positions::<P>(query, text, &mut deltas);
-    debug!("TEXT Len {}", text.len());
     let matches = find_local_minima(query, &deltas, k as Cost);
-    debug!("matches {matches:?}");
-
-    if !matches.is_empty() {
-        debug!("Num matches: {}", matches.len());
-    }
 
     let mut traces = Vec::with_capacity(matches.len());
 
@@ -63,7 +63,6 @@ pub fn search<P: Profile>(query: &[u8], text: &[u8], k: usize) -> Vec<Match> {
         let costs = simd_fill::<P>(query, text_slices);
 
         for lane in 0..matches.len() {
-            // FIXME: Adjust returned positions for start-index offset.
             traces.push(get_trace::<P>(
                 query,
                 offsets[lane],
@@ -74,4 +73,24 @@ pub fn search<P: Profile>(query: &[u8], text: &[u8], k: usize) -> Vec<Match> {
     }
 
     traces
+}
+
+pub fn search_with_rc<P: Profile>(query: &[u8], text: &[u8], k: usize) -> Vec<Match> {
+    let mut matches = search::<P>(query, text, k);
+    let query_rc = &P::reverse_complement(query);
+    let mut rc_matches = search::<P>(query_rc, text, k);
+    // Patch up the rc matches.
+    for m in &mut rc_matches {
+        m.strand = Strand::Rc;
+    }
+    matches.extend(rc_matches);
+    matches
+}
+
+pub fn search_maybe_rc<P: Profile>(query: &[u8], text: &[u8], k: usize, rc: bool) -> Vec<Match> {
+    if rc {
+        search_with_rc::<P>(query, text, k)
+    } else {
+        search::<P>(query, text, k)
+    }
 }

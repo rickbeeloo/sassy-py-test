@@ -4,7 +4,7 @@ use std::{path::PathBuf, sync::Mutex};
 use clap::Parser;
 use sassy::{
     profiles::{Ascii, Dna, Iupac},
-    search,
+    search_maybe_rc, Strand,
 };
 
 #[derive(clap::Parser)]
@@ -19,6 +19,10 @@ struct Args {
     /// The alphabet to use. DNA=ACTG, or IUPAC=ACTG+NYR...
     #[arg(long, value_enum)]
     alphabet: Alphabet,
+
+    /// Whether to include matches of the reverse-complement string.
+    #[arg(long)]
+    rc: bool,
 
     /// Number of threads to use. All CPUs by default.
     #[arg(short = 'j', long)]
@@ -61,9 +65,11 @@ fn main() {
 
                     // eprintln!("Searching {id}");
                     let matches = match args.alphabet {
-                        Alphabet::Ascii => search::<Ascii<true>>(query, text, args.k),
-                        Alphabet::Dna => search::<Dna>(query, text, args.k),
-                        Alphabet::Iupac => search::<Iupac>(query, text, args.k),
+                        Alphabet::Ascii => {
+                            search_maybe_rc::<Ascii<true>>(query, text, args.k, args.rc)
+                        }
+                        Alphabet::Dna => search_maybe_rc::<Dna>(query, text, args.k, args.rc),
+                        Alphabet::Iupac => search_maybe_rc::<Iupac>(query, text, args.k, args.rc),
                     };
 
                     let _write_lock = write_lock.lock().unwrap();
@@ -73,7 +79,11 @@ fn main() {
                         let end = m.end.1 as usize;
                         let slice = str::from_utf8(&text[start..end]).unwrap();
                         let cigar = m.cigar.to_string();
-                        println!("{id}\t{cost}\t{start}\t{end}\t{slice}\t{cigar}");
+                        let strand = match m.strand {
+                            Strand::Fwd => "+",
+                            Strand::Rc => "-",
+                        };
+                        println!("{id}\t{cost}\t{strand}\t{start}\t{end}\t{slice}\t{cigar}");
                     }
                 }
             });

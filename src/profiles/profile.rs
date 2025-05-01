@@ -15,4 +15,11 @@ pub trait Profile: Clone + std::fmt::Debug {
     fn valid_seq(&self, seq: &[u8]) -> bool;
     /// Return true if the two characters are a match accroding to profile
     fn is_match(char1: u8, char2: u8) -> bool;
+    /// Reverse-complement the input string.
+    fn reverse_complement(_query: &[u8]) -> Vec<u8> {
+        unimplemented!(
+            "Profile::reverse_complement not implemented for {:?}",
+            std::any::type_name::<Self>()
+        );
+    }
 }
