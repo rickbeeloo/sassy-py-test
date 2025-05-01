@@ -117,9 +117,13 @@ fn get_trace<P: Profile>(query: &[u8], text: &[u8], col_costs: &[ColCosts]) -> V
     // remaining dist to (i,j)
     let mut g = cost(i, j);
 
-    while i > 0 {
+    loop {
         eprintln!("({i}, {j}) {g}");
         trace.push((i, j));
+
+        if i == 0 {
+            break;
+        }
 
         // Match
         if j > 0 && cost(i - 1, j - 1) == g && P::is_match(query[i - 1], text[j - 1]) {
