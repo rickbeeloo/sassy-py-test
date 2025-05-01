@@ -11,6 +11,8 @@ use crate::bitpacking::compute_block_simd;
 use std::array::from_fn;
 use std::simd::Simd;
 
+// FIXME: Instead of `Vec<ColCosts>`, a `struct CostMatrix` that wraps it and
+//        supports `get(i,j)` would be nicer.
 /// Costs for states in a single column of an alignment (corresponding to 1 query char vs all the text).
 #[derive(Debug, Clone)]
 pub struct ColCosts {

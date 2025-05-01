@@ -45,6 +45,7 @@ pub fn search<P: Profile>(query: &[u8], text: &[u8], k: usize) -> Vec<Vec<(usize
         let costs = simd_fill::<P>(query, text_slices);
 
         for lane in 0..4 {
+            // FIXME: Adjust returned positions for start-index offset.
             traces.push(get_trace::<P>(query, text_slices[lane], &costs[lane]));
         }
     }
