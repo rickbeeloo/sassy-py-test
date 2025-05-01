@@ -3,11 +3,12 @@ use pa_types::Cost;
 use std::arch::x86_64::_pext_u64;
 
 // Note: also reports minima at the end of the range.
-pub fn find_local_minima(initial_cost: Cost, deltas: &[V<u64>], k: Cost) -> Vec<(usize, Cost)> {
+#[allow(unused)] // only for testing
+pub fn find_local_minima_slow(query: &[u8], deltas: &[V<u64>], k: Cost) -> Vec<(usize, Cost)> {
     let mut valleys = Vec::new();
     let mut is_decreasing = false;
-    let mut prev_cost = initial_cost;
-    let mut cur_cost = initial_cost;
+    let mut prev_cost = query.len() as Cost;
+    let mut cur_cost = query.len() as Cost;
 
     for (word_idx, v) in deltas.iter().enumerate() {
         let (p, m) = v.pm();
@@ -37,6 +38,48 @@ pub fn find_local_minima(initial_cost: Cost, deltas: &[V<u64>], k: Cost) -> Vec<
         valleys.push((deltas.len() * 64 - 1, cur_cost));
     }
     valleys
+}
+
+pub fn find_local_minima(query: &[u8], deltas: &[V<u64>], k: Cost) -> Vec<(usize, Cost)> {
+    let mut cur_cost = query.len() as Cost;
+    let mut all_valleys = Vec::new();
+
+    for (word_idx, v) in deltas.iter().enumerate() {
+        let (min, delta) = prefix_min(*v);
+        if cur_cost + (min as Cost) <= k {
+            let (p, m) = v.pm();
+            // Get all positions where cost changes occur
+            let changes = p | m;
+            let mut prev_cost = cur_cost;
+            let mut cur_cost_in_word = cur_cost;
+            let mut is_decreasing = false;
+
+            let mut remaining_changes = changes;
+            while remaining_changes != 0 {
+                // Skip 0s
+                let pos = remaining_changes.trailing_zeros() as usize;
+
+                // Calculate new cost
+                let p_bit = (p >> pos) & 1;
+                let m_bit = (m >> pos) & 1;
+                cur_cost_in_word += (p_bit as Cost) - (m_bit as Cost);
+
+                if cur_cost_in_word > prev_cost && is_decreasing {
+                    if prev_cost <= k {
+                        all_valleys.push((word_idx * 64 + pos - 1, prev_cost));
+                    }
+                    is_decreasing = false;
+                } else if cur_cost_in_word < prev_cost {
+                    is_decreasing = true;
+                }
+
+                prev_cost = cur_cost_in_word;
+                remaining_changes &= remaining_changes - 1;
+            }
+        }
+        cur_cost += delta as Cost;
+    }
+    all_valleys
 }
 
 pub fn find_below_threshold(
@@ -163,7 +206,7 @@ mod test {
             println!("Position: {}", pos);
             let chunk_pos = pos / 64 + 1;
             println!("Chunk pos: {}", chunk_pos);
-            let minima = find_local_minima(*cost, &deltas[chunk_pos - 1..chunk_pos + 2], 100);
+            let minima = find_local_minima(query, &deltas[chunk_pos - 1..chunk_pos + 2], 100);
             for (rel_pos, cost) in minima {
                 println!("\t-Minima: {:?} -cost: {}", pos + rel_pos, cost);
                 println!(
@@ -181,7 +224,7 @@ mod test {
         let v2 = V(0, 0);
         let v3 = V(0, 0);
 
-        let minima = find_local_minima(10, &[v1, v2, v3], 100);
+        let minima = find_local_minima(b"123", &[v1, v2, v3], 100);
         assert_eq!(minima, vec![(2, 8)]); // valley at position 2, cost 8
     }
 
@@ -193,7 +236,7 @@ mod test {
         let v2 = make_pattern(&[(1, 1), (2, 1)]);
         let v3 = V(0, 0);
 
-        let minima = find_local_minima(10, &[v1, v2, v3], 100);
+        let minima = find_local_minima(b"123", &[v1, v2, v3], 100);
         assert_eq!(minima, vec![(64, 8)]); // at word boundary
     }
 
@@ -213,7 +256,7 @@ mod test {
         let v2 = V(0, 0);
         let v3 = V(0, 0);
 
-        let minima = find_local_minima(10, &[v1, v2, v3], 100);
+        let minima = find_local_minima(b"123", &[v1, v2, v3], 100);
         assert_eq!(minima, vec![(1, 8), (5, 8)]);
     }
 
@@ -230,7 +273,7 @@ mod test {
         let v2 = V(0, 0);
         let v3 = V(0, 0);
 
-        let minima = find_local_minima(10, &[v1, v2, v3], 100);
+        let minima = find_local_minima(b"123", &[v1, v2, v3], 100);
         assert_eq!(minima, vec![(14, 8)]); // valley at end of plateau
     }
 
@@ -243,7 +286,7 @@ mod test {
         // Up at start of third word
         let v3 = make_pattern(&[(0, 1), (1, 1)]);
 
-        let minima = find_local_minima(10, &[v1, v2, v3], 100);
+        let minima = find_local_minima(b"123", &[v1, v2, v3], 100);
         assert_eq!(minima, vec![(63 * 2 + 1, 8)]); // valley at end of second word
     }
 
@@ -258,7 +301,7 @@ mod test {
         let v2 = V(0, 0);
         let v3 = V(0, 0);
 
-        let minima = find_local_minima(10, &[v1, v2, v3], 100);
+        let minima = find_local_minima(b"123", &[v1, v2, v3], 100);
         assert_eq!(minima, vec![(1, 8)]); // valley at position 1 with cost 8
     }
 
@@ -274,14 +317,14 @@ mod test {
         // Third word: starts with up(+1), up(+1)    // 18 -> 19 -> 20
         let v3 = make_pattern(&[(0, 1), (1, 1)]);
 
-        let minima = find_local_minima(20, &[v1, v2, v3], 100);
+        let minima = find_local_minima(b"123", &[v1, v2, v3], 100);
         assert_eq!(minima, vec![(127, 18)]); // valley at end of second word with cost 18
     }
 
     #[test]
     fn test_at_right_end() {
         let v1 = make_pattern(&[(0, -1), (1, -1)]);
-        let minima = find_local_minima(10, &[v1], 100);
+        let minima = find_local_minima(b"123", &[v1], 100);
         assert_eq!(minima, vec![(63, 8)]); // We end with  a valley, right end true, so still report
     }
 }
