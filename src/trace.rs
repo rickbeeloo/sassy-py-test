@@ -2,8 +2,8 @@ use pa_types::Cost;
 use pa_types::I;
 
 use crate::bitpacking::compute_block;
-use crate::delta_encoding::V;
 use crate::delta_encoding::VEncoding;
+use crate::delta_encoding::V;
 use crate::profiles::Dna;
 use crate::profiles::Profile;
 
@@ -37,9 +37,9 @@ fn fill(query: &[u8], text: &[u8]) -> Vec<ColCosts> {
     let mut text_profile = profiler.alloc_out();
 
     // Process chunks of 64 chars, that end exactly at the end of the text.
-    for (i, block) in text.rchunks(64).rev().enumerate() {
+    for (i, block) in text.chunks(64).enumerate() {
         let mut slice: [u8; 64] = [b'X'; 64];
-        slice[64 - block.len()..].copy_from_slice(block);
+        slice[..block.len()].copy_from_slice(block);
         profiler.encode_ref(&slice, &mut text_profile);
 
         println!("Chunk:: {}", String::from_utf8_lossy(&slice));
@@ -55,47 +55,10 @@ fn fill(query: &[u8], text: &[u8]) -> Vec<ColCosts> {
     col_costs
 }
 
-fn calc_pad(text_lengths: &[usize]) -> (usize, Vec<usize>) {
-    let max_len = text_lengths.iter().max().unwrap().next_multiple_of(64);
-
-    // Calculate how many chars of padding each text needs on the left
-    let paddings = text_lengths
-        .iter()
-        .map(|len| max_len - len) // Simple: difference between max length and this text's length
-        .collect();
-
-    (max_len, paddings)
-}
-
-fn fill_chunk(
-    chunk: &mut [u8; 64],
-    text: &[u8],
-    text_offset: &mut usize,
-    left_padding: &mut usize,
-) {
-    if *left_padding >= 64 {
-        // Full block of padding, leave as all X's
-        *left_padding -= 64;
-    } else if *left_padding > 0 {
-        // Partial padding block: some X's followed by text
-        let text_len = 64 - *left_padding;
-        let text_end = *text_offset + text_len;
-        chunk[*left_padding..].copy_from_slice(&text[*text_offset..text_end]);
-        *text_offset = text_end;
-        *left_padding = 0;
-    } else {
-        // Full text block
-        let text_end = (*text_offset + 64).min(text.len());
-        let text_len = text_end - *text_offset;
-        chunk[..text_len].copy_from_slice(&text[*text_offset..text_end]);
-        *text_offset = text_end;
-    }
-}
-
 fn simd_fill<P: Profile>(query: &[u8], texts: [&[u8]; 4]) -> [Vec<ColCosts>; 4] {
     let (profiler, query_profile) = P::encode_query(query);
-    let text_lengths = texts.map(|t| t.len());
-    let (max_len, mut paddings) = calc_pad(&text_lengths);
+    let max_len = texts.iter().map(|t| t.len()).max().unwrap();
+    let num_chunks = max_len.div_ceil(64);
 
     type Base = u64;
     type VV = V<Base>;
@@ -110,35 +73,22 @@ fn simd_fill<P: Profile>(query: &[u8], texts: [&[u8]; 4]) -> [Vec<ColCosts>; 4] 
         profiler.alloc_out(),
     ];
 
-    let mut lane_col_costs: [Vec<ColCosts>; 4] = (0..4)
-        .map(|_lane| {
-            (0..=query.len())
-                .map(|i| ColCosts {
-                    offset: i as Cost,
-                    deltas: vec![V::<u64>::zero(); max_len.div_ceil(64)],
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>()
-        .try_into()
-        .unwrap();
+    let mut lane_col_costs: [Vec<ColCosts>; 4] = from_fn(|_lane| {
+        (0..=query.len())
+            .map(|i| ColCosts {
+                offset: i as Cost,
+                deltas: vec![V::<u64>::zero(); num_chunks],
+            })
+            .collect::<Vec<_>>()
+    });
 
-    // Total blocks to calculatep adding
-    let total_blocks = max_len.div_ceil(64);
-    let mut current_text_offsets = [0; 4];
-
-    // Process blocks left-to-right
-    for block_idx in 0..total_blocks {
+    for i in 0..num_chunks {
         for lane in 0..4 {
-            let mut chunk = [b'X'; 64];
-            fill_chunk(
-                &mut chunk,
-                texts[lane],
-                &mut current_text_offsets[lane],
-                &mut paddings[lane],
-            );
-            println!("Chunk:: {}", String::from_utf8_lossy(&chunk));
-            profiler.encode_ref(&chunk, &mut text_profile[lane]);
+            let mut slice = [b'X'; 64];
+            let block = texts[lane].get(64 * i..).unwrap_or_default();
+            let block = block.get(..64).unwrap_or(block);
+            slice[..block.len()].copy_from_slice(block);
+            profiler.encode_ref(&slice, &mut text_profile[lane]);
         }
         let mut vp = S::splat(0);
         let mut vm = S::splat(0);
@@ -147,7 +97,7 @@ fn simd_fill<P: Profile>(query: &[u8], texts: [&[u8]; 4]) -> [Vec<ColCosts>; 4] 
             compute_block_simd(&mut hp[j], &mut hm[j], &mut vp, &mut vm, eq);
             for lane in 0..4 {
                 let v = <VV as VEncoding<Base>>::from(vp[lane], vm[lane]);
-                lane_col_costs[lane][j + 1].deltas[block_idx] = v;
+                lane_col_costs[lane][j + 1].deltas[i] = v;
             }
         }
     }
@@ -155,10 +105,10 @@ fn simd_fill<P: Profile>(query: &[u8], texts: [&[u8]; 4]) -> [Vec<ColCosts>; 4] 
     lane_col_costs
 }
 
-fn get_trace(col_costs: &[ColCosts]) -> Vec<(usize, usize)> {
+fn get_trace(query: &[u8], text: &[u8], col_costs: &[ColCosts]) -> Vec<(usize, usize)> {
     let mut trace = Vec::new();
-    let mut i = col_costs.len() - 1;
-    let mut j = 64 * col_costs[0].deltas.len();
+    let mut i = query.len();
+    let mut j = text.len();
 
     let cost = |i: usize, j: usize| -> Cost {
         col_costs[i].offset + V::<u64>::value_to(&col_costs[i].deltas, j as I)
@@ -168,42 +118,46 @@ fn get_trace(col_costs: &[ColCosts]) -> Vec<(usize, usize)> {
     let mut g = cost(i, j);
 
     while i > 0 {
-        assert!(j > 0, "Traceback reached top of filled region.");
-
+        eprintln!("({i}, {j}) {g}");
         trace.push((i, j));
 
         // Match
-        if cost(i - 1, j - 1) == g {
+        // FIXME: Use profile::is_match
+        if j > 0 && cost(i - 1, j - 1) == g && query[i - 1] == text[j - 1] {
+            eprintln!("match");
             i -= 1;
             j -= 1;
-            println!("Match");
             continue;
         }
         // We make some kind of mutation.
         g -= 1;
 
         // Insert text char.
-        if cost(i, j - 1) == g {
+        if j > 0 && cost(i, j - 1) == g {
+            eprintln!("insert");
             j -= 1;
-            g -= 1;
-            println!("Insert");
             continue;
         }
         // Mismatch.
-        if cost(i - 1, j - 1) == g {
+        if j > 0 && cost(i - 1, j - 1) == g {
+            eprintln!("mismatch");
             i -= 1;
             j -= 1;
-            println!("Mismatch");
             continue;
         }
         // Delete query char.
         if cost(i - 1, j) == g {
+            eprintln!("delete");
             i -= 1;
-            println!("Delete");
             continue;
         }
-        panic!("Trace failed!");
+        panic!(
+            "Trace failed! No ancestor found of {i} {j} at distance {}",
+            g + 1
+        );
     }
+
+    assert_eq!(g, 0, "Remaining cost after the trace must be 0.");
 
     trace.reverse();
 
@@ -214,12 +168,30 @@ fn get_trace(col_costs: &[ColCosts]) -> Vec<(usize, usize)> {
 fn test_traceback() {
     let query = b"ATTTTCCCGGGGATTTT".as_slice();
     let text2: &[u8] = b"ATTTTGGGGATTTT".as_slice();
+
+    let col_costs = fill(query, text2);
+    for c in &col_costs {
+        let (p, m) = c.deltas[0].pm();
+        println!("{}\np: {:064b} \nm: {:064b}\n", c.offset, p, m);
+    }
+
+    let trace = get_trace(query, text2, &col_costs);
+    println!("Trace: {:?}", trace);
+}
+
+#[test]
+fn test_traceback_simd() {
+    let query = b"ATTTTCCCGGGGATTTT".as_slice();
     let text1 = b"ATTTTCCCGGGGATTTT".as_slice();
+    let text2 = b"ATTTTGGGGATTTT".as_slice();
     let text3 = b"TGGGGATTTT".as_slice();
     let text4 = b"TTTTTTTTTTATTTTGGGGATTTT".as_slice();
 
     let col_costs = simd_fill::<Dna>(&query, [&text1, &text2, &text3, &text4]);
-    let trace = get_trace(&col_costs[0]);
+    let _trace = get_trace(query, text1, &col_costs[0]);
+    let _trace = get_trace(query, text2, &col_costs[1]);
+    let _trace = get_trace(query, text3, &col_costs[2]);
+    let trace = get_trace(query, text4, &col_costs[3]);
     println!("Trace: {:?}", trace);
 }
 
