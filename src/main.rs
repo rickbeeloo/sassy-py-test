@@ -16,7 +16,7 @@ struct Args {
     /// Fasta file to search. May be gzipped.
     path: PathBuf,
 
-    /// When set, use the extended ACTG+NYR... alphabet.
+    /// The alphabet to use. DNA=ACTG, or IUPAC=ACTG+NYR...
     #[arg(long, value_enum)]
     alphabet: Alphabet,
 
