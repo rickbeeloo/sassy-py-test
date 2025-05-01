@@ -2,8 +2,8 @@ use pa_types::Cost;
 use pa_types::I;
 
 use crate::bitpacking::compute_block;
-use crate::delta_encoding::V;
 use crate::delta_encoding::VEncoding;
+use crate::delta_encoding::V;
 use crate::profiles::Dna;
 use crate::profiles::Profile;
 
@@ -13,7 +13,7 @@ use std::simd::Simd;
 
 /// Costs for states in a single column of an alignment (corresponding to 1 query char vs all the text).
 #[derive(Debug, Clone)]
-struct ColCosts {
+pub struct ColCosts {
     /// Cost to the top of the col.
     /// Typically simple its index.
     offset: Cost,
@@ -55,7 +55,7 @@ fn fill(query: &[u8], text: &[u8]) -> Vec<ColCosts> {
     col_costs
 }
 
-fn simd_fill<P: Profile>(query: &[u8], texts: [&[u8]; 4]) -> [Vec<ColCosts>; 4] {
+pub fn simd_fill<P: Profile>(query: &[u8], texts: [&[u8]; 4]) -> [Vec<ColCosts>; 4] {
     let (profiler, query_profile) = P::encode_query(query);
     let max_len = texts.iter().map(|t| t.len()).max().unwrap();
     let num_chunks = max_len.div_ceil(64);
@@ -105,7 +105,11 @@ fn simd_fill<P: Profile>(query: &[u8], texts: [&[u8]; 4]) -> [Vec<ColCosts>; 4] 
     lane_col_costs
 }
 
-fn get_trace<P: Profile>(query: &[u8], text: &[u8], col_costs: &[ColCosts]) -> Vec<(usize, usize)> {
+pub fn get_trace<P: Profile>(
+    query: &[u8],
+    text: &[u8],
+    col_costs: &[ColCosts],
+) -> Vec<(usize, usize)> {
     let mut trace = Vec::new();
     let mut i = query.len();
     let mut j = text.len();
