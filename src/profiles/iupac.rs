@@ -93,7 +93,7 @@ impl Profile for Iupac {
     }
 
     #[inline(always)]
-    fn is_match(&self, char1: u8, char2: u8) -> bool {
+    fn is_match(char1: u8, char2: u8) -> bool {
         (get_encoded(char1) & get_encoded(char2)) > 0
     }
 
@@ -239,14 +239,13 @@ mod test {
 
     #[test]
     fn test_iupac_is_match() {
-        let iupac = Iupac::encode_query(b"ACGT").0;
-        assert!(iupac.is_match(b'a', b'A'));
-        assert!(iupac.is_match(b'C', b'C'));
-        assert!(iupac.is_match(b'T', b't'));
-        assert!(iupac.is_match(b'G', b'G'));
-        assert!(iupac.is_match(b'y', b'Y'));
-        assert!(iupac.is_match(b'A', b'N'));
-        assert!(iupac.is_match(b'C', b'Y'));
+        assert!(Iupac::is_match(b'a', b'A'));
+        assert!(Iupac::is_match(b'C', b'C'));
+        assert!(Iupac::is_match(b'T', b't'));
+        assert!(Iupac::is_match(b'G', b'G'));
+        assert!(Iupac::is_match(b'y', b'Y'));
+        assert!(Iupac::is_match(b'A', b'N'));
+        assert!(Iupac::is_match(b'C', b'Y'));
     }
 
     fn get_match_positions_u64(result: &[u64]) -> Vec<Vec<usize>> {

@@ -2,8 +2,8 @@ use pa_types::Cost;
 use pa_types::I;
 
 use crate::bitpacking::compute_block;
-use crate::delta_encoding::VEncoding;
 use crate::delta_encoding::V;
+use crate::delta_encoding::VEncoding;
 use crate::profiles::Dna;
 use crate::profiles::Profile;
 
@@ -105,7 +105,7 @@ fn simd_fill<P: Profile>(query: &[u8], texts: [&[u8]; 4]) -> [Vec<ColCosts>; 4] 
     lane_col_costs
 }
 
-fn get_trace(query: &[u8], text: &[u8], col_costs: &[ColCosts]) -> Vec<(usize, usize)> {
+fn get_trace<P: Profile>(query: &[u8], text: &[u8], col_costs: &[ColCosts]) -> Vec<(usize, usize)> {
     let mut trace = Vec::new();
     let mut i = query.len();
     let mut j = text.len();
@@ -122,8 +122,7 @@ fn get_trace(query: &[u8], text: &[u8], col_costs: &[ColCosts]) -> Vec<(usize, u
         trace.push((i, j));
 
         // Match
-        // FIXME: Use profile::is_match
-        if j > 0 && cost(i - 1, j - 1) == g && query[i - 1] == text[j - 1] {
+        if j > 0 && cost(i - 1, j - 1) == g && P::is_match(query[i - 1], text[j - 1]) {
             eprintln!("match");
             i -= 1;
             j -= 1;
@@ -175,7 +174,7 @@ fn test_traceback() {
         println!("{}\np: {:064b} \nm: {:064b}\n", c.offset, p, m);
     }
 
-    let trace = get_trace(query, text2, &col_costs);
+    let trace = get_trace::<Dna>(query, text2, &col_costs);
     println!("Trace: {:?}", trace);
 }
 
@@ -188,10 +187,10 @@ fn test_traceback_simd() {
     let text4 = b"TTTTTTTTTTATTTTGGGGATTTT".as_slice();
 
     let col_costs = simd_fill::<Dna>(&query, [&text1, &text2, &text3, &text4]);
-    let _trace = get_trace(query, text1, &col_costs[0]);
-    let _trace = get_trace(query, text2, &col_costs[1]);
-    let _trace = get_trace(query, text3, &col_costs[2]);
-    let trace = get_trace(query, text4, &col_costs[3]);
+    let _trace = get_trace::<Dna>(query, text1, &col_costs[0]);
+    let _trace = get_trace::<Dna>(query, text2, &col_costs[1]);
+    let _trace = get_trace::<Dna>(query, text3, &col_costs[2]);
+    let trace = get_trace::<Dna>(query, text4, &col_costs[3]);
     println!("Trace: {:?}", trace);
 }
 

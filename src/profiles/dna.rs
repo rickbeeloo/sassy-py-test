@@ -47,7 +47,7 @@ impl Profile for Dna {
     }
 
     #[inline(always)]
-    fn is_match(&self, char1: u8, char2: u8) -> bool {
+    fn is_match(char1: u8, char2: u8) -> bool {
         (char1 | 0x20) == (char2 | 0x20)
     }
 
@@ -116,13 +116,12 @@ mod test {
 
     #[test]
     fn test_dna_is_match() {
-        let dna = Dna::encode_query(b"ACGT").0;
-        assert!(dna.is_match(b'A', b'A'));
-        assert!(dna.is_match(b'c', b'c'));
-        assert!(dna.is_match(b'C', b'c'));
-        assert!(dna.is_match(b'c', b'C'));
-        assert!(!dna.is_match(b'A', b'N'));
-        assert!(!dna.is_match(b'C', b't'));
+        assert!(Dna::is_match(b'A', b'A'));
+        assert!(Dna::is_match(b'c', b'c'));
+        assert!(Dna::is_match(b'C', b'c'));
+        assert!(Dna::is_match(b'c', b'C'));
+        assert!(!Dna::is_match(b'A', b'N'));
+        assert!(!Dna::is_match(b'C', b't'));
     }
 
     fn get_match_positions(out: &[u64; 4]) -> Vec<Vec<usize>> {

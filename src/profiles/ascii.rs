@@ -46,7 +46,7 @@ impl<const CASE_SENSITIVE: bool> Profile for Ascii<CASE_SENSITIVE> {
     }
 
     #[inline(always)]
-    fn is_match(&self, char1: u8, char2: u8) -> bool {
+    fn is_match(char1: u8, char2: u8) -> bool {
         if CASE_SENSITIVE {
             char1.eq(&char2)
         } else {
@@ -148,13 +148,11 @@ mod test {
     #[test]
     fn test_ascii_is_match() {
         // Case sensitive
-        let ascii: Ascii<true> = Ascii::encode_query(b"HELLO").0;
-        assert!(ascii.is_match(b'H', b'H'));
-        assert!(!ascii.is_match(b'l', b'L')); // Should not match
+        assert!(Ascii::<true>::is_match(b'H', b'H'));
+        assert!(!Ascii::<true>::is_match(b'l', b'L')); // Should not match
         // Case insensitive
-        let ascii: Ascii<false> = Ascii::encode_query(b"HELLO").0;
-        assert!(ascii.is_match(b'H', b'H'));
-        assert!(ascii.is_match(b'l', b'L')); // Should match now
+        assert!(Ascii::<false>::is_match(b'H', b'H'));
+        assert!(Ascii::<false>::is_match(b'l', b'L')); // Should match now
     }
 
     #[test]
