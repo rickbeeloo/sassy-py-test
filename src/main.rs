@@ -19,6 +19,10 @@ struct Args {
     /// When set, use the extended ACTG+NYR... alphabet.
     #[arg(long, value_enum)]
     alphabet: Alphabet,
+
+    /// Number of threads to use. All CPUs by default.
+    #[arg(short = 'j', long)]
+    threads: Option<usize>,
 }
 
 #[derive(clap::ValueEnum, Default, Clone)]
@@ -40,7 +44,7 @@ fn main() {
     let write_lock = Mutex::new(());
 
     // Launch as many threads as there are cores.
-    let num_threads = num_cpus::get();
+    let num_threads = args.threads.unwrap_or_else(|| num_cpus::get());
     std::thread::scope(|scope| {
         for _ in 0..num_threads {
             scope.spawn(|| {
