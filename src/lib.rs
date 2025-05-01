@@ -21,13 +21,13 @@ mod trace;
 
 pub use minima::find_below_threshold;
 use minima::find_local_minima;
-use pa_types::{Cost, Pos};
+use pa_types::Cost;
 pub use search::{search_positions, search_positions_bounded};
 
 use profiles::Profile;
 use trace::{get_trace, simd_fill};
 
-pub fn search<P: Profile>(query: &[u8], text: &[u8], k: usize) -> Vec<Vec<(usize, usize)>> {
+pub fn search<P: Profile>(query: &[u8], text: &[u8], k: usize) -> Vec<(Cost, Vec<(usize, usize)>)> {
     let mut deltas = vec![];
     search_positions::<P>(query, text, &mut deltas);
     let matches = find_local_minima(query.len() as Cost, &deltas);
@@ -44,9 +44,12 @@ pub fn search<P: Profile>(query: &[u8], text: &[u8], k: usize) -> Vec<Vec<(usize
         // TODO: Reuse allocated costs.
         let costs = simd_fill::<P>(query, text_slices);
 
-        for lane in 0..4 {
+        for lane in 0..matches.len() {
             // FIXME: Adjust returned positions for start-index offset.
-            traces.push(get_trace::<P>(query, text_slices[lane], &costs[lane]));
+            traces.push((
+                matches[lane].1,
+                get_trace::<P>(query, text_slices[lane], &costs[lane]),
+            ));
         }
     }
 
