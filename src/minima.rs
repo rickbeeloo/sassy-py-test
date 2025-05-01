@@ -1,13 +1,9 @@
-use crate::delta_encoding::{V, VEncoding};
+use crate::delta_encoding::{VEncoding, V};
 use pa_types::Cost;
 use std::arch::x86_64::_pext_u64;
 
-#[inline(always)]
-pub fn find_local_minima(
-    initial_cost: Cost,
-    minima_bits: &[V<u64>],
-    at_right_end: bool, // If we want to report valleys at the right edge, set to true (i.e. end of seq)
-) -> Vec<(usize, Cost)> {
+// Note: also reports minima at the end of the range.
+pub fn find_local_minima(initial_cost: Cost, minima_bits: &[V<u64>]) -> Vec<(usize, Cost)> {
     let mut valleys = Vec::new();
     let mut is_decreasing = false;
     let mut prev_cost = initial_cost;
@@ -32,8 +28,8 @@ pub fn find_local_minima(
         }
     }
 
-    // If we ended while decreasing and at_right_end is true, add the final position
-    if at_right_end && is_decreasing {
+    // If we ended while decreasing, add the final position
+    if is_decreasing {
         valleys.push((minima_bits.len() * 64 - 1, cur_cost));
     }
     valleys
@@ -163,7 +159,7 @@ mod test {
             println!("Position: {}", pos);
             let chunk_pos = pos / 64 + 1;
             println!("Chunk pos: {}", chunk_pos);
-            let minima = find_local_minima(*cost, &deltas[chunk_pos - 1..chunk_pos + 2], false);
+            let minima = find_local_minima(*cost, &deltas[chunk_pos - 1..chunk_pos + 2]);
             for (rel_pos, cost) in minima {
                 println!("\t-Minima: {:?} -cost: {}", pos + rel_pos, cost);
                 println!(
@@ -181,7 +177,7 @@ mod test {
         let v2 = V(0, 0);
         let v3 = V(0, 0);
 
-        let minima = find_local_minima(10, &[v1, v2, v3], false);
+        let minima = find_local_minima(10, &[v1, v2, v3]);
         assert_eq!(minima, vec![(2, 8)]); // valley at position 2, cost 8
     }
 
@@ -193,8 +189,8 @@ mod test {
         let v2 = make_pattern(&[(1, 1), (2, 1)]);
         let v3 = V(0, 0);
 
-        let minima = find_local_minima(10, &[v1, v2, v3], false);
-        assert_eq!(minima, vec![(64, 8)]); // at word boundary 
+        let minima = find_local_minima(10, &[v1, v2, v3]);
+        assert_eq!(minima, vec![(64, 8)]); // at word boundary
     }
 
     #[test]
@@ -213,7 +209,7 @@ mod test {
         let v2 = V(0, 0);
         let v3 = V(0, 0);
 
-        let minima = find_local_minima(10, &[v1, v2, v3], false);
+        let minima = find_local_minima(10, &[v1, v2, v3]);
         assert_eq!(minima, vec![(1, 8), (5, 8)]);
     }
 
@@ -230,7 +226,7 @@ mod test {
         let v2 = V(0, 0);
         let v3 = V(0, 0);
 
-        let minima = find_local_minima(10, &[v1, v2, v3], false);
+        let minima = find_local_minima(10, &[v1, v2, v3]);
         assert_eq!(minima, vec![(14, 8)]); // valley at end of plateau
     }
 
@@ -243,7 +239,7 @@ mod test {
         // Up at start of third word
         let v3 = make_pattern(&[(0, 1), (1, 1)]);
 
-        let minima = find_local_minima(10, &[v1, v2, v3], false);
+        let minima = find_local_minima(10, &[v1, v2, v3]);
         assert_eq!(minima, vec![(63 * 2 + 1, 8)]); // valley at end of second word
     }
 
@@ -258,7 +254,7 @@ mod test {
         let v2 = V(0, 0);
         let v3 = V(0, 0);
 
-        let minima = find_local_minima(10, &[v1, v2, v3], false);
+        let minima = find_local_minima(10, &[v1, v2, v3]);
         assert_eq!(minima, vec![(1, 8)]); // valley at position 1 with cost 8
     }
 
@@ -274,16 +270,14 @@ mod test {
         // Third word: starts with up(+1), up(+1)    // 18 -> 19 -> 20
         let v3 = make_pattern(&[(0, 1), (1, 1)]);
 
-        let minima = find_local_minima(20, &[v1, v2, v3], false);
+        let minima = find_local_minima(20, &[v1, v2, v3]);
         assert_eq!(minima, vec![(127, 18)]); // valley at end of second word with cost 18
     }
 
     #[test]
     fn test_at_right_end() {
         let v1 = make_pattern(&[(0, -1), (1, -1)]);
-        let minima = find_local_minima(10, &[v1], true);
+        let minima = find_local_minima(10, &[v1]);
         assert_eq!(minima, vec![(63, 8)]); // We end with  a valley, right end true, so still report
-        let minima = find_local_minima(10, &[v1], false);
-        assert_eq!(minima, vec![]); // We end with a valley, right end false, so no report
     }
 }
