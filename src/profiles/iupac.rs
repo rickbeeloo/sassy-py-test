@@ -94,7 +94,7 @@ impl Profile for Iupac {
 
     #[inline(always)]
     fn is_match(&self, char1: u8, char2: u8) -> bool {
-        get_encoded(char1) == get_encoded(char2)
+        (get_encoded(char1) & get_encoded(char2)) > 0
     }
 
     #[inline(always)]
@@ -245,8 +245,8 @@ mod test {
         assert!(iupac.is_match(b'T', b't'));
         assert!(iupac.is_match(b'G', b'G'));
         assert!(iupac.is_match(b'y', b'Y'));
-        assert!(!iupac.is_match(b'A', b'N'));
-        assert!(!iupac.is_match(b'C', b'Y'));
+        assert!(iupac.is_match(b'A', b'N'));
+        assert!(iupac.is_match(b'C', b'Y'));
     }
 
     fn get_match_positions_u64(result: &[u64]) -> Vec<Vec<usize>> {
