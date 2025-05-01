@@ -4,7 +4,7 @@ use std::{array::from_fn, simd::Simd};
 
 use crate::{
     bitpacking::compute_block_simd,
-    delta_encoding::{V, VEncoding},
+    delta_encoding::{VEncoding, V},
     profiles::Profile,
 };
 
@@ -16,21 +16,26 @@ use crate::{
 ///
 /// Returns the results in a reused output vector.
 // FIXME: We really need some proper tests for this.
-pub fn search<P: Profile>(query: &[u8], text: &[u8], deltas: &mut Vec<V<u64>>) {
-    search_maybe_bounded::<P, false>(query, text, deltas, 0);
+pub fn search_positions<P: Profile>(query: &[u8], text: &[u8], deltas: &mut Vec<V<u64>>) {
+    search_positions_maybe_bounded::<P, false>(query, text, 0, deltas);
 }
 
 /// Like [`search`], but early-abort upon reaching a threshold of `k`.
 // FIXME: We really need some proper tests for this.
-pub fn search_bounded<P: Profile>(query: &[u8], text: &[u8], deltas: &mut Vec<V<u64>>, k: Cost) {
-    search_maybe_bounded::<P, true>(query, text, deltas, k);
-}
-
-fn search_maybe_bounded<P: Profile, const BOUNDED: bool>(
+pub fn search_positions_bounded<P: Profile>(
     query: &[u8],
     text: &[u8],
-    deltas: &mut Vec<V<u64>>,
     k: Cost,
+    deltas: &mut Vec<V<u64>>,
+) {
+    search_positions_maybe_bounded::<P, true>(query, text, k, deltas);
+}
+
+fn search_positions_maybe_bounded<P: Profile, const BOUNDED: bool>(
+    query: &[u8],
+    text: &[u8],
+    k: Cost,
+    deltas: &mut Vec<V<u64>>,
 ) {
     let (profiler, query_profile) = P::encode_query(query);
 

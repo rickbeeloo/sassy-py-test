@@ -149,7 +149,7 @@ mod test {
         let mut deltas = vec![];
         let mut positions = vec![];
         let mut costs = vec![];
-        search::<Dna>(query, &seq, &mut deltas);
+        search_positions::<Dna>(query, &seq, &mut deltas);
         println!("Deltas: {:?}", deltas);
 
         find_below_threshold(query, 0, &deltas, &mut positions, &mut costs);

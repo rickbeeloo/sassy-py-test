@@ -1,5 +1,5 @@
 #![feature(portable_simd, array_chunks)]
-use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use sassy::profiles::*;
 use std::time::Duration;
 
@@ -84,7 +84,7 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             |b, seq| {
                 let mut deltas = vec![];
                 b.iter(|| {
-                    sassy::search::<Ascii>(black_box(query), seq, &mut deltas);
+                    sassy::search_positions::<Ascii>(black_box(query), seq, &mut deltas);
                     black_box(&deltas);
                 })
             },
@@ -97,7 +97,7 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             |b, seq| {
                 let mut deltas = vec![];
                 b.iter(|| {
-                    sassy::search::<Dna>(black_box(query), seq, &mut deltas);
+                    sassy::search_positions::<Dna>(black_box(query), seq, &mut deltas);
                     black_box(&deltas);
                 })
             },
@@ -110,7 +110,7 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             |b, seq| {
                 let mut deltas = vec![];
                 b.iter(|| {
-                    sassy::search_bounded::<Dna>(black_box(query), seq, &mut deltas, 3);
+                    sassy::search_positions_bounded::<Dna>(black_box(query), seq, 3, &mut deltas);
                     black_box(&deltas);
                 })
             },
@@ -123,7 +123,7 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             |b, seq| {
                 let mut deltas = vec![];
                 b.iter(|| {
-                    sassy::search_bounded::<Dna>(black_box(query), seq, &mut deltas, 1);
+                    sassy::search_positions_bounded::<Dna>(black_box(query), seq, 1, &mut deltas);
                     black_box(&deltas);
                 })
             },
@@ -136,7 +136,7 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             |b, seq| {
                 let mut deltas = vec![];
                 b.iter(|| {
-                    sassy::search::<Iupac>(black_box(query), seq, &mut deltas);
+                    sassy::search_positions::<Iupac>(black_box(query), seq, &mut deltas);
                     black_box(&deltas);
                 })
             },
@@ -149,7 +149,7 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             |b, seq| {
                 let mut deltas = vec![];
                 b.iter(|| {
-                    sassy::search::<Iupac>(black_box(query), seq, &mut deltas);
+                    sassy::search_positions::<Iupac>(black_box(query), seq, &mut deltas);
                     black_box(&deltas);
                 })
             },
@@ -162,7 +162,7 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             |b, seq| {
                 let mut deltas = vec![];
                 b.iter(|| {
-                    sassy::search::<Iupac>(black_box(query), seq, &mut deltas);
+                    sassy::search_positions::<Iupac>(black_box(query), seq, &mut deltas);
                     black_box(&deltas);
                 })
             },
@@ -175,7 +175,7 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             |b, seq| {
                 let mut deltas = vec![];
                 b.iter(|| {
-                    sassy::search::<Iupac>(black_box(query), seq, &mut deltas);
+                    sassy::search_positions::<Iupac>(black_box(query), seq, &mut deltas);
                     black_box(&deltas);
                 })
             },
@@ -189,7 +189,7 @@ fn benchmark_base_lookup(c: &mut Criterion) {
                 let mut deltas = vec![];
                 let mut positions = vec![];
                 b.iter(|| {
-                    sassy::search::<Iupac>(black_box(query), seq, &mut deltas);
+                    sassy::search_positions::<Iupac>(black_box(query), seq, &mut deltas);
                     positions.clear();
                     let mut costs = vec![];
                     sassy::find_below_threshold(
