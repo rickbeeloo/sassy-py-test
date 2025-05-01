@@ -17,14 +17,16 @@ pub fn find_local_minima(initial_cost: Cost, deltas: &[V<u64>], k: Cost) -> Vec<
             let p_bit = (p >> bit) & 1;
             let m_bit = (m >> bit) & 1;
             cur_cost += (p_bit as Cost) - (m_bit as Cost);
-            if cur_cost <= k {
-                if cur_cost > prev_cost && is_decreasing {
+            if cur_cost > prev_cost && is_decreasing {
+                if prev_cost <= k {
                     // Going up, but we were going down
-                    valleys.push((word_idx * 64 + bit - 1, prev_cost)); // relative prev pos
-                    is_decreasing = false;
-                } else if cur_cost < prev_cost {
-                    is_decreasing = true;
+                    let value = (word_idx * 64 + bit - 1, prev_cost);
+                    // debug!("Push {value:?}");
+                    valleys.push(value); // relative prev pos
                 }
+                is_decreasing = false;
+            } else if cur_cost < prev_cost {
+                is_decreasing = true;
             }
             prev_cost = cur_cost;
         }
