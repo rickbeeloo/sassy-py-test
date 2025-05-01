@@ -94,3 +94,79 @@ pub fn search_maybe_rc<P: Profile>(query: &[u8], text: &[u8], k: usize, rc: bool
         search::<P>(query, text, k)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use rand::random_range;
+
+    use crate::profiles::Dna;
+
+    #[test]
+    fn search() {
+        let mut query_lens = (10..20)
+            .chain((0..10).map(|_| random_range(10..100)))
+            .collect::<Vec<_>>();
+        query_lens.sort();
+        let mut text_lens = (0..100).map(|_| random_range(0..1000)).collect::<Vec<_>>();
+        text_lens.sort();
+        for q in query_lens {
+            for t in text_lens.clone() {
+                let query = (0..q)
+                    .map(|_| b"ACGT"[random_range(0..4)])
+                    .collect::<Vec<_>>();
+                let mut text = (0..t)
+                    .map(|_| b"ACGT"[random_range(0..4)])
+                    .collect::<Vec<_>>();
+
+                let edits = random_range(0..q / 3);
+                let mut p = query.clone();
+                for _ in 0..edits {
+                    let tp = random_range(0..3);
+                    match tp {
+                        0 => {
+                            // insert
+                            let idx = random_range(0..=p.len());
+                            p.insert(idx, b"ACGT"[random_range(0..4)]);
+                        }
+                        1 => {
+                            // del
+                            let idx = random_range(0..p.len());
+                            p.remove(idx);
+                        }
+                        2 => {
+                            // replace
+                            let idx = random_range(0..p.len());
+                            p[idx] = b"ACGT"[random_range(0..4)];
+                        }
+                        _ => panic!(),
+                    }
+                }
+
+                fn show(x: &[u8]) -> &str {
+                    str::from_utf8(x).unwrap()
+                }
+                eprintln!("");
+                eprintln!("edits {edits}");
+                eprintln!("query {}", show(&query));
+                eprintln!("pattern {}", show(&p));
+
+                if p.len() > text.len() {
+                    continue;
+                }
+
+                let idx = random_range(0..=text.len() - p.len());
+                eprintln!("text len {}", text.len());
+                eprintln!("idx {idx}");
+                text.splice(idx..idx + p.len(), p);
+                eprintln!("text {}", show(&text));
+
+                let matches = super::search::<Dna>(&query, &text, edits);
+                eprintln!("matches {matches:?}");
+                let m = matches
+                    .iter()
+                    .find(|m| (m.start.1 as usize).abs_diff(idx) <= edits);
+                assert!(m.is_some());
+            }
+        }
+    }
+}
