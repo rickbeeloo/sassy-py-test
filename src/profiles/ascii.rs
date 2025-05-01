@@ -46,6 +46,16 @@ impl<const CASE_SENSITIVE: bool> Profile for Ascii<CASE_SENSITIVE> {
     }
 
     #[inline(always)]
+    fn is_match(&self, char1: u8, char2: u8) -> bool {
+        if CASE_SENSITIVE {
+            char1.eq(&char2)
+        } else {
+            // Safe rust version to handle cases only in Az range
+            char1.eq_ignore_ascii_case(&char2)
+        }
+    }
+
+    #[inline(always)]
     fn alloc_out(&self) -> Self::B {
         vec![0; self.bases.len()]
     }
@@ -134,6 +144,18 @@ mod test {
     };
 
     const HELLO_TEST_BASES: [u8; 3] = [b'H', b'l', b'o'];
+
+    #[test]
+    fn test_ascii_is_match() {
+        // Case sensitive
+        let ascii: Ascii<true> = Ascii::encode_query(b"HELLO").0;
+        assert!(ascii.is_match(b'H', b'H'));
+        assert!(!ascii.is_match(b'l', b'L')); // Should not match
+        // Case insensitive
+        let ascii: Ascii<false> = Ascii::encode_query(b"HELLO").0;
+        assert!(ascii.is_match(b'H', b'H'));
+        assert!(ascii.is_match(b'l', b'L')); // Should match now
+    }
 
     #[test]
     fn test_ascii_u64_search() {
