@@ -25,6 +25,7 @@ pub struct ColCosts {
 
 /// Compute the full n*m matrix corresponding to the query * text alignment.
 /// TODO: SIMD variant that takes 1 query, and 4 text slices of the same length.
+#[allow(unused)] // FIXME
 fn fill(query: &[u8], text: &[u8]) -> Vec<ColCosts> {
     let (profiler, query_profile) = Dna::encode_query(query);
     let mut col_costs: Vec<_> = (0..=query.len())
@@ -109,6 +110,7 @@ pub fn simd_fill<P: Profile>(query: &[u8], texts: [&[u8]; 4]) -> [Vec<ColCosts>;
 
 pub fn get_trace<P: Profile>(
     query: &[u8],
+    text_offset: usize,
     text: &[u8],
     col_costs: &[ColCosts],
 ) -> Vec<(usize, usize)> {
@@ -124,8 +126,8 @@ pub fn get_trace<P: Profile>(
     let mut g = cost(i, j);
 
     loop {
-        eprintln!("({i}, {j}) {g}");
-        trace.push((i, j));
+        // eprintln!("({i}, {j}) {g}");
+        trace.push((i, text_offset + j));
 
         if i == 0 {
             break;
@@ -133,7 +135,7 @@ pub fn get_trace<P: Profile>(
 
         // Match
         if j > 0 && cost(i - 1, j - 1) == g && P::is_match(query[i - 1], text[j - 1]) {
-            eprintln!("match");
+            // eprintln!("match");
             i -= 1;
             j -= 1;
             continue;
@@ -143,20 +145,20 @@ pub fn get_trace<P: Profile>(
 
         // Insert text char.
         if j > 0 && cost(i, j - 1) == g {
-            eprintln!("insert");
+            // eprintln!("insert");
             j -= 1;
             continue;
         }
         // Mismatch.
         if j > 0 && cost(i - 1, j - 1) == g {
-            eprintln!("mismatch");
+            // eprintln!("mismatch");
             i -= 1;
             j -= 1;
             continue;
         }
         // Delete query char.
         if cost(i - 1, j) == g {
-            eprintln!("delete");
+            // eprintln!("delete");
             i -= 1;
             continue;
         }
@@ -184,7 +186,7 @@ fn test_traceback() {
         println!("{}\np: {:064b} \nm: {:064b}\n", c.offset, p, m);
     }
 
-    let trace = get_trace::<Dna>(query, text2, &col_costs);
+    let trace = get_trace::<Dna>(query, 0, text2, &col_costs);
     println!("Trace: {:?}", trace);
 }
 
@@ -197,10 +199,10 @@ fn test_traceback_simd() {
     let text4 = b"TTTTTTTTTTATTTTGGGGATTTT".as_slice();
 
     let col_costs = simd_fill::<Dna>(&query, [&text1, &text2, &text3, &text4]);
-    let _trace = get_trace::<Dna>(query, text1, &col_costs[0]);
-    let _trace = get_trace::<Dna>(query, text2, &col_costs[1]);
-    let _trace = get_trace::<Dna>(query, text3, &col_costs[2]);
-    let trace = get_trace::<Dna>(query, text4, &col_costs[3]);
+    let _trace = get_trace::<Dna>(query, 0, text1, &col_costs[0]);
+    let _trace = get_trace::<Dna>(query, 0, text2, &col_costs[1]);
+    let _trace = get_trace::<Dna>(query, 0, text3, &col_costs[2]);
+    let trace = get_trace::<Dna>(query, 0, text4, &col_costs[3]);
     println!("Trace: {:?}", trace);
 }
 

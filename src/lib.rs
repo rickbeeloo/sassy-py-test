@@ -44,9 +44,12 @@ pub fn search<P: Profile>(query: &[u8], text: &[u8], k: usize) -> Vec<(Cost, Vec
     let fill_len = query.len() + k;
     for matches in matches.chunks(4) {
         let mut text_slices = [[].as_slice(); 4];
+        let mut offsets = [0; 4];
         for i in 0..matches.len() {
             let end_pos = matches[i].0;
-            text_slices[i] = &text[end_pos.saturating_sub(fill_len)..end_pos];
+            let offset = end_pos.saturating_sub(fill_len);
+            offsets[i] = offset;
+            text_slices[i] = &text[offset..end_pos];
         }
         // TODO: Reuse allocated costs.
         let costs = simd_fill::<P>(query, text_slices);
@@ -55,7 +58,7 @@ pub fn search<P: Profile>(query: &[u8], text: &[u8], k: usize) -> Vec<(Cost, Vec
             // FIXME: Adjust returned positions for start-index offset.
             traces.push((
                 matches[lane].1,
-                get_trace::<P>(query, text_slices[lane], &costs[lane]),
+                get_trace::<P>(query, offsets[lane], text_slices[lane], &costs[lane]),
             ));
         }
     }
