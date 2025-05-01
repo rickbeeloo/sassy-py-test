@@ -19,6 +19,7 @@ mod minima;
 mod search;
 mod trace;
 
+use log::debug;
 pub use minima::find_below_threshold;
 use minima::find_local_minima;
 use pa_types::Cost;
@@ -30,7 +31,13 @@ use trace::{get_trace, simd_fill};
 pub fn search<P: Profile>(query: &[u8], text: &[u8], k: usize) -> Vec<(Cost, Vec<(usize, usize)>)> {
     let mut deltas = vec![];
     search_positions::<P>(query, text, &mut deltas);
-    let matches = find_local_minima(query.len() as Cost, &deltas);
+    debug!("TEXT Len {}", text.len());
+    let matches = find_local_minima(query.len() as Cost, &deltas, k as Cost);
+    debug!("matches {matches:?}");
+
+    if !matches.is_empty() {
+        debug!("Num matches: {}", matches.len());
+    }
 
     let mut traces = Vec::with_capacity(matches.len());
 
@@ -38,8 +45,8 @@ pub fn search<P: Profile>(query: &[u8], text: &[u8], k: usize) -> Vec<(Cost, Vec
     for matches in matches.chunks(4) {
         let mut text_slices = [[].as_slice(); 4];
         for i in 0..matches.len() {
-            let end_post = matches[i].0;
-            text_slices[i] = &text[end_post.saturating_sub(fill_len)..end_post];
+            let end_pos = matches[i].0;
+            text_slices[i] = &text[end_pos.saturating_sub(fill_len)..end_pos];
         }
         // TODO: Reuse allocated costs.
         let costs = simd_fill::<P>(query, text_slices);

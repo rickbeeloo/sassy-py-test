@@ -31,18 +31,21 @@ enum Alphabet {
 fn main() {
     let args = Args::parse();
 
+    env_logger::init();
+
     let query = args.query.as_bytes();
 
     let mut reader = needletail::parse_fastx_file(args.path).unwrap();
 
     while let Some(record) = reader.next() {
         let record = record.unwrap();
+        let id = str::from_utf8(record.id()).unwrap();
+        eprintln!("Searching {id}");
         let matches = match args.alphabet {
             Alphabet::Ascii => search::<Ascii<true>>(query, &record.seq(), args.k),
             Alphabet::Dna => search::<Dna>(query, &record.seq(), args.k),
             Alphabet::Iupac => search::<Iupac>(query, &record.seq(), args.k),
         };
-        let id = str::from_utf8(record.id()).unwrap();
         for m in matches {
             let cost = m.0;
             let start = m.1.first().unwrap().0;
