@@ -40,17 +40,19 @@ fn main() {
     while let Some(record) = reader.next() {
         let record = record.unwrap();
         let id = str::from_utf8(record.id()).unwrap();
-        eprintln!("Searching {id}");
+        let text = &record.seq();
+        // eprintln!("Searching {id}");
         let matches = match args.alphabet {
-            Alphabet::Ascii => search::<Ascii<true>>(query, &record.seq(), args.k),
-            Alphabet::Dna => search::<Dna>(query, &record.seq(), args.k),
-            Alphabet::Iupac => search::<Iupac>(query, &record.seq(), args.k),
+            Alphabet::Ascii => search::<Ascii<true>>(query, text, args.k),
+            Alphabet::Dna => search::<Dna>(query, text, args.k),
+            Alphabet::Iupac => search::<Iupac>(query, text, args.k),
         };
         for m in matches {
             let cost = m.0;
-            let start = m.1.first().unwrap().0;
-            let end = m.1.last().unwrap().0;
-            println!("{id}\t{cost}\t{start}\t{end}");
+            let start = m.1.first().unwrap().1;
+            let end = m.1.last().unwrap().1;
+            let slice = str::from_utf8(&text[start..end]).unwrap();
+            println!("{id}\t{cost}\t{start}\t{end}\t{slice}");
         }
     }
 }
