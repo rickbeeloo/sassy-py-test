@@ -173,7 +173,10 @@ mod tests {
 
                 let idx = random_range(0..=text.len() - p.len());
                 eprintln!("text len {}", text.len());
-                eprintln!("idx {idx}");
+                eprintln!("planted idx {idx}");
+                let expected_idx = (idx + p.len()).saturating_sub(q);
+                eprintln!("expected idx {expected_idx}");
+
                 text.splice(idx..idx + p.len(), p);
                 eprintln!("text {}", show(&text));
 
@@ -181,7 +184,7 @@ mod tests {
                 eprintln!("matches {matches:?}");
                 let m = matches
                     .iter()
-                    .find(|m| (m.start.1 as usize).abs_diff(idx) <= edits);
+                    .find(|m| (m.start.1 as usize).abs_diff(expected_idx) <= edits);
 
                 assert!(m.is_some());
             }
