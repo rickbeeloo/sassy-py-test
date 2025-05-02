@@ -1,7 +1,7 @@
 use crate::profiles::Profile;
 use std::{
     simd::cmp::SimdPartialEq,
-    simd::{u8x32, Simd},
+    simd::{Simd, u8x32},
 };
 
 #[derive(Clone, Debug)]
@@ -137,6 +137,11 @@ mod test {
         assert!(Dna::is_match(b'c', b'c'));
         assert!(Dna::is_match(b'C', b'c'));
         assert!(Dna::is_match(b'c', b'C'));
+        assert!(!Dna::is_match(b'X', b'A'));
+        assert!(!Dna::is_match(b'X', b'A'));
+        assert!(!Dna::is_match(b'X', b'T'));
+        assert!(!Dna::is_match(b'X', b'G'));
+        assert!(!Dna::is_match(b'X', b'C'));
         assert!(!Dna::is_match(b'A', b'N'));
         assert!(!Dna::is_match(b'C', b't'));
     }

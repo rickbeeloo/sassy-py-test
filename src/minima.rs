@@ -1,4 +1,4 @@
-use crate::delta_encoding::{VEncoding, V};
+use crate::delta_encoding::{V, VEncoding};
 use pa_types::Cost;
 use std::arch::x86_64::_pext_u64;
 
@@ -17,6 +17,7 @@ pub fn find_local_minima_slow(query: &[u8], deltas: &[V<u64>], k: Cost) -> Vec<(
             // Calculate cost
             let p_bit = (p >> bit) & 1;
             let m_bit = (m >> bit) & 1;
+
             cur_cost += (p_bit as Cost) - (m_bit as Cost);
             if cur_cost > prev_cost && is_decreasing {
                 if prev_cost <= k {
@@ -41,44 +42,45 @@ pub fn find_local_minima_slow(query: &[u8], deltas: &[V<u64>], k: Cost) -> Vec<(
 }
 
 pub fn find_local_minima(query: &[u8], deltas: &[V<u64>], k: Cost) -> Vec<(usize, Cost)> {
+    let mut prev_cost = query.len() as Cost;
     let mut cur_cost = query.len() as Cost;
     let mut all_valleys = Vec::new();
+    let mut is_decreasing = false;
 
     for (word_idx, v) in deltas.iter().enumerate() {
         let (min, delta) = prefix_min(*v);
         if cur_cost + (min as Cost) <= k {
             let (p, m) = v.pm();
-            // Get all positions where cost changes occur
-            let changes = p | m;
-            let mut prev_cost = cur_cost;
-            let mut cur_cost_in_word = cur_cost;
-            let mut is_decreasing = false;
-
-            let mut remaining_changes = changes;
-            while remaining_changes != 0 {
-                // Skip 0s
-                let pos = remaining_changes.trailing_zeros() as usize;
-
-                // Calculate new cost
+            // Get positions where cost changes occur
+            let mut changes = p | m;
+            while changes != 0 {
+                let pos = changes.trailing_zeros() as usize;
                 let p_bit = (p >> pos) & 1;
                 let m_bit = (m >> pos) & 1;
-                cur_cost_in_word += (p_bit as Cost) - (m_bit as Cost);
-
-                if cur_cost_in_word > prev_cost && is_decreasing {
+                cur_cost += (p_bit as Cost) - (m_bit as Cost);
+                if cur_cost > prev_cost && is_decreasing {
                     if prev_cost <= k {
-                        all_valleys.push((word_idx * 64 + pos - 1, prev_cost));
+                        all_valleys.push((word_idx * 64 + pos, prev_cost));
                     }
                     is_decreasing = false;
-                } else if cur_cost_in_word < prev_cost {
+                } else if cur_cost < prev_cost {
                     is_decreasing = true;
                 }
-
-                prev_cost = cur_cost_in_word;
-                remaining_changes &= remaining_changes - 1;
+                prev_cost = cur_cost;
+                // Clear the processed bit
+                changes &= changes - 1;
             }
+        } else {
+            cur_cost += delta as Cost;
+            prev_cost = cur_cost;
         }
-        cur_cost += delta as Cost;
     }
+
+    // Add valley at right end if still decreasing
+    if cur_cost <= k && is_decreasing {
+        all_valleys.push((deltas.len() * 64 - 1, cur_cost));
+    }
+
     all_valleys
 }
 
@@ -221,60 +223,56 @@ mod test {
     fn test_simple_valley() {
         // Pattern: down-down-up-up at start
         let v1 = make_pattern(&[(0, -1), (1, -1), (3, 1), (4, 1)]);
-        let v2 = V(0, 0);
-        let v3 = V(0, 0);
-
-        let minima = find_local_minima(b"123", &[v1, v2, v3], 100);
-        assert_eq!(minima, vec![(2, 8)]); // valley at position 2, cost 8
+        //Length is 3, -1, -1 = 1 edit at position 2
+        let minima = find_local_minima(b"ATG", &[v1], 100);
+        assert_eq!(minima, vec![(3, 1)]); // valley till position 2, cost 1
     }
 
     #[test]
     fn test_cross_boundary_valley() {
         // First word ends with down-down
-        let v1 = make_pattern(&[(62, -1), (63, -1)]);
+        let v1 = make_pattern(&[(62, -1), (63, -1)]); // so 64 = 0
         // Second word starts with up-up
-        let v2 = make_pattern(&[(1, 1), (2, 1)]);
+        let v2 = make_pattern(&[(1, 1), (2, 1)]); // meaning we go up at the start of 2nd word = 64  + 1 = 65
         let v3 = V(0, 0);
-
-        let minima = find_local_minima(b"123", &[v1, v2, v3], 100);
-        assert_eq!(minima, vec![(64, 8)]); // at word boundary
+        // Again length is 3, -1, -1 = 1 edit at position 64 (after valley - crossing word)
+        let minima = find_local_minima(b"ATG", &[v1, v2, v3], 100);
+        assert_eq!(minima, vec![(65, 1)]); // at word boundary
     }
 
     #[test]
     fn test_multiple_valleys() {
         // Two valleys in same word
         let v1 = make_pattern(&[
-            (0, -1),
-            (1, -1),
-            (2, 1),
-            (3, 1), // first valley
-            (4, -1),
-            (5, -1),
-            (6, 1),
-            (7, 1), // second valley
+            (0, -1), // 2
+            (1, -1), // 1 <- first valley
+            (2, 1),  // 2
+            (3, 1),  // 3
+            (4, -1), // 2
+            (5, -1), // 1 <- second valley
+            (6, 1),  // 2
+            (7, 1),  // 3
         ]);
-        let v2 = V(0, 0);
-        let v3 = V(0, 0);
-
-        let minima = find_local_minima(b"123", &[v1, v2, v3], 100);
-        assert_eq!(minima, vec![(1, 8), (5, 8)]);
+        let minima = find_local_minima(b"ATG", &[v1], 100);
+        println!("Minima: {:?}", minima);
+        assert_eq!(minima, vec![(2, 1), (6, 1)]);
     }
 
     #[test]
     fn test_valley_with_plateau() {
         // Valley with flat region in middle
         let v1 = make_pattern(&[
-            (10, -1),
-            (11, -1), // down
+            (10, -1), // 2
+            (11, -1), // 1 <- start valley
             // positions 12-14 0 (by default see make_pattern)
-            (15, 1), // up
-            (16, 1),
+            (15, 1), // 1 <- end valley,  so first up position after valley
+            (16, 1), // 2
         ]);
         let v2 = V(0, 0);
         let v3 = V(0, 0);
 
-        let minima = find_local_minima(b"123", &[v1, v2, v3], 100);
-        assert_eq!(minima, vec![(14, 8)]); // valley at end of plateau
+        let minima = find_local_minima(b"ATG", &[v1, v2, v3], 100);
+        assert_eq!(minima, vec![(15, 1)]); // valley at end of plateau
     }
 
     #[test]
@@ -285,24 +283,22 @@ mod test {
         let v2 = V(0, 0);
         // Up at start of third word
         let v3 = make_pattern(&[(0, 1), (1, 1)]);
-
-        let minima = find_local_minima(b"123", &[v1, v2, v3], 100);
-        assert_eq!(minima, vec![(63 * 2 + 1, 8)]); // valley at end of second word
+        let minima = find_local_minima(b"ATG", &[v1, v2, v3], 100);
+        assert_eq!(minima, vec![(64 * 2, 1)]); // valley at end of second word
     }
 
     #[test]
     fn test_cost_calculation_simple() {
-        // Starting at cost 10
         let v1 = make_pattern(&[
-            (0, -1), // cost becomes 9
-            (1, -1), // cost becomes 8 (valley)
-            (2, 1),  // cost becomes 9
+            (0, -1), // cost becomes 3-1 = 2
+            (1, -1), // cost becomes 2-1 = 1
+            (2, 1),  // cost becomes 1+1 = 2 (and here after valley)
         ]);
         let v2 = V(0, 0);
         let v3 = V(0, 0);
 
-        let minima = find_local_minima(b"123", &[v1, v2, v3], 100);
-        assert_eq!(minima, vec![(1, 8)]); // valley at position 1 with cost 8
+        let minima = find_local_minima(b"ATG", &[v1, v2, v3], 100);
+        assert_eq!(minima, vec![(2, 1)]); // valley at position 1 with cost 8
     }
 
     #[test]
@@ -317,14 +313,14 @@ mod test {
         // Third word: starts with up(+1), up(+1)    // 18 -> 19 -> 20
         let v3 = make_pattern(&[(0, 1), (1, 1)]);
 
-        let minima = find_local_minima(b"123", &[v1, v2, v3], 100);
-        assert_eq!(minima, vec![(127, 18)]); // valley at end of second word with cost 18
+        let minima = find_local_minima(&[b'A'; 20], &[v1, v2, v3], 100);
+        assert_eq!(minima, vec![(64 * 2, 18)]); // valley at end of second word with cost 18
     }
 
     #[test]
     fn test_at_right_end() {
-        let v1 = make_pattern(&[(0, -1), (1, -1)]);
-        let minima = find_local_minima(b"123", &[v1], 100);
-        assert_eq!(minima, vec![(63, 8)]); // We end with  a valley, right end true, so still report
+        let v1 = make_pattern(&[(0, -1), (1, -1)]); // edits 1 3-2 = 1
+        let minima = find_local_minima(b"ATG", &[v1], 100);
+        assert_eq!(minima, vec![(63, 1)]); // We end with  a valley, right end true, so still report
     }
 }

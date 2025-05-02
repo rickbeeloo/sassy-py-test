@@ -4,7 +4,7 @@ use std::{array::from_fn, simd::Simd};
 
 use crate::{
     bitpacking::compute_block_simd,
-    delta_encoding::{VEncoding, V},
+    delta_encoding::{V, VEncoding},
     profiles::Profile,
 };
 
