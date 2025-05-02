@@ -122,9 +122,14 @@ mod tests {
     fn search_fuzz() {
         let mut query_lens = (10..20)
             .chain((0..10).map(|_| random_range(10..100)))
+            .chain((0..10).map(|_| random_range(100..1000)))
             .collect::<Vec<_>>();
         query_lens.sort();
-        let mut text_lens = (0..100).map(|_| random_range(0..1000)).collect::<Vec<_>>();
+        let mut text_lens = (10..20)
+            .chain((0..10).map(|_| random_range(10..100)))
+            .chain((0..10).map(|_| random_range(100..1000)))
+            .chain((0..10).map(|_| random_range(1000..10000)))
+            .collect::<Vec<_>>();
         text_lens.sort();
         for q in query_lens {
             for t in text_lens.clone() {
