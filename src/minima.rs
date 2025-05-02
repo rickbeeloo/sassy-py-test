@@ -61,12 +61,15 @@ pub fn find_local_minima(
             if remaining >= 64 {
                 *delta = V(u64::MAX, 0);
                 remaining -= 64;
+                if remaining == 0 {
+                    break;
+                }
             } else {
                 // partial overhang
-                let mask = ((1u64 << remaining) - 1) << (64 - remaining);
+                let mask = (u64::MAX) << (64 - remaining);
                 let (mut p, mut m) = delta.pm();
-                p |= !mask;
-                m &= mask;
+                p |= mask;
+                m &= !mask;
                 *delta = V(p, m);
                 break;
             }
@@ -180,8 +183,6 @@ pub fn prefix_min(v: V<u64>) -> (i8, i8) {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::profiles::*;
-    use crate::search::*;
 
     /// Create Vencoding from (position, delta) vec
     fn make_pattern(changes: &[(usize, i8)]) -> V<u64> {

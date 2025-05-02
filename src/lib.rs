@@ -119,6 +119,14 @@ mod tests {
     }
 
     #[test]
+    fn test_case3() {
+        let query = b"AAAACCCAGT";
+        let text = b"AAAACCAAGT";
+        let matches = search::<Dna>(query, text, 2);
+        assert!(matches.len() > 0);
+    }
+
+    #[test]
     fn search_fuzz() {
         let mut query_lens = (10..20)
             .chain((0..10).map(|_| random_range(10..100)))
