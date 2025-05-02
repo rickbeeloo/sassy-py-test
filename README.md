@@ -19,7 +19,7 @@ Usage: sassy [OPTIONS] --alphabet <ALPHABET> <QUERY> <K> <PATH>
 
 Arguments:
   <QUERY>  Pattern to search for
-  <K>      Report matches up to this threshold
+  <K>      Report matches up to (and including) this distance threshold
   <PATH>   Fasta file to search. May be gzipped
 
 Options:

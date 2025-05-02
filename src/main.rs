@@ -3,15 +3,16 @@ use std::{path::PathBuf, sync::Mutex};
 
 use clap::Parser;
 use sassy::{
+    Strand,
     profiles::{Ascii, Dna, Iupac},
-    search_maybe_rc, Strand,
+    search_maybe_rc,
 };
 
 #[derive(clap::Parser)]
 struct Args {
     /// Pattern to search for.
     query: String,
-    /// Report matches up to this threshold.
+    /// Report matches up to (and including) this distance threshold.
     k: usize,
     /// Fasta file to search. May be gzipped.
     path: PathBuf,
