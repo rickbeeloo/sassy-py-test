@@ -39,19 +39,22 @@ fn search_positions_maybe_bounded<P: Profile, const BOUNDED: bool>(
 ) {
     let (profiler, query_profile) = P::encode_query(query);
 
-    assert!(
-        query.len() <= 32,
-        "For longer queries, we may need more than 64 overlap?"
-    );
-    // Number of 64char lanes, including 3 overlap between chunks.
-    let num_lanes = text.len().div_ceil(64) + 3;
-    // Number of simd units to cover everything.
-    // TODO: div_ceil
-    let num_simds = num_lanes.div_ceil(4);
-    // Length of each of the four chunks.
-    let chunk_len = num_simds - 1;
+    // Terminology:
+    // - chunk: roughly 1/4th of the input text, with small overlaps.
+    // - block: 64 bytes of text.
+    // - lane: a u64 of a SIMD vec.
 
-    deltas.resize(num_lanes, V::zero());
+    // The query will match a pattern of length at most query.len() + k.
+    // We round that up to a multiple of 64 to find the number of blocks overlap between chunks.
+    let overlap_blocks = (query.len() + k as usize).next_multiple_of(64) / 64;
+
+    // Total number of blocks to be processed, including overlaps.
+    let total_blocks = text.len().div_ceil(64) + 3 * overlap_blocks;
+    let blocks_per_chunk = total_blocks.div_ceil(4);
+    // Length of each of the four chunks.
+    let chunk_offset = blocks_per_chunk - overlap_blocks;
+
+    deltas.resize(total_blocks, V::zero());
 
     type Base = u64;
     type VV = V<Base>;
@@ -69,7 +72,7 @@ fn search_positions_maybe_bounded<P: Profile, const BOUNDED: bool>(
 
     let mut text_chunks: [[u8; 64]; 4] = [[0; 64]; 4];
 
-    for i in 0..num_simds {
+    for i in 0..blocks_per_chunk {
         // The alignment can start anywhere, so start with deltas of 0.
         let mut vp = S::splat(0);
         let mut vm = S::splat(0);
@@ -77,7 +80,7 @@ fn search_positions_maybe_bounded<P: Profile, const BOUNDED: bool>(
         // Collect the 4 slices of input text.
         // Out-of-bounds characters are replaced by 'X', which doesn't match anything.
         for lane in 0..4 {
-            let start = lane * chunk_len * 64 + 64 * i;
+            let start = lane * chunk_offset * 64 + 64 * i;
             if start + 64 <= text.len() {
                 text_chunks[lane] = text[start..start + 64].try_into().unwrap();
             } else {
@@ -127,7 +130,7 @@ fn search_positions_maybe_bounded<P: Profile, const BOUNDED: bool>(
             }
         }
         for lane in 0..4 {
-            deltas[lane * chunk_len + i] = <VV as VEncoding<Base>>::from(vp[lane], vm[lane]);
+            deltas[lane * chunk_offset + i] = <VV as VEncoding<Base>>::from(vp[lane], vm[lane]);
         }
     }
 }
