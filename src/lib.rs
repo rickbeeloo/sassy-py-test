@@ -45,7 +45,7 @@ pub fn search<P: Profile>(query: &[u8], text: &[u8], k: usize) -> Vec<Match> {
     let mut deltas = vec![];
     search_positions::<P>(query, text, &mut deltas);
 
-    let matches = find_local_minima_slow(query, &deltas, k as Cost);
+    let matches = find_local_minima(query, &mut deltas, k as Cost, text.len());
 
     let mut traces = Vec::with_capacity(matches.len());
 

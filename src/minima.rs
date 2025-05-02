@@ -41,11 +41,37 @@ pub fn find_local_minima_slow(query: &[u8], deltas: &[V<u64>], k: Cost) -> Vec<(
     valleys
 }
 
-pub fn find_local_minima(query: &[u8], deltas: &[V<u64>], k: Cost) -> Vec<(usize, Cost)> {
+pub fn find_local_minima(
+    query: &[u8],
+    deltas: &mut [V<u64>],
+    k: Cost,
+    text_len: usize,
+) -> Vec<(usize, Cost)> {
     let mut prev_cost = query.len() as Cost;
     let mut cur_cost = query.len() as Cost;
     let mut all_valleys = Vec::new();
     let mut is_decreasing = false;
+
+    // Handle overhang bits (bits beyond text_len)
+    // We set all overhang bits to increasing edits to avoid false valleys
+    let overhang = deltas.len() * 64 - text_len;
+    if overhang > 0 {
+        let mut remaining = overhang;
+        for delta in deltas.iter_mut().rev() {
+            if remaining >= 64 {
+                *delta = V(u64::MAX, 0);
+                remaining -= 64;
+            } else {
+                // partial overhang
+                let mask = ((1u64 << remaining) - 1) << (64 - remaining);
+                let (mut p, mut m) = delta.pm();
+                p |= !mask;
+                m &= mask;
+                *delta = V(p, m);
+                break;
+            }
+        }
+    }
 
     for (word_idx, v) in deltas.iter().enumerate() {
         let (min, delta) = prefix_min(*v);
@@ -173,58 +199,11 @@ mod test {
     }
 
     #[test]
-    fn test_trace_dna() {
-        let query = b"ACTG";
-        let mock_chunk = [b'G'; 64];
-
-        let mut match_chunk = [b'G'; 64];
-        match_chunk[0] = b'A';
-        match_chunk[1] = b'C';
-        match_chunk[2] = b'T';
-        match_chunk[3] = b'G';
-
-        let seq = [
-            mock_chunk,
-            mock_chunk,
-            match_chunk,
-            mock_chunk,
-            mock_chunk,
-            match_chunk,
-            mock_chunk,
-            mock_chunk,
-        ]
-        .concat();
-
-        let mut deltas = vec![];
-        let mut positions = vec![];
-        let mut costs = vec![];
-        search_positions::<Dna>(query, &seq, &mut deltas);
-        println!("Deltas: {:?}", deltas);
-
-        find_below_threshold(query, 0, &deltas, &mut positions, &mut costs);
-
-        for (pos, cost) in positions.iter().zip(costs.iter()) {
-            println!("\nPos: {:?}, Cost: {:?}", pos, cost);
-            println!("Position: {}", pos);
-            let chunk_pos = pos / 64 + 1;
-            println!("Chunk pos: {}", chunk_pos);
-            let minima = find_local_minima(query, &deltas[chunk_pos - 1..chunk_pos + 2], 100);
-            for (rel_pos, cost) in minima {
-                println!("\t-Minima: {:?} -cost: {}", pos + rel_pos, cost);
-                println!(
-                    "Minima seq: {:?}",
-                    String::from_utf8_lossy(&seq[pos + rel_pos - 4..pos + rel_pos])
-                );
-            }
-        }
-    }
-
-    #[test]
     fn test_simple_valley() {
         // Pattern: down-down-up-up at start
         let v1 = make_pattern(&[(0, -1), (1, -1), (3, 1), (4, 1)]);
         //Length is 3, -1, -1 = 1 edit at position 2
-        let minima = find_local_minima(b"ATG", &[v1], 100);
+        let minima = find_local_minima(b"ATG", &mut [v1], 100, 64);
         assert_eq!(minima, vec![(3, 1)]); // valley till position 2, cost 1
     }
 
@@ -236,7 +215,7 @@ mod test {
         let v2 = make_pattern(&[(1, 1), (2, 1)]); // meaning we go up at the start of 2nd word = 64  + 1 = 65
         let v3 = V(0, 0);
         // Again length is 3, -1, -1 = 1 edit at position 64 (after valley - crossing word)
-        let minima = find_local_minima(b"ATG", &[v1, v2, v3], 100);
+        let minima = find_local_minima(b"ATG", &mut [v1, v2, v3], 100, 64 * 3);
         assert_eq!(minima, vec![(65, 1)]); // at word boundary
     }
 
@@ -253,7 +232,7 @@ mod test {
             (6, 1),  // 2
             (7, 1),  // 3
         ]);
-        let minima = find_local_minima(b"ATG", &[v1], 100);
+        let minima = find_local_minima(b"ATG", &mut [v1], 100, 64);
         println!("Minima: {:?}", minima);
         assert_eq!(minima, vec![(2, 1), (6, 1)]);
     }
@@ -271,7 +250,7 @@ mod test {
         let v2 = V(0, 0);
         let v3 = V(0, 0);
 
-        let minima = find_local_minima(b"ATG", &[v1, v2, v3], 100);
+        let minima = find_local_minima(b"ATG", &mut [v1, v2, v3], 100, 64 * 3);
         assert_eq!(minima, vec![(15, 1)]); // valley at end of plateau
     }
 
@@ -283,7 +262,7 @@ mod test {
         let v2 = V(0, 0);
         // Up at start of third word
         let v3 = make_pattern(&[(0, 1), (1, 1)]);
-        let minima = find_local_minima(b"ATG", &[v1, v2, v3], 100);
+        let minima = find_local_minima(b"ATG", &mut [v1, v2, v3], 100, 64 * 3);
         assert_eq!(minima, vec![(64 * 2, 1)]); // valley at end of second word
     }
 
@@ -297,7 +276,7 @@ mod test {
         let v2 = V(0, 0);
         let v3 = V(0, 0);
 
-        let minima = find_local_minima(b"ATG", &[v1, v2, v3], 100);
+        let minima = find_local_minima(b"ATG", &mut [v1, v2, v3], 100, 64 * 3);
         assert_eq!(minima, vec![(2, 1)]); // valley at position 1 with cost 8
     }
 
@@ -313,14 +292,14 @@ mod test {
         // Third word: starts with up(+1), up(+1)    // 18 -> 19 -> 20
         let v3 = make_pattern(&[(0, 1), (1, 1)]);
 
-        let minima = find_local_minima(&[b'A'; 20], &[v1, v2, v3], 100);
+        let minima = find_local_minima(&[b'A'; 20], &mut [v1, v2, v3], 100, 64 * 3);
         assert_eq!(minima, vec![(64 * 2, 18)]); // valley at end of second word with cost 18
     }
 
     #[test]
     fn test_at_right_end() {
         let v1 = make_pattern(&[(0, -1), (1, -1)]); // edits 1 3-2 = 1
-        let minima = find_local_minima(b"ATG", &[v1], 100);
+        let minima = find_local_minima(b"ATG", &mut [v1], 100, 64);
         assert_eq!(minima, vec![(64, 1)]); // We end with  a valley, right end true, so still report
     }
 }
