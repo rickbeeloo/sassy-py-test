@@ -78,7 +78,7 @@ pub fn find_local_minima(query: &[u8], deltas: &[V<u64>], k: Cost) -> Vec<(usize
 
     // Add valley at right end if still decreasing
     if cur_cost <= k && is_decreasing {
-        all_valleys.push((deltas.len() * 64 - 1, cur_cost));
+        all_valleys.push((deltas.len() * 64, cur_cost));
     }
 
     all_valleys
@@ -321,6 +321,6 @@ mod test {
     fn test_at_right_end() {
         let v1 = make_pattern(&[(0, -1), (1, -1)]); // edits 1 3-2 = 1
         let minima = find_local_minima(b"ATG", &[v1], 100);
-        assert_eq!(minima, vec![(63, 1)]); // We end with  a valley, right end true, so still report
+        assert_eq!(minima, vec![(64, 1)]); // We end with  a valley, right end true, so still report
     }
 }
