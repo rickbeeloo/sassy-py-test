@@ -49,12 +49,13 @@ fn search_positions_maybe_bounded<P: Profile, const BOUNDED: bool>(
     let overlap_blocks = (query.len() + k as usize).next_multiple_of(64) / 64;
 
     // Total number of blocks to be processed, including overlaps.
-    let total_blocks = text.len().div_ceil(64) + 3 * overlap_blocks;
+    let text_blocks = text.len().div_ceil(64);
+    let total_blocks = text_blocks + 3 * overlap_blocks;
     let blocks_per_chunk = total_blocks.div_ceil(4);
     // Length of each of the four chunks.
     let chunk_offset = blocks_per_chunk - overlap_blocks;
 
-    deltas.resize(total_blocks, V::zero());
+    deltas.resize(text_blocks, V::zero());
 
     type Base = u64;
     type VV = V<Base>;
@@ -130,7 +131,10 @@ fn search_positions_maybe_bounded<P: Profile, const BOUNDED: bool>(
             }
         }
         for lane in 0..4 {
-            deltas[lane * chunk_offset + i] = <VV as VEncoding<Base>>::from(vp[lane], vm[lane]);
+            let idx = lane * chunk_offset + i;
+            if idx < deltas.len() {
+                deltas[idx] = <VV as VEncoding<Base>>::from(vp[lane], vm[lane]);
+            }
         }
     }
 }
