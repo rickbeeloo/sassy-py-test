@@ -1,43 +1,49 @@
 use pa_types::Cigar;
 use pa_types::Cost;
-use pa_types::Pos;
 use pa_types::I;
+use pa_types::Pos;
 
 use crate::bitpacking::compute_block;
-use crate::delta_encoding::VEncoding;
 use crate::delta_encoding::V;
+use crate::delta_encoding::VEncoding;
 use crate::profiles::Dna;
 use crate::profiles::Profile;
 
-use crate::bitpacking::compute_block_simd;
 use crate::Match;
+use crate::bitpacking::compute_block_simd;
 use std::array::from_fn;
 use std::simd::Simd;
 
-// FIXME: Instead of `Vec<ColCosts>`, a `struct CostMatrix` that wraps it and
-//        supports `get(i,j)` would be nicer.
-/// Costs for states in a single column of an alignment (corresponding to 1 query char vs all the text).
-#[derive(Debug, Clone)]
-pub struct ColCosts {
-    /// Cost to the top of the col.
-    /// Typically simple its index.
-    offset: Cost,
-    /// Deltas between adjacent rows.
+#[derive(Debug, Clone, Default)]
+pub struct CostMatrix {
+    /// Query lenght.
+    q: usize,
     deltas: Vec<V<u64>>,
+}
+
+impl CostMatrix {
+    /// i: text idx
+    /// j: query idx
+    pub fn get(&self, i: usize, j: usize) -> Cost {
+        let mut s = j as Cost;
+        for idx in (j..j + i / 64 * (self.q + 1)).step_by(self.q + 1) {
+            s += self.deltas[idx].value();
+        }
+        if i % 64 != 0 {
+            s += self.deltas[j + i / 64 * (self.q + 1)].value_of_prefix(i as I % 64);
+        }
+        s
+    }
 }
 
 /// Compute the full n*m matrix corresponding to the query * text alignment.
 /// TODO: SIMD variant that takes 1 query, and 4 text slices of the same length.
 #[allow(unused)] // FIXME
-fn fill(query: &[u8], text: &[u8]) -> Vec<ColCosts> {
+fn fill(query: &[u8], text: &[u8], m: &mut CostMatrix) {
+    m.q = query.len();
+    m.deltas.clear();
+    m.deltas.reserve((m.q + 1) * text.len().div_ceil(64));
     let (profiler, query_profile) = Dna::encode_query(query);
-    let mut col_costs: Vec<_> = (0..=query.len())
-        .map(|i| ColCosts {
-            offset: i as Cost,
-            deltas: vec![V::<u64>::zero(); text.len().div_ceil(64)],
-        })
-        .collect();
-
     let mut h = vec![(1, 0); query.len()];
 
     let mut text_profile = profiler.alloc_out();
@@ -52,19 +58,27 @@ fn fill(query: &[u8], text: &[u8]) -> Vec<ColCosts> {
 
         let mut v = V::<u64>::zero();
 
+        m.deltas.push(v);
         for j in 0..query.len() {
             compute_block::<Dna, _, _>(&mut h[j], &mut v, &query_profile[j], &text_profile);
-            col_costs[j + 1].deltas[i] = v;
+            m.deltas.push(v);
         }
     }
-
-    col_costs
 }
 
-pub fn simd_fill<P: Profile>(query: &[u8], texts: [&[u8]; 4]) -> [Vec<ColCosts>; 4] {
+pub fn simd_fill<P: Profile>(query: &[u8], texts: &[&[u8]], m: &mut [CostMatrix; 4]) {
+    assert!(texts.len() <= 4);
+    let lanes = texts.len();
+
     let (profiler, query_profile) = P::encode_query(query);
     let max_len = texts.iter().map(|t| t.len()).max().unwrap();
     let num_chunks = max_len.div_ceil(64);
+
+    for m in &mut *m {
+        m.q = query.len();
+        m.deltas.clear();
+        m.deltas.reserve((m.q + 1) * num_chunks);
+    }
 
     type Base = u64;
     type VV = V<Base>;
@@ -79,17 +93,8 @@ pub fn simd_fill<P: Profile>(query: &[u8], texts: [&[u8]; 4]) -> [Vec<ColCosts>;
         profiler.alloc_out(),
     ];
 
-    let mut lane_col_costs: [Vec<ColCosts>; 4] = from_fn(|_lane| {
-        (0..=query.len())
-            .map(|i| ColCosts {
-                offset: i as Cost,
-                deltas: vec![V::<u64>::zero(); num_chunks],
-            })
-            .collect::<Vec<_>>()
-    });
-
     for i in 0..num_chunks {
-        for lane in 0..4 {
+        for lane in 0..lanes {
             let mut slice = [b'X'; 64];
             let block = texts[lane].get(64 * i..).unwrap_or_default();
             let block = block.get(..64).unwrap_or(block);
@@ -98,32 +103,36 @@ pub fn simd_fill<P: Profile>(query: &[u8], texts: [&[u8]; 4]) -> [Vec<ColCosts>;
         }
         let mut vp = S::splat(0);
         let mut vm = S::splat(0);
+        for lane in 0..lanes {
+            let v = <VV as VEncoding<Base>>::from(vp[lane], vm[lane]);
+            m[lane].deltas.push(v);
+        }
         for j in 0..query.len() {
             let eq = from_fn(|lane| P::eq(&query_profile[j], &text_profile[lane])).into();
             compute_block_simd(&mut hp[j], &mut hm[j], &mut vp, &mut vm, eq);
-            for lane in 0..4 {
+            for lane in 0..lanes {
                 let v = <VV as VEncoding<Base>>::from(vp[lane], vm[lane]);
-                lane_col_costs[lane][j + 1].deltas[i] = v;
+                m[lane].deltas.push(v);
             }
         }
     }
 
-    lane_col_costs
+    for lane in 0..lanes {
+        assert_eq!(m[lane].deltas.len(), num_chunks * (m[lane].q + 1));
+    }
 }
 
 pub fn get_trace<P: Profile>(
     query: &[u8],
     text_offset: usize,
     text: &[u8],
-    col_costs: &[ColCosts],
+    m: &CostMatrix,
 ) -> Match {
     let mut trace = Vec::new();
     let mut i = query.len();
     let mut j = text.len();
 
-    let cost = |i: usize, j: usize| -> Cost {
-        col_costs[i].offset + V::<u64>::value_to(&col_costs[i].deltas, j as I)
-    };
+    let cost = |i: usize, j: usize| -> Cost { m.get(j, i) };
 
     // remaining dist to (i,j)
     let mut g = cost(i, j);
@@ -192,13 +201,10 @@ fn test_traceback() {
     let query = b"ATTTTCCCGGGGATTTT".as_slice();
     let text2: &[u8] = b"ATTTTGGGGATTTT".as_slice();
 
-    let col_costs = fill(query, text2);
-    for c in &col_costs {
-        let (p, m) = c.deltas[0].pm();
-        println!("{}\np: {:064b} \nm: {:064b}\n", c.offset, p, m);
-    }
+    let mut cost_matrix = Default::default();
+    fill(query, text2, &mut cost_matrix);
 
-    let trace = get_trace::<Dna>(query, 0, text2, &col_costs);
+    let trace = get_trace::<Dna>(query, 0, text2, &cost_matrix);
     println!("Trace: {:?}", trace);
 }
 
@@ -210,11 +216,12 @@ fn test_traceback_simd() {
     let text3 = b"TGGGGATTTT".as_slice();
     let text4 = b"TTTTTTTTTTATTTTGGGGATTTT".as_slice();
 
-    let col_costs = simd_fill::<Dna>(&query, [&text1, &text2, &text3, &text4]);
-    let _trace = get_trace::<Dna>(query, 0, text1, &col_costs[0]);
-    let _trace = get_trace::<Dna>(query, 0, text2, &col_costs[1]);
-    let _trace = get_trace::<Dna>(query, 0, text3, &col_costs[2]);
-    let trace = get_trace::<Dna>(query, 0, text4, &col_costs[3]);
+    let mut cost_matrix = Default::default();
+    simd_fill::<Dna>(&query, &[&text1, &text2, &text3, &text4], &mut cost_matrix);
+    let _trace = get_trace::<Dna>(query, 0, text1, &cost_matrix[0]);
+    let _trace = get_trace::<Dna>(query, 0, text2, &cost_matrix[1]);
+    let _trace = get_trace::<Dna>(query, 0, text3, &cost_matrix[2]);
+    let trace = get_trace::<Dna>(query, 0, text4, &cost_matrix[3]);
     println!("Trace: {:?}", trace);
 }
 

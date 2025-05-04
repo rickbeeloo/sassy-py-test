@@ -19,12 +19,14 @@ mod minima;
 mod search;
 mod trace;
 
+use std::cell::RefCell;
+
 pub use minima::{find_below_threshold, find_local_minima, find_local_minima_slow};
 use pa_types::{Cigar, Cost, Pos};
 pub use search::{search_positions, search_positions_bounded};
 
 use profiles::Profile;
-use trace::{get_trace, simd_fill};
+use trace::{CostMatrix, get_trace, simd_fill};
 
 #[derive(Debug, Clone)]
 pub struct Match {
@@ -49,6 +51,10 @@ pub fn search<P: Profile>(query: &[u8], text: &[u8], k: usize) -> Vec<Match> {
 
     let mut traces = Vec::with_capacity(matches.len());
 
+    thread_local! {
+        static M: RefCell<[CostMatrix;4]> = RefCell::new([CostMatrix::default(), CostMatrix::default(), CostMatrix::default(), CostMatrix::default()]);
+    }
+
     let fill_len = query.len() + k;
     for matches in matches.chunks(4) {
         let mut text_slices = [[].as_slice(); 4];
@@ -59,17 +65,20 @@ pub fn search<P: Profile>(query: &[u8], text: &[u8], k: usize) -> Vec<Match> {
             offsets[i] = offset;
             text_slices[i] = &text[offset..end_pos];
         }
-        // TODO: Reuse allocated costs.
-        let costs = simd_fill::<P>(query, text_slices);
+        let text_slices = &text_slices[..matches.len()];
+        M.with(|m| {
+            let mut m = m.borrow_mut();
+            simd_fill::<P>(query, text_slices, &mut m);
 
-        for lane in 0..matches.len() {
-            traces.push(get_trace::<P>(
-                query,
-                offsets[lane],
-                text_slices[lane],
-                &costs[lane],
-            ));
-        }
+            for lane in 0..matches.len() {
+                traces.push(get_trace::<P>(
+                    query,
+                    offsets[lane],
+                    text_slices[lane],
+                    &m[lane],
+                ));
+            }
+        });
     }
 
     traces
@@ -83,6 +92,10 @@ pub fn search_bounded<P: Profile>(query: &[u8], text: &[u8], k: usize) -> Vec<Ma
 
     let mut traces = Vec::with_capacity(matches.len());
 
+    thread_local! {
+        static M: RefCell<[CostMatrix;4]> = RefCell::new([CostMatrix::default(), CostMatrix::default(), CostMatrix::default(), CostMatrix::default()]);
+    }
+
     let fill_len = query.len() + k;
     for matches in matches.chunks(4) {
         let mut text_slices = [[].as_slice(); 4];
@@ -93,17 +106,21 @@ pub fn search_bounded<P: Profile>(query: &[u8], text: &[u8], k: usize) -> Vec<Ma
             offsets[i] = offset;
             text_slices[i] = &text[offset..end_pos];
         }
-        // TODO: Reuse allocated costs.
-        let costs = simd_fill::<P>(query, text_slices);
+        let text_slices = &text_slices[..matches.len()];
 
-        for lane in 0..matches.len() {
-            traces.push(get_trace::<P>(
-                query,
-                offsets[lane],
-                text_slices[lane],
-                &costs[lane],
-            ));
-        }
+        M.with(|m| {
+            let mut m = m.borrow_mut();
+            simd_fill::<P>(query, text_slices, &mut m);
+
+            for lane in 0..matches.len() {
+                traces.push(get_trace::<P>(
+                    query,
+                    offsets[lane],
+                    text_slices[lane],
+                    &m[lane],
+                ));
+            }
+        });
     }
     traces
 }
