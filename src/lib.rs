@@ -262,23 +262,20 @@ mod tests {
 
     #[test]
     fn search_fuzz() {
-        // let mut query_lens = (10..20)
-        //     .chain((0..10).map(|_| random_range(10..100)))
-        //     .chain((0..10).map(|_| random_range(100..1000)))
-        //     .collect::<Vec<_>>();
-        // query_lens.sort();
+        let mut query_lens = (10..20)
+            .chain((0..10).map(|_| random_range(10..100)))
+            .chain((0..10).map(|_| random_range(100..1000)))
+            .collect::<Vec<_>>();
 
-        // let query_lens = vec![1000, 2000, 5000];
+        let mut text_lens = (10..20)
+            .chain((0..10).map(|_| random_range(10..100)))
+            .chain((0..10).map(|_| random_range(100..1000)))
+            .chain((0..10).map(|_| random_range(1000..10000)))
+            .collect::<Vec<_>>();
 
-        // let mut text_lens = (10..20)
-        //     .chain((0..10).map(|_| random_range(10..100)))
-        //     .chain((0..10).map(|_| random_range(100..1000)))
-        //     .chain((0..10).map(|_| random_range(1000..10000)))
-        //     .collect::<Vec<_>>();
-        // text_lens.sort();
+        // let mut query_lens = [1000, 2000, 5000, 10_000].repeat(1);
+        // let mut text_lens = [10_000, 100_000, 1_000_000].repeat(1);
 
-        let mut query_lens = [1000, 2000, 5000, 10_000].repeat(1);
-        let mut text_lens = [10_000, 100_000, 1_000_000].repeat(1);
         query_lens.sort();
         text_lens.sort();
 
@@ -321,7 +318,7 @@ mod tests {
                 }
                 eprintln!("");
                 eprintln!("edits {edits}");
-                eprintln!("query {}", show(&query));
+                eprintln!("query q={q} {}", show(&query));
                 eprintln!("pattern {}", show(&p));
 
                 if p.len() > text.len() {

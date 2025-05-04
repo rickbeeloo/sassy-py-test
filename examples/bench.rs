@@ -167,7 +167,7 @@ fn run_bench_with_planted<P, D, B>(
             }
 
             // For now this runs the benchmark on the same query and text in iterations
-            /// TODO: maybe vary queries and texts across bench iterations?
+            // TODO: maybe vary queries and texts across bench iterations?
             let (query, text, planted_locs) = generate_query_and_text_with_matches(
                 q_len,
                 ref_len,
@@ -210,7 +210,7 @@ fn run_bench_with_planted<P, D, B>(
             let query_str = String::from_utf8_lossy(&query);
             let text_str = String::from_utf8_lossy(&text);
 
-            for (i, &(planted_start, _planted_end)) in planted_locs.iter().enumerate() {
+            for (_i, &(planted_start, _planted_end)) in planted_locs.iter().enumerate() {
                 let found = sassy_result
                     .iter()
                     .any(|m| (m.start.1 as usize).abs_diff(planted_start) <= max_edits);
