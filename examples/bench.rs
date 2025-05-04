@@ -1,0 +1,485 @@
+use ::std::os::raw::c_char;
+use clap::{Parser, ValueEnum};
+use edlib_rs::edlib_sys::*;
+use edlib_rs::*;
+use rand::Rng;
+use serde::Deserialize;
+use std::fs::File;
+use std::io::{BufWriter, Write};
+use std::path::Path;
+
+macro_rules! time_it {
+    ($label:expr, $expr:expr, $iters:expr) => {{
+        let mut times = Vec::with_capacity($iters);
+        let mut result = None;
+        for _ in 0..$iters {
+            let start = std::time::Instant::now();
+            // https://doc.rust-lang.org/std/hint/fn.black_box.html
+            let r = std::hint::black_box($expr);
+            let elapsed = start.elapsed();
+            times.push(elapsed.as_micros() as f64);
+            result = Some(r);
+        }
+        let mean = times.iter().sum::<f64>() / times.len() as f64;
+        (result.unwrap(), mean)
+    }};
+}
+
+enum Alphabet {
+    Dna,
+    Iupac,
+    Ascii,
+}
+
+fn generate_random_sequence(length: usize, alphabet: &Alphabet) -> Vec<u8> {
+    let mut rng = rand::rng();
+
+    match alphabet {
+        Alphabet::Dna => (0..length)
+            .map(|_| {
+                let c = rng.random_range(0..4);
+                b"ACGT"[c]
+            })
+            .collect(),
+        Alphabet::Iupac => (0..length)
+            .map(|_| {
+                let c = rng.random_range(0..16);
+                b"ACGTURYSWKMBDHVNX"[c]
+            })
+            .collect(),
+        Alphabet::Ascii => (0..length)
+            .map(|_| rng.random_range(0..256) as u8)
+            .collect(),
+    }
+}
+
+/// Supporting atcgn, with configurable k, NOTE uses traceback
+fn get_edlib_config(k: i32) -> EdlibAlignConfigRs<'static> {
+    let mut config = EdlibAlignConfigRs::default();
+    config.mode = EdlibAlignModeRs::EDLIB_MODE_HW; // Infix, semi-global
+    config.additionalequalities = &EQUALITY_PAIRS; // Allow A, a, T, t, G, g, C, c to be considered equal (see bottom of file)
+    config.k = k;
+    config.task = EdlibAlignTaskRs::EDLIB_TASK_PATH;
+    config
+}
+
+/// Apply random mutations to a sequence, sub/ins/del
+fn mutate_sequence(sequence: &[u8], max_edits: usize) -> Vec<u8> {
+    let mut rng = rand::rng();
+    let mut mutated = sequence.to_vec();
+    let edits = rng.random_range(0..=max_edits.min(sequence.len()));
+
+    for _ in 0..edits {
+        let edit_type = rng.random_range(0..3);
+        let idx = rng.random_range(0..mutated.len());
+        match edit_type {
+            // We just insert DNA chars for ASCII, DNA, and IUPAC now
+            0 => mutated[idx] = b"ACGT"[rng.random_range(0..4)],
+            1 if mutated.len() > 1 => {
+                mutated.remove(idx);
+            }
+            2 => mutated.insert(idx, b"ACGT"[rng.random_range(0..4)]),
+            _ => {}
+        }
+    }
+
+    mutated
+}
+
+/// Generate a random DNA query and a text with `num_matches` planted, each with up to `max_edits` edits.
+/// also returns the locations of the planted matches
+fn generate_query_and_text_with_matches(
+    query_len: usize,
+    text_len: usize,
+    num_matches: usize,
+    max_edits: usize,
+    alphabet: &Alphabet,
+) -> (Vec<u8>, Vec<u8>, Vec<(usize, usize)>) {
+    let mut rng = rand::rng();
+
+    // Generate random query and text
+    let query = generate_random_sequence(query_len, alphabet);
+    let mut text = generate_random_sequence(text_len, alphabet);
+
+    let mut planted_locs = Vec::new();
+
+    // Try to insert up to num_matches, might not be possibel to insert any or all
+    // as we maintain the text len. For example we cant insert a 1KB with 1 edit in 40nt text
+    'outer: for _ in 0..num_matches {
+        let mutated = mutate_sequence(&query, max_edits);
+        let mlen = mutated.len();
+
+        // if mutated is longer than the whole text, skip
+        if mlen > text.len() {
+            continue;
+        }
+
+        // Find a non-overlapping insert region - 10 tries
+        // TODO: just keep track of uncovered regions
+        let max_start = text.len() - mlen;
+        for _ in 0..10 {
+            let start = rng.random_range(0..=max_start);
+            let end = start + mlen;
+            // check against all previously planted intervals
+            if planted_locs.iter().all(|&(s, e)| end <= s || start >= e) {
+                // replace exactly [start..end) with mutated
+                text.splice(start..end, mutated.iter().cloned());
+                planted_locs.push((start, end));
+                continue 'outer;
+            }
+        }
+    }
+
+    (query, text, planted_locs)
+}
+
+/// Benchmark function with planted matches and edits
+fn run_bench_with_planted<P, D, B>(
+    query_lengths: &[usize],
+    text_lengths: &[usize],
+    edlib_k: i32,
+    sassy_k: usize,
+    output_file: &str,
+    num_matches: usize,
+    max_edits: usize,
+    bench_iter: usize,
+    alphabet: Alphabet,
+) where
+    P: sassy::profiles::Profile,
+    D: sassy::RcBehavior<P>,
+    B: sassy::BoundBehavior<P>,
+{
+    let edlib_config = get_edlib_config(edlib_k);
+
+    let file = File::create(output_file).expect("Unable to create output file");
+    let mut writer = BufWriter::new(file);
+
+    writeln!(
+        writer,
+        "query_len\tref_len\tnum_matches\tmax_edits\ttool\trun_time"
+    )
+    .unwrap();
+
+    for &q_len in query_lengths {
+        for &ref_len in text_lengths {
+            if ref_len < q_len {
+                continue;
+            }
+
+            // For now this runs the benchmark on the same query and text in iterations
+            /// TODO: maybe vary queries and texts across bench iterations?
+            let (query, text, planted_locs) = generate_query_and_text_with_matches(
+                q_len,
+                ref_len,
+                num_matches,
+                max_edits,
+                &alphabet,
+            );
+
+            // Run edlib
+            let (edlib_result, edlib_mean_ms) = time_it!(
+                "edlib",
+                edlibAlignRs(&query, &text, &edlib_config),
+                bench_iter
+            );
+            assert_eq!(edlib_result.status, EDLIB_STATUS_OK);
+            writeln!(
+                writer,
+                "{q_len}\t{ref_len}\t{num_matches}\t{max_edits}\tedlib\t{:.3}",
+                edlib_mean_ms
+            )
+            .unwrap();
+
+            // Run sassy
+            let (sassy_result, sassy_mean_ms) = time_it!(
+                "sassy",
+                sassy::search_generic::<P, D, B>(&query, &text, sassy_k),
+                bench_iter
+            );
+            writeln!(
+                writer,
+                "{q_len}\t{ref_len}\t{num_matches}\t{max_edits}\tsassy\t{:.3}",
+                sassy_mean_ms
+            )
+            .unwrap();
+
+            // --- Verification of planted locations ---
+            // Print all planted sequences and their locations
+            println!(">Query length: {}, Reference length: {}", q_len, ref_len);
+
+            let query_str = String::from_utf8_lossy(&query);
+            let text_str = String::from_utf8_lossy(&text);
+
+            for (i, &(planted_start, _planted_end)) in planted_locs.iter().enumerate() {
+                let found = sassy_result
+                    .iter()
+                    .any(|m| (m.start.1 as usize).abs_diff(planted_start) <= max_edits);
+                if !found {
+                    // Format error message with detailed information
+                    let mut error_msg = format!(
+                        "\n😔 ERROR: Verification failed! (q_len={}, ref_len={})\n\n",
+                        q_len, ref_len
+                    );
+
+                    // Add query and text information
+                    error_msg.push_str(&format!("Query: \"{}\"\n\n", query_str));
+                    error_msg.push_str(&format!("Text: \"{}\"\n\n", text_str));
+
+                    // Add planted locations
+                    error_msg.push_str("Planted locations:\n");
+                    for (j, &(start, end)) in planted_locs.iter().enumerate() {
+                        error_msg.push_str(&format!(
+                            "  {}. Position {}..{}: \"{}\"\n",
+                            j + 1,
+                            start,
+                            end,
+                            &text_str[start..end]
+                        ));
+                    }
+
+                    // Add sassy results
+                    error_msg.push_str("\nSassy matches found:\n");
+                    if sassy_result.is_empty() {
+                        error_msg.push_str("  (No matches found by sassy)\n");
+                    } else {
+                        for (j, m) in sassy_result.iter().enumerate() {
+                            let match_seq = &text_str[m.start.1 as usize..m.end.1 as usize];
+                            error_msg.push_str(&format!(
+                                "  {}. Position {}..{}: \"{}\"\n",
+                                j + 1,
+                                m.start.1,
+                                m.end.1,
+                                match_seq
+                            ));
+                        }
+                    }
+
+                    // Add edlib results
+                    error_msg.push_str("\nEdlib matches found:\n");
+                    let edlib_locations = edlib_result.getStartLocations().unwrap();
+                    if edlib_locations.is_empty() {
+                        error_msg.push_str("  (No matches found by edlib)\n");
+                    } else {
+                        for (j, &start_pos) in edlib_locations.iter().enumerate() {
+                            let end_pos = start_pos as usize + query.len();
+                            let match_seq = if end_pos <= text.len() {
+                                &text_str[start_pos as usize..end_pos]
+                            } else {
+                                "(out of bounds)"
+                            };
+                            error_msg.push_str(&format!(
+                                "  {}. Position {}..{}: \"{}\"\n",
+                                j + 1,
+                                start_pos,
+                                end_pos,
+                                match_seq
+                            ));
+                        }
+                    }
+
+                    panic!("{}", error_msg);
+                }
+            }
+            println!(
+                "✅ All {} planted matches found: {}",
+                planted_locs.len(),
+                planted_locs
+                    .iter()
+                    .map(|&(start, end)| format!("{}..{}", start, end))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
+    }
+}
+
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Path to the TOML config file
+    config: String,
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+enum ProfileOpt {
+    Iupac,
+    Dna,
+    Ascii,
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+enum RcOpt {
+    WithRc,
+    WithoutRc,
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+enum BoundOpt {
+    Bounded,
+    Unbounded,
+}
+
+#[derive(Debug, Deserialize)]
+struct BenchConfig {
+    query_lengths: Vec<usize>,
+    text_lengths: Vec<usize>,
+    output_file: String,
+    edlib_k: i32,
+    sassy_k: usize,
+    num_matches: usize,
+    max_edits: usize,
+    bench_iter: usize,
+    alphabet: String, // "dna", "iupac", or "ascii"
+    profile: String,  // "iupac", "dna", "ascii"
+    rc: String,       // "withrc", "withoutrc"
+    bound: String,    // "bounded", "unbounded"
+}
+
+fn read_config<P: AsRef<Path>>(path: P) -> BenchConfig {
+    let s = std::fs::read_to_string(path).expect("Failed to read config file");
+    toml::from_str(&s).expect("Failed to parse TOML config")
+}
+
+fn main() {
+    let args = Args::parse();
+    let config = read_config(&args.config);
+
+    // Parse enums from strings
+    let alphabet = match config.alphabet.to_lowercase().as_str() {
+        "dna" => Alphabet::Dna,
+        "iupac" => Alphabet::Iupac,
+        "ascii" => Alphabet::Ascii,
+        _ => panic!("Unknown alphabet"),
+    };
+
+    macro_rules! dispatch {
+        ($profile:ty, $rc:ty, $bound:ty) => {
+            run_bench_with_planted::<$profile, $rc, $bound>(
+                &config.query_lengths,
+                &config.text_lengths,
+                config.edlib_k,
+                config.sassy_k,
+                &config.output_file,
+                config.num_matches,
+                config.max_edits,
+                config.bench_iter,
+                alphabet,
+            )
+        };
+    }
+
+    match (
+        config.profile.to_lowercase().as_str(),
+        config.rc.to_lowercase().as_str(),
+        config.bound.to_lowercase().as_str(),
+    ) {
+        ("iupac", "withrc", "bounded") => {
+            dispatch!(sassy::profiles::Iupac, sassy::WithRc, sassy::Bounded)
+        }
+        ("iupac", "withrc", "unbounded") => {
+            dispatch!(sassy::profiles::Iupac, sassy::WithRc, sassy::Unbounded)
+        }
+        ("iupac", "withoutrc", "bounded") => {
+            dispatch!(sassy::profiles::Iupac, sassy::WithoutRc, sassy::Bounded)
+        }
+        ("iupac", "withoutrc", "unbounded") => {
+            dispatch!(sassy::profiles::Iupac, sassy::WithoutRc, sassy::Unbounded)
+        }
+        ("dna", "withrc", "bounded") => {
+            dispatch!(sassy::profiles::Dna, sassy::WithRc, sassy::Bounded)
+        }
+        ("dna", "withrc", "unbounded") => {
+            dispatch!(sassy::profiles::Dna, sassy::WithRc, sassy::Unbounded)
+        }
+        ("dna", "withoutrc", "bounded") => {
+            dispatch!(sassy::profiles::Dna, sassy::WithoutRc, sassy::Bounded)
+        }
+        ("dna", "withoutrc", "unbounded") => {
+            dispatch!(sassy::profiles::Dna, sassy::WithoutRc, sassy::Unbounded)
+        }
+        ("ascii", "withrc", "bounded") => {
+            dispatch!(sassy::profiles::Ascii, sassy::WithRc, sassy::Bounded)
+        }
+        ("ascii", "withrc", "unbounded") => {
+            dispatch!(sassy::profiles::Ascii, sassy::WithRc, sassy::Unbounded)
+        }
+        ("ascii", "withoutrc", "bounded") => {
+            dispatch!(sassy::profiles::Ascii, sassy::WithoutRc, sassy::Bounded)
+        }
+        ("ascii", "withoutrc", "unbounded") => {
+            dispatch!(sassy::profiles::Ascii, sassy::WithoutRc, sassy::Unbounded)
+        }
+        _ => panic!("Unknown profile/rc/bound combination"),
+    }
+}
+
+static EQUALITY_PAIRS: [EdlibEqualityPairRs; 17] = [
+    EdlibEqualityPairRs {
+        first: 'A' as c_char,
+        second: 'N' as c_char,
+    },
+    EdlibEqualityPairRs {
+        first: 'A' as c_char,
+        second: 'n' as c_char,
+    },
+    EdlibEqualityPairRs {
+        first: 'a' as c_char,
+        second: 'N' as c_char,
+    },
+    EdlibEqualityPairRs {
+        first: 'a' as c_char,
+        second: 'n' as c_char,
+    },
+    EdlibEqualityPairRs {
+        first: 'T' as c_char,
+        second: 'N' as c_char,
+    },
+    EdlibEqualityPairRs {
+        first: 'T' as c_char,
+        second: 'n' as c_char,
+    },
+    EdlibEqualityPairRs {
+        first: 't' as c_char,
+        second: 'N' as c_char,
+    },
+    EdlibEqualityPairRs {
+        first: 't' as c_char,
+        second: 'n' as c_char,
+    },
+    EdlibEqualityPairRs {
+        first: 'G' as c_char,
+        second: 'N' as c_char,
+    },
+    EdlibEqualityPairRs {
+        first: 'G' as c_char,
+        second: 'n' as c_char,
+    },
+    EdlibEqualityPairRs {
+        first: 'g' as c_char,
+        second: 'N' as c_char,
+    },
+    EdlibEqualityPairRs {
+        first: 'g' as c_char,
+        second: 'n' as c_char,
+    },
+    EdlibEqualityPairRs {
+        first: 'C' as c_char,
+        second: 'N' as c_char,
+    },
+    EdlibEqualityPairRs {
+        first: 'C' as c_char,
+        second: 'n' as c_char,
+    },
+    EdlibEqualityPairRs {
+        first: 'c' as c_char,
+        second: 'N' as c_char,
+    },
+    EdlibEqualityPairRs {
+        first: 'c' as c_char,
+        second: 'n' as c_char,
+    },
+    EdlibEqualityPairRs {
+        first: 'N' as c_char,
+        second: 'N' as c_char,
+    },
+];

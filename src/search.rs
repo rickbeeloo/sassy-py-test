@@ -53,8 +53,7 @@ fn search_positions_maybe_bounded<P: Profile, const BOUNDED: bool>(
     let total_blocks = text_blocks + 3 * overlap_blocks;
     let blocks_per_chunk = total_blocks.div_ceil(4);
     // Length of each of the four chunks.
-    let chunk_offset = blocks_per_chunk - overlap_blocks;
-
+    let chunk_offset = blocks_per_chunk.saturating_sub(overlap_blocks);
     deltas.resize(text_blocks, V::zero());
 
     type Base = u64;
@@ -110,7 +109,7 @@ fn search_positions_maybe_bounded<P: Profile, const BOUNDED: bool>(
                 // To have some buffer, we start filtering at length 3*k.
                 //
                 // TODO: Currently this filtering is much too slow to be useable for small k.
-                if j == (4 * k).max(8) as usize {
+                if j >= 64 && j.is_power_of_two() {
                     // Check for each lane
                     for lane in 0..4 {
                         let v = V(vp.as_array()[lane], vm.as_array()[lane]);

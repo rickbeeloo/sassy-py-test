@@ -75,6 +75,39 @@ pub fn search<P: Profile>(query: &[u8], text: &[u8], k: usize) -> Vec<Match> {
     traces
 }
 
+pub fn search_bounded<P: Profile>(query: &[u8], text: &[u8], k: usize) -> Vec<Match> {
+    let mut deltas = vec![];
+    search_positions_bounded::<P>(query, text, k as Cost, &mut deltas);
+
+    let matches = find_local_minima(query, &mut deltas, k as Cost, text.len());
+
+    let mut traces = Vec::with_capacity(matches.len());
+
+    let fill_len = query.len() + k;
+    for matches in matches.chunks(4) {
+        let mut text_slices = [[].as_slice(); 4];
+        let mut offsets = [0; 4];
+        for i in 0..matches.len() {
+            let end_pos = matches[i].0;
+            let offset = end_pos.saturating_sub(fill_len);
+            offsets[i] = offset;
+            text_slices[i] = &text[offset..end_pos];
+        }
+        // TODO: Reuse allocated costs.
+        let costs = simd_fill::<P>(query, text_slices);
+
+        for lane in 0..matches.len() {
+            traces.push(get_trace::<P>(
+                query,
+                offsets[lane],
+                text_slices[lane],
+                &costs[lane],
+            ));
+        }
+    }
+    traces
+}
+
 pub fn search_with_rc<P: Profile>(query: &[u8], text: &[u8], k: usize) -> Vec<Match> {
     let mut matches = search::<P>(query, text, k);
     let query_rc = &P::reverse_complement(query);
@@ -92,6 +125,90 @@ pub fn search_maybe_rc<P: Profile>(query: &[u8], text: &[u8], k: usize, rc: bool
         search_with_rc::<P>(query, text, k)
     } else {
         search::<P>(query, text, k)
+    }
+}
+
+/*
+
+    Below mostly to benchmark the different behaviors, see examples/bench.rs
+    mmaking sure all options are commpiled
+*/
+
+pub struct WithRc;
+pub struct WithoutRc;
+pub struct Bounded;
+pub struct Unbounded;
+
+pub trait BoundBehavior<P: Profile> {
+    fn search(query: &[u8], text: &[u8], k: usize) -> Vec<Match>;
+}
+
+pub trait RcBehavior<P: Profile> {
+    fn search<F: Fn(&[u8], &[u8], usize) -> Vec<Match>>(
+        query: &[u8],
+        text: &[u8],
+        k: usize,
+        search_fn: F,
+    ) -> Vec<Match>;
+}
+
+pub fn search_generic<P: Profile, RcOpt, BoundOpt>(
+    query: &[u8],
+    text: &[u8],
+    k: usize,
+) -> Vec<Match>
+where
+    RcOpt: RcBehavior<P>,
+    BoundOpt: BoundBehavior<P>,
+{
+    // We first decide the "bound" type" to call BoundOpt::search.
+    // then bsaed on the RCOpt trait we basically decide if we want
+    // to call this twice (fr, rc) or once (fr)
+    RcOpt::search(query, text, k, BoundOpt::search)
+}
+
+// Compiled version without reverse complement search
+impl<P: Profile> RcBehavior<P> for WithoutRc {
+    fn search<F: Fn(&[u8], &[u8], usize) -> Vec<Match>>(
+        query: &[u8],
+        text: &[u8],
+        k: usize,
+        search_fn: F,
+    ) -> Vec<Match> {
+        search_fn(query, text, k)
+    }
+}
+
+// Compiled version with reverse complement search
+impl<P: Profile> RcBehavior<P> for WithRc {
+    fn search<F: Fn(&[u8], &[u8], usize) -> Vec<Match>>(
+        query: &[u8],
+        text: &[u8],
+        k: usize,
+        search_fn: F,
+    ) -> Vec<Match> {
+        let mut matches = search_fn(query, text, k);
+        let query_rc = &P::reverse_complement(query);
+        let mut rc_matches = search_fn(query_rc, text, k);
+        for m in &mut rc_matches {
+            m.strand = Strand::Rc;
+        }
+        matches.extend(rc_matches);
+        matches
+    }
+}
+
+// Compiled version without bounds
+impl<P: Profile> BoundBehavior<P> for Unbounded {
+    fn search(query: &[u8], text: &[u8], k: usize) -> Vec<Match> {
+        search::<P>(query, text, k)
+    }
+}
+
+// Compiled version with bounds
+impl<P: Profile> BoundBehavior<P> for Bounded {
+    fn search(query: &[u8], text: &[u8], k: usize) -> Vec<Match> {
+        search_bounded::<P>(query, text, k)
     }
 }
 
@@ -128,19 +245,29 @@ mod tests {
 
     #[test]
     fn search_fuzz() {
-        let mut query_lens = (10..20)
-            .chain((0..10).map(|_| random_range(10..100)))
-            .chain((0..10).map(|_| random_range(100..1000)))
-            .collect::<Vec<_>>();
+        // let mut query_lens = (10..20)
+        //     .chain((0..10).map(|_| random_range(10..100)))
+        //     .chain((0..10).map(|_| random_range(100..1000)))
+        //     .collect::<Vec<_>>();
+        // query_lens.sort();
+
+        // let query_lens = vec![1000, 2000, 5000];
+
+        // let mut text_lens = (10..20)
+        //     .chain((0..10).map(|_| random_range(10..100)))
+        //     .chain((0..10).map(|_| random_range(100..1000)))
+        //     .chain((0..10).map(|_| random_range(1000..10000)))
+        //     .collect::<Vec<_>>();
+        // text_lens.sort();
+
+        let mut query_lens = [1000, 2000, 5000, 10_000].repeat(1);
+        let mut text_lens = [10_000, 100_000, 1_000_000].repeat(1);
         query_lens.sort();
-        let mut text_lens = (10..20)
-            .chain((0..10).map(|_| random_range(10..100)))
-            .chain((0..10).map(|_| random_range(100..1000)))
-            .chain((0..10).map(|_| random_range(1000..10000)))
-            .collect::<Vec<_>>();
         text_lens.sort();
+
         for q in query_lens {
             for t in text_lens.clone() {
+                println!("q {q} t {t}");
                 let query = (0..q)
                     .map(|_| b"ACGT"[random_range(0..4)])
                     .collect::<Vec<_>>();

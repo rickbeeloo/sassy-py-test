@@ -14,11 +14,20 @@ criterion = "0.5.1"
 rand = "0.9.0"
 pa-types.git = "https://github.com/pairwise-alignment/pa-types"
 clap = { version = "4.5.37", features = ["derive"] }
-needletail = "0.6.3"
 log = "0.4.27"
 env_logger = "0.11.8"
 num_cpus = "1.16.0"
+needletail = "0.6.3"
 
 [[bench]]
 name = "bench"
 harness = false
+
+[dev-dependencies]
+edlib_rs = { git = "https://github.com/rickbeeloo/edlib-rs-cli.git" }
+toml = "0.7"
+serde = { version = "1.0", features = ["derive"] }
+
+[[example]]
+name = "bench"
+path = "examples/bench.rs"
