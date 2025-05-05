@@ -1,6 +1,9 @@
 use crate::minima::prefix_min;
 use pa_types::Cost;
-use std::{array::from_fn, simd::Simd};
+use std::{
+    array::from_fn,
+    simd::{Simd, cmp::SimdPartialOrd},
+};
 
 use crate::{
     bitpacking::compute_block_simd,
@@ -72,10 +75,14 @@ fn search_positions_maybe_bounded<P: Profile, const BOUNDED: bool>(
 
     let mut text_chunks: [[u8; 64]; 4] = [[0; 64]; 4];
 
+    let mut prev_max_j = 0;
+
     for i in 0..blocks_per_chunk {
         // The alignment can start anywhere, so start with deltas of 0.
         let mut vp = S::splat(0);
         let mut vm = S::splat(0);
+
+        let mut x = S::splat(0);
 
         // Collect the 4 slices of input text.
         // Out-of-bounds characters are replaced by 'X', which doesn't match anything.
@@ -94,6 +101,9 @@ fn search_positions_maybe_bounded<P: Profile, const BOUNDED: bool>(
         }
 
         let mut dist_to_start_of_lane = S::splat(0);
+        let mut dist_to_end_of_lane = S::splat(0);
+
+        let mut cur_max_j = 0;
 
         // Iterate over query chars.
         'query: for j in 0..query.len() {
@@ -109,7 +119,7 @@ fn search_positions_maybe_bounded<P: Profile, const BOUNDED: bool>(
                 // To have some buffer, we start filtering at length 3*k.
                 //
                 // TODO: Currently this filtering is much too slow to be useable for small k.
-                if j >= 64 && j.is_power_of_two() {
+                if j >= 16 && j > prev_max_j && j.is_power_of_two() {
                     // Check for each lane
                     for lane in 0..4 {
                         let v = V(vp.as_array()[lane], vm.as_array()[lane]);
@@ -123,10 +133,21 @@ fn search_positions_maybe_bounded<P: Profile, const BOUNDED: bool>(
                     // All lanes only have values > k. We set remaining horizontal deltas to +1.
                     for j2 in j + 1..query.len() {
                         hp[j2] = S::splat(1);
-                        hm[j2] = S::splat(1);
+                        hm[j2] = S::splat(0);
                     }
                     break;
                 }
+
+                dist_to_end_of_lane += hp[j];
+                dist_to_end_of_lane -= hm[j];
+                // FIXME: Somehwo the deltas are ocasionally off by 1. We need
+                // this +1 here to fix things.
+                // This feels like a bug in bitpacking.rs.
+                cur_max_j = if (dist_to_end_of_lane.simd_le(S::splat(k as u64 + 1))).any() {
+                    j
+                } else {
+                    cur_max_j
+                };
             }
         }
         for lane in 0..4 {
@@ -135,5 +156,6 @@ fn search_positions_maybe_bounded<P: Profile, const BOUNDED: bool>(
                 deltas[idx] = <VV as VEncoding<Base>>::from(vp[lane], vm[lane]);
             }
         }
+        prev_max_j = cur_max_j;
     }
 }

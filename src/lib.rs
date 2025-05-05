@@ -334,12 +334,20 @@ mod tests {
                 text.splice(idx..idx + p.len(), p);
                 eprintln!("text {}", show(&text));
 
+                // Plain
                 let matches = super::search::<Dna>(&query, &text, edits);
                 eprintln!("matches {matches:?}");
                 let m = matches
                     .iter()
                     .find(|m| (m.start.1 as usize).abs_diff(expected_idx) <= edits);
+                assert!(m.is_some());
 
+                // Bounded
+                let matches = super::search_bounded::<Dna>(&query, &text, edits);
+                eprintln!("matches {matches:?}");
+                let m = matches
+                    .iter()
+                    .find(|m| (m.start.1 as usize).abs_diff(expected_idx) <= edits);
                 assert!(m.is_some());
             }
         }
