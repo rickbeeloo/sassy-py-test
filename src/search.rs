@@ -11,6 +11,8 @@ use crate::{
     profiles::Profile,
 };
 
+pub(crate) type Deltas = Vec<(Cost, V<u64>)>;
+
 /// Search for query in text.
 /// Do something like Farrar's striped SIMD, but on a higher level:
 /// - Split the text into 4 equally long 64byte-aligned chunks.
@@ -19,7 +21,7 @@ use crate::{
 ///
 /// Returns the results in a reused output vector.
 // FIXME: We really need some proper tests for this.
-pub fn search_positions<P: Profile>(query: &[u8], text: &[u8], deltas: &mut Vec<V<u64>>) {
+pub fn search_positions<P: Profile>(query: &[u8], text: &[u8], deltas: &mut Deltas) {
     search_positions_maybe_bounded::<P, false>(query, text, 0, deltas);
 }
 
@@ -29,7 +31,7 @@ pub fn search_positions_bounded<P: Profile>(
     query: &[u8],
     text: &[u8],
     k: Cost,
-    deltas: &mut Vec<V<u64>>,
+    deltas: &mut Deltas,
 ) {
     search_positions_maybe_bounded::<P, true>(query, text, k, deltas);
 }
@@ -38,7 +40,8 @@ fn search_positions_maybe_bounded<P: Profile, const BOUNDED: bool>(
     query: &[u8],
     text: &[u8],
     k: Cost,
-    deltas: &mut Vec<V<u64>>,
+    // Cost to start of lane, and deltas.
+    deltas: &mut Deltas,
 ) {
     let (profiler, query_profile) = P::encode_query(query);
 
@@ -57,7 +60,7 @@ fn search_positions_maybe_bounded<P: Profile, const BOUNDED: bool>(
     let blocks_per_chunk = total_blocks.div_ceil(4);
     // Length of each of the four chunks.
     let chunk_offset = blocks_per_chunk.saturating_sub(overlap_blocks);
-    deltas.resize(text_blocks, V::zero());
+    deltas.resize(text_blocks, Default::default());
 
     type Base = u64;
     type VV = V<Base>;
@@ -75,7 +78,7 @@ fn search_positions_maybe_bounded<P: Profile, const BOUNDED: bool>(
 
     let mut text_chunks: [[u8; 64]; 4] = [[0; 64]; 4];
 
-    let mut prev_max_j = 0;
+    let mut prev_max_j = usize::MAX;
 
     'text_chunk: for i in 0..blocks_per_chunk {
         // The alignment can start anywhere, so start with deltas of 0.
@@ -138,7 +141,8 @@ fn search_positions_maybe_bounded<P: Profile, const BOUNDED: bool>(
                         for lane in 0..4 {
                             let idx = lane * chunk_offset + i;
                             if idx < deltas.len() {
-                                deltas[idx] = <VV as VEncoding<Base>>::from(u64::MAX, 0);
+                                deltas[idx] =
+                                    (Cost::MAX, <VV as VEncoding<Base>>::from(u64::MAX, 0));
                             }
                         }
                         continue 'text_chunk;
@@ -157,7 +161,10 @@ fn search_positions_maybe_bounded<P: Profile, const BOUNDED: bool>(
         for lane in 0..4 {
             let idx = lane * chunk_offset + i;
             if idx < deltas.len() {
-                deltas[idx] = <VV as VEncoding<Base>>::from(vp[lane], vm[lane]);
+                deltas[idx] = (
+                    dist_to_start_of_lane.as_array()[lane] as _,
+                    <VV as VEncoding<Base>>::from(vp[lane], vm[lane]),
+                );
             }
         }
         prev_max_j = cur_max_j;
