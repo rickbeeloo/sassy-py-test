@@ -80,6 +80,8 @@ fn search_positions_maybe_bounded<P: Profile, const BOUNDED: bool>(
 
     let mut prev_max_j = usize::MAX;
 
+    let first_check = 3 * k as usize;
+
     'text_chunk: for i in 0..blocks_per_chunk {
         // The alignment can start anywhere, so start with deltas of 0.
         let mut vp = S::splat(0);
@@ -106,6 +108,8 @@ fn search_positions_maybe_bounded<P: Profile, const BOUNDED: bool>(
 
         let mut cur_max_j = 0;
 
+        let mut next_check = first_check;
+
         // Iterate over query chars.
         for j in 0..query.len() {
             dist_to_start_of_lane += hp[j];
@@ -121,42 +125,49 @@ fn search_positions_maybe_bounded<P: Profile, const BOUNDED: bool>(
                 //
                 // TODO: Currently this filtering is much too slow to be useable for small k.
                 'check: {
-                    if j >= 64 && j > prev_max_j && j.is_power_of_two() {
-                        // Check for each lane
-                        for lane in 0..4 {
-                            let v = V(vp.as_array()[lane], vm.as_array()[lane]);
-                            let min_in_lane = dist_to_start_of_lane.as_array()[lane] as Cost
-                                + prefix_min(v).0 as Cost;
-                            if min_in_lane <= k {
-                                // Go to the post-processing below.
-                                break 'check;
+                    dist_to_end_of_lane += hp[j];
+                    dist_to_end_of_lane -= hm[j];
+
+                    if j >= first_check {
+                        cur_max_j = if (dist_to_end_of_lane.simd_le(S::splat(k as u64))).any() {
+                            j
+                        } else {
+                            cur_max_j
+                        };
+                        if j == next_check {
+                            next_check *= 2;
+
+                            if j > prev_max_j {
+                                // Check for each lane
+                                for lane in 0..4 {
+                                    let v = V(vp.as_array()[lane], vm.as_array()[lane]);
+                                    let min_in_lane = dist_to_start_of_lane.as_array()[lane]
+                                        as Cost
+                                        + prefix_min(v).0 as Cost;
+                                    if min_in_lane <= k {
+                                        // Go to the post-processing below.
+                                        break 'check;
+                                    }
+                                }
+                                // All lanes only have values > k. We set remaining horizontal deltas to +1.
+                                // FIXME: We should have a test that breaks when we completely omit this loop here.
+                                for j2 in j + 1..=prev_max_j {
+                                    hp[j2] = S::splat(1);
+                                    hm[j2] = S::splat(0);
+                                }
+                                prev_max_j = cur_max_j;
+                                for lane in 0..4 {
+                                    let idx = lane * chunk_offset + i;
+                                    if idx < deltas.len() {
+                                        deltas[idx] =
+                                            (Cost::MAX, <VV as VEncoding<Base>>::from(u64::MAX, 0));
+                                    }
+                                }
+                                continue 'text_chunk;
                             }
                         }
-                        // All lanes only have values > k. We set remaining horizontal deltas to +1.
-                        // FIXME: We should have a test that breaks when we completely omit this loop here.
-                        for j2 in j + 1..=prev_max_j {
-                            hp[j2] = S::splat(1);
-                            hm[j2] = S::splat(0);
-                        }
-                        prev_max_j = cur_max_j;
-                        for lane in 0..4 {
-                            let idx = lane * chunk_offset + i;
-                            if idx < deltas.len() {
-                                deltas[idx] =
-                                    (Cost::MAX, <VV as VEncoding<Base>>::from(u64::MAX, 0));
-                            }
-                        }
-                        continue 'text_chunk;
                     }
                 }
-
-                dist_to_end_of_lane += hp[j];
-                dist_to_end_of_lane -= hm[j];
-                cur_max_j = if (dist_to_end_of_lane.simd_le(S::splat(k as u64))).any() {
-                    j
-                } else {
-                    cur_max_j
-                };
             }
         }
         for lane in 0..4 {
