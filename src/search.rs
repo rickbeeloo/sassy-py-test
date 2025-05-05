@@ -121,7 +121,7 @@ fn search_positions_maybe_bounded<P: Profile, const BOUNDED: bool>(
                 //
                 // TODO: Currently this filtering is much too slow to be useable for small k.
                 'check: {
-                    if j >= 16 && j > prev_max_j && j.is_power_of_two() {
+                    if j >= 64 && j > prev_max_j && j.is_power_of_two() {
                         // Check for each lane
                         for lane in 0..4 {
                             let v = V(vp.as_array()[lane], vm.as_array()[lane]);
