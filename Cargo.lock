@@ -970,6 +970,7 @@ dependencies = [
  "log",
  "needletail",
  "num_cpus",
+ "once_cell",
  "pa-types",
  "rand",
  "serde",

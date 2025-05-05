@@ -2,7 +2,9 @@ use ::std::os::raw::c_char;
 use clap::{Parser, ValueEnum};
 use edlib_rs::edlib_sys::*;
 use edlib_rs::*;
+use once_cell::sync::Lazy;
 use rand::Rng;
+use sassy::profiles::Profile;
 use serde::Deserialize;
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -25,6 +27,8 @@ macro_rules! time_it {
     }};
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Deserialize)]
+#[serde(rename_all = "lowercase")]
 enum Alphabet {
     Dna,
     Iupac,
@@ -53,11 +57,16 @@ fn generate_random_sequence(length: usize, alphabet: &Alphabet) -> Vec<u8> {
     }
 }
 
+// No idea why this needs to be static per se
+static EQUALITY_PAIRS: Lazy<Vec<EdlibEqualityPairRs>> = Lazy::new(build_equality_pairs);
+
 /// Supporting atcgn, with configurable k, NOTE uses traceback
-fn get_edlib_config(k: i32) -> EdlibAlignConfigRs<'static> {
+fn get_edlib_config(k: i32, profile: &str) -> EdlibAlignConfigRs<'static> {
     let mut config = EdlibAlignConfigRs::default();
-    config.mode = EdlibAlignModeRs::EDLIB_MODE_HW; // Infix, semi-global
-    config.additionalequalities = &EQUALITY_PAIRS; // Allow A, a, T, t, G, g, C, c to be considered equal (see bottom of file)
+    config.mode = EdlibAlignModeRs::EDLIB_MODE_HW;
+    if profile == "iupac" {
+        config.additionalequalities = &EQUALITY_PAIRS;
+    }
     config.k = k;
     config.task = EdlibAlignTaskRs::EDLIB_TASK_PATH;
     config
@@ -134,86 +143,90 @@ fn generate_query_and_text_with_matches(
 }
 
 /// Benchmark function with planted matches and edits
-fn run_bench_with_planted<P, D, B>(
-    query_lengths: &[usize],
-    text_lengths: &[usize],
-    edlib_k: i32,
-    sassy_k: usize,
-    output_file: &str,
-    num_matches: usize,
-    max_edits: usize,
-    bench_iter: usize,
-    alphabet: Alphabet,
-) where
+fn run_bench_with_planted<P, D, B>(config: &BenchConfig)
+where
     P: sassy::profiles::Profile,
     D: sassy::RcBehavior<P>,
     B: sassy::BoundBehavior<P>,
 {
-    let edlib_config = get_edlib_config(edlib_k);
+    let edlib_config = get_edlib_config(config.edlib_k, &config.profile);
 
-    let file = File::create(output_file).expect("Unable to create output file");
+    let file = File::create(&config.output_file).expect("Unable to create output file");
     let mut writer = BufWriter::new(file);
 
     writeln!(
         writer,
-        "query_len\tref_len\tnum_matches\tmax_edits\ttool\trun_time"
+        "query_len\tref_len\tnum_matches\tmax_edits\ttool\trun_time\tplanted\tfound"
     )
     .unwrap();
 
-    for &q_len in query_lengths {
-        for &ref_len in text_lengths {
+    let max_edits = config.max_edits;
+
+    for &q_len in &config.query_lengths {
+        for &ref_len in &config.text_lengths {
             if ref_len < q_len {
                 continue;
             }
 
-            // For now this runs the benchmark on the same query and text in iterations
-            // TODO: maybe vary queries and texts across bench iterations?
+            // Calculate number of possible placements
+            let num_possible_matches = ref_len.saturating_sub(q_len).saturating_add(1);
+            let mut num_matches =
+                (num_possible_matches as f64 * config.match_fraction).round() as usize;
+
             let (query, text, planted_locs) = generate_query_and_text_with_matches(
                 q_len,
                 ref_len,
                 num_matches,
                 max_edits,
-                &alphabet,
+                &config.alphabet,
             );
+
+            num_matches = planted_locs.len();
 
             // Run edlib
             let (edlib_result, edlib_mean_ms) = time_it!(
                 "edlib",
                 edlibAlignRs(&query, &text, &edlib_config),
-                bench_iter
+                config.bench_iter
             );
             assert_eq!(edlib_result.status, EDLIB_STATUS_OK);
+
+            // Count edlib found matches
+            let edlib_found = edlib_result
+                .getStartLocations()
+                .map_or(0, |locs| locs.len());
+
             writeln!(
                 writer,
-                "{q_len}\t{ref_len}\t{num_matches}\t{max_edits}\tedlib\t{:.3}",
-                edlib_mean_ms
+                "{q_len}\t{ref_len}\t{num_matches}\t{max_edits}\tedlib\t{:.3}\t{}\t{}",
+                edlib_mean_ms, num_matches, edlib_found
             )
             .unwrap();
 
             // Run sassy
             let (sassy_result, sassy_mean_ms) = time_it!(
                 "sassy",
-                sassy::search_generic::<P, D, B>(&query, &text, sassy_k),
-                bench_iter
+                sassy::search_generic::<P, D, B>(&query, &text, config.sassy_k),
+                config.bench_iter
             );
+            let sassy_found = sassy_result.len();
+
             writeln!(
                 writer,
-                "{q_len}\t{ref_len}\t{num_matches}\t{max_edits}\tsassy\t{:.3}",
-                sassy_mean_ms
+                "{q_len}\t{ref_len}\t{num_matches}\t{max_edits}\tsassy\t{:.3}\t{}\t{}",
+                sassy_mean_ms, num_matches, sassy_found
             )
             .unwrap();
 
-            // --- Verification of planted locations ---
-            // Print all planted sequences and their locations
             println!(">Query length: {}, Reference length: {}", q_len, ref_len);
 
             let query_str = String::from_utf8_lossy(&query);
             let text_str = String::from_utf8_lossy(&text);
 
-            for (_i, &(planted_start, _planted_end)) in planted_locs.iter().enumerate() {
+            for &(planted_start, _planted_end) in planted_locs.iter() {
                 let found = sassy_result
                     .iter()
-                    .any(|m| (m.start.1 as usize).abs_diff(planted_start) <= max_edits);
+                    .any(|m| (m.start.1 as usize).abs_diff(planted_start) <= config.max_edits);
                 if !found {
                     // Format error message with detailed information
                     let mut error_msg = format!(
@@ -256,28 +269,30 @@ fn run_bench_with_planted<P, D, B>(
 
                     // Add edlib results
                     error_msg.push_str("\nEdlib matches found:\n");
-                    let edlib_locations = edlib_result.getStartLocations().unwrap();
-                    if edlib_locations.is_empty() {
-                        error_msg.push_str("  (No matches found by edlib)\n");
-                    } else {
-                        for (j, &start_pos) in edlib_locations.iter().enumerate() {
-                            let end_pos = start_pos as usize + query.len();
-                            let match_seq = if end_pos <= text.len() {
-                                &text_str[start_pos as usize..end_pos]
-                            } else {
-                                "(out of bounds)"
-                            };
-                            error_msg.push_str(&format!(
-                                "  {}. Position {}..{}: \"{}\"\n",
-                                j + 1,
-                                start_pos,
-                                end_pos,
-                                match_seq
-                            ));
-                        }
-                    }
 
-                    panic!("{}", error_msg);
+                    if let Some(edlib_locations) = edlib_result.getStartLocations() {
+                        if edlib_locations.is_empty() {
+                            error_msg.push_str("  (No matches found by edlib)\n");
+                        } else {
+                            for (j, &start_pos) in edlib_locations.iter().enumerate() {
+                                let end_pos = start_pos as usize + query.len();
+                                let match_seq = if end_pos <= text.len() {
+                                    &text_str[start_pos as usize..end_pos]
+                                } else {
+                                    "(out of bounds)"
+                                };
+                                error_msg.push_str(&format!(
+                                    "  {}. Position {}..{}: \"{}\"\n",
+                                    j + 1,
+                                    start_pos,
+                                    end_pos,
+                                    match_seq
+                                ));
+                            }
+                        }
+                    } else {
+                        error_msg.push_str("  (No matches found by edlib)\n");
+                    }
                 }
             }
             println!(
@@ -289,6 +304,22 @@ fn run_bench_with_planted<P, D, B>(
                     .collect::<Vec<_>>()
                     .join(", ")
             );
+            // Print query, text, and edlib match locations (can be commented out for benchmarking)
+            println!("Query: {}", String::from_utf8_lossy(&query));
+            println!("Text: {}", String::from_utf8_lossy(&text));
+            if let Some(edlib_locations) = edlib_result.getStartLocations() {
+                println!(
+                    "Edlib match locations: {}",
+                    edlib_locations
+                        .iter()
+                        .map(|&start_pos| {
+                            let end_pos = start_pos as usize + query.len();
+                            format!("{}..{}", start_pos, end_pos)
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+            }
         }
     }
 }
@@ -326,13 +357,13 @@ struct BenchConfig {
     output_file: String,
     edlib_k: i32,
     sassy_k: usize,
-    num_matches: usize,
+    match_fraction: f64,
     max_edits: usize,
     bench_iter: usize,
-    alphabet: String, // "dna", "iupac", or "ascii"
-    profile: String,  // "iupac", "dna", "ascii"
-    rc: String,       // "withrc", "withoutrc"
-    bound: String,    // "bounded", "unbounded"
+    alphabet: Alphabet, // "dna", "iupac", or "ascii"
+    profile: String,    // "iupac", "dna", "ascii"
+    rc: String,         // "withrc", "withoutrc"
+    bound: String,      // "bounded", "unbounded"
 }
 
 fn read_config<P: AsRef<Path>>(path: P) -> BenchConfig {
@@ -344,27 +375,9 @@ fn main() {
     let args = Args::parse();
     let config = read_config(&args.config);
 
-    // Parse enums from strings
-    let alphabet = match config.alphabet.to_lowercase().as_str() {
-        "dna" => Alphabet::Dna,
-        "iupac" => Alphabet::Iupac,
-        "ascii" => Alphabet::Ascii,
-        _ => panic!("Unknown alphabet"),
-    };
-
     macro_rules! dispatch {
         ($profile:ty, $rc:ty, $bound:ty) => {
-            run_bench_with_planted::<$profile, $rc, $bound>(
-                &config.query_lengths,
-                &config.text_lengths,
-                config.edlib_k,
-                config.sassy_k,
-                &config.output_file,
-                config.num_matches,
-                config.max_edits,
-                config.bench_iter,
-                alphabet,
-            )
+            run_bench_with_planted::<$profile, $rc, $bound>(&config)
         };
     }
 
@@ -413,73 +426,34 @@ fn main() {
     }
 }
 
-static EQUALITY_PAIRS: [EdlibEqualityPairRs; 17] = [
-    EdlibEqualityPairRs {
-        first: 'A' as c_char,
-        second: 'N' as c_char,
-    },
-    EdlibEqualityPairRs {
-        first: 'A' as c_char,
-        second: 'n' as c_char,
-    },
-    EdlibEqualityPairRs {
-        first: 'a' as c_char,
-        second: 'N' as c_char,
-    },
-    EdlibEqualityPairRs {
-        first: 'a' as c_char,
-        second: 'n' as c_char,
-    },
-    EdlibEqualityPairRs {
-        first: 'T' as c_char,
-        second: 'N' as c_char,
-    },
-    EdlibEqualityPairRs {
-        first: 'T' as c_char,
-        second: 'n' as c_char,
-    },
-    EdlibEqualityPairRs {
-        first: 't' as c_char,
-        second: 'N' as c_char,
-    },
-    EdlibEqualityPairRs {
-        first: 't' as c_char,
-        second: 'n' as c_char,
-    },
-    EdlibEqualityPairRs {
-        first: 'G' as c_char,
-        second: 'N' as c_char,
-    },
-    EdlibEqualityPairRs {
-        first: 'G' as c_char,
-        second: 'n' as c_char,
-    },
-    EdlibEqualityPairRs {
-        first: 'g' as c_char,
-        second: 'N' as c_char,
-    },
-    EdlibEqualityPairRs {
-        first: 'g' as c_char,
-        second: 'n' as c_char,
-    },
-    EdlibEqualityPairRs {
-        first: 'C' as c_char,
-        second: 'N' as c_char,
-    },
-    EdlibEqualityPairRs {
-        first: 'C' as c_char,
-        second: 'n' as c_char,
-    },
-    EdlibEqualityPairRs {
-        first: 'c' as c_char,
-        second: 'N' as c_char,
-    },
-    EdlibEqualityPairRs {
-        first: 'c' as c_char,
-        second: 'n' as c_char,
-    },
-    EdlibEqualityPairRs {
-        first: 'N' as c_char,
-        second: 'N' as c_char,
-    },
-];
+fn build_equality_pairs() -> Vec<EdlibEqualityPairRs> {
+    let codes = b"ACGTURYSWKMBDHVNX";
+    let mut pairs = Vec::new();
+    for &a in codes.iter() {
+        for &b in codes.iter() {
+            if sassy::profiles::Iupac::is_match(a, b) {
+                // both upper
+                pairs.push(EdlibEqualityPairRs {
+                    first: a as c_char,
+                    second: b as c_char,
+                });
+                // both lower
+                pairs.push(EdlibEqualityPairRs {
+                    first: a.to_ascii_lowercase() as c_char,
+                    second: b.to_ascii_lowercase() as c_char,
+                });
+                // first upper, second lower
+                pairs.push(EdlibEqualityPairRs {
+                    first: a.to_ascii_lowercase() as c_char,
+                    second: b as c_char,
+                });
+                // first lower, second upper
+                pairs.push(EdlibEqualityPairRs {
+                    first: a as c_char,
+                    second: b.to_ascii_lowercase() as c_char,
+                });
+            }
+        }
+    }
+    pairs
+}
