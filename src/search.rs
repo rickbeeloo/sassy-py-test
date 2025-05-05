@@ -77,12 +77,10 @@ fn search_positions_maybe_bounded<P: Profile, const BOUNDED: bool>(
 
     let mut prev_max_j = 0;
 
-    for i in 0..blocks_per_chunk {
+    'text_chunk: for i in 0..blocks_per_chunk {
         // The alignment can start anywhere, so start with deltas of 0.
         let mut vp = S::splat(0);
         let mut vm = S::splat(0);
-
-        let mut x = S::splat(0);
 
         // Collect the 4 slices of input text.
         // Out-of-bounds characters are replaced by 'X', which doesn't match anything.
@@ -106,7 +104,7 @@ fn search_positions_maybe_bounded<P: Profile, const BOUNDED: bool>(
         let mut cur_max_j = 0;
 
         // Iterate over query chars.
-        'query: for j in 0..query.len() {
+        for j in 0..query.len() {
             dist_to_start_of_lane += hp[j];
             dist_to_start_of_lane -= hm[j];
 
@@ -119,31 +117,37 @@ fn search_positions_maybe_bounded<P: Profile, const BOUNDED: bool>(
                 // To have some buffer, we start filtering at length 3*k.
                 //
                 // TODO: Currently this filtering is much too slow to be useable for small k.
-                if j >= 16 && j > prev_max_j && j.is_power_of_two() {
-                    // Check for each lane
-                    for lane in 0..4 {
-                        let v = V(vp.as_array()[lane], vm.as_array()[lane]);
-                        let min_in_lane = dist_to_start_of_lane.as_array()[lane] as Cost
-                            + prefix_min(v).0 as Cost;
-                        if min_in_lane <= k {
-                            continue 'query;
+                'check: {
+                    if j >= 16 && j > prev_max_j && j.is_power_of_two() {
+                        // Check for each lane
+                        for lane in 0..4 {
+                            let v = V(vp.as_array()[lane], vm.as_array()[lane]);
+                            let min_in_lane = dist_to_start_of_lane.as_array()[lane] as Cost
+                                + prefix_min(v).0 as Cost;
+                            if min_in_lane <= k {
+                                // Go to the post-processing below.
+                                break 'check;
+                            }
                         }
+                        // All lanes only have values > k. We set remaining horizontal deltas to +1.
+                        for j2 in j + 1..query.len() {
+                            hp[j2] = S::splat(1);
+                            hm[j2] = S::splat(0);
+                        }
+                        prev_max_j = cur_max_j;
+                        for lane in 0..4 {
+                            let idx = lane * chunk_offset + i;
+                            if idx < deltas.len() {
+                                deltas[idx] = <VV as VEncoding<Base>>::from(u64::MAX, 0);
+                            }
+                        }
+                        continue 'text_chunk;
                     }
-                    // eprintln!("Break after col {j}");
-                    // All lanes only have values > k. We set remaining horizontal deltas to +1.
-                    for j2 in j + 1..query.len() {
-                        hp[j2] = S::splat(1);
-                        hm[j2] = S::splat(0);
-                    }
-                    break;
                 }
 
                 dist_to_end_of_lane += hp[j];
                 dist_to_end_of_lane -= hm[j];
-                // FIXME: Somehwo the deltas are ocasionally off by 1. We need
-                // this +1 here to fix things.
-                // This feels like a bug in bitpacking.rs.
-                cur_max_j = if (dist_to_end_of_lane.simd_le(S::splat(k as u64 + 1))).any() {
+                cur_max_j = if (dist_to_end_of_lane.simd_le(S::splat(k as u64))).any() {
                     j
                 } else {
                     cur_max_j
