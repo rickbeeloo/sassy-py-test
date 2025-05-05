@@ -133,7 +133,8 @@ fn search_positions_maybe_bounded<P: Profile, const BOUNDED: bool>(
                             }
                         }
                         // All lanes only have values > k. We set remaining horizontal deltas to +1.
-                        for j2 in j + 1..query.len() {
+                        // FIXME: We should have a test that breaks when we completely omit this loop here.
+                        for j2 in j + 1..=prev_max_j {
                             hp[j2] = S::splat(1);
                             hm[j2] = S::splat(0);
                         }
