@@ -72,7 +72,12 @@ pub fn search<P: Profile>(query: &[u8], text: &[u8], k: usize) -> Vec<Match> {
 
             for lane in 0..matches.len() {
                 let m = get_trace::<P>(query, offsets[lane], text_slices[lane], &m[lane]);
-                assert!(m.cost <= k as Cost, "Match has cost {} > {}", m.cost, k);
+                assert!(
+                    m.cost <= k as Cost,
+                    "Match has cost {} > {}: {m:?}",
+                    m.cost,
+                    k
+                );
                 traces.push(m);
             }
         });
@@ -111,7 +116,11 @@ pub fn search_bounded<P: Profile>(query: &[u8], text: &[u8], k: usize) -> Vec<Ma
 
             for lane in 0..matches.len() {
                 let m = get_trace::<P>(query, offsets[lane], text_slices[lane], &m[lane]);
-                assert!(m.cost <= k as Cost, "Match has cost {} > {}", m.cost, k);
+                assert!(
+                    m.cost <= k as Cost,
+                    "Match has cost {} > {k}: {m:?}",
+                    m.cost,
+                );
                 traces.push(m);
             }
         });
@@ -252,6 +261,19 @@ mod tests {
         let text = b"AAAACCAAGT";
         let matches = search::<Dna>(query, text, 2);
         assert!(matches.len() > 0);
+    }
+
+    #[test]
+    fn no_extra_matches() {
+        let edits = 6;
+        let expected_idx = 277;
+        let query = b"TAAGCAGAAGGGAGGTATAAAGTCTGTCAGCGGTGCTTAAG";
+        let text = b"ACCGTAACCGCTTGGTACCATCCGGCCAGTCGCTCGTTGCGCCCCACTATCGGGATCGACGCGCAGTAATTAAACACCACCCACGCCACGAGGTAGAACGAGAGCGGGGGGCTAGCAAATAATAGTGAGAGTGCGTTCAAAGGGTCTTTCGTAACCTCAGCGGGCGGGTACGGGGGAAATATCGCACCAATTTTGGAGATGCGATTAGCTCAGCGTAACGCGAATTCCCTATAACTTGCCTAGTGTGTGTGAATGGACAATTCGTTTTACAGTTTCAAGGTAGCAGAAGGGCAGGATAAGTCTGTCGCGGTGCTTAAGGCTTTCCATCCATGTTGCCCCCTACATGAATCGGATCGCCAGCCAGAATATCACATGGTTCCAAAAGTTGCAAGCTTCCCCGTACCGCTACTTCACCTCACGCCAGAGGCCTATCGCCGCTCGGCCGTTCCGTTTTGGGGAAGAATCTGCCTGTTCTCGTCACAAGCTTCTTAGTCCTTCCACCATGGTGCTGTTACTCATGCCATCAAATATTCGAGCTCTTGCCTAGGGGGGTTATACCTGTGCGATAGATACACCCCCTATGACCGTAGGTAGAGAGCCTATTTTCAACGTGTCGATCGTTTAATGACACCAACTCCCGGTGTCGAGGTCCCCAAGTTTCGTAGATCTACTGAGCGGGGGAATATTTGACGGTAAGGCATCGCTTGTAGGATCGTATCGCGACGGTAGATACCCATAAGCGTTGCTAACCTGCCAATAACTGTCTCGCGATCCCAATTTAGCACAAGTCGGTGGCCTTGATAAGGCTAACCAGTTTCGCACCGCTTCCGTTCCATTTTACGATCTACCGCTCGGATGGATCCGAAATACCGAGGTAGTAATATCAACACGTACCCAATGTCC";
+        let matches = super::search_bounded::<Dna>(query, text, edits);
+        let m = matches
+            .iter()
+            .find(|m| (m.start.1 as usize).abs_diff(expected_idx) <= edits);
+        assert!(m.is_some());
     }
 
     #[test]

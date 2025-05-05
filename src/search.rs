@@ -78,7 +78,10 @@ fn search_positions_maybe_bounded<P: Profile, const BOUNDED: bool>(
 
     let mut text_chunks: [[u8; 64]; 4] = [[0; 64]; 4];
 
-    let mut prev_max_j = usize::MAX;
+    // Up to where the previous column was computed.
+    let mut prev_max_j = 0;
+    // The max row where the right of the previous column was <=k
+    let mut prev_end_last_below = usize::MAX;
 
     let first_check = (3 * k as usize).max(8);
 
@@ -106,7 +109,7 @@ fn search_positions_maybe_bounded<P: Profile, const BOUNDED: bool>(
         let mut dist_to_start_of_lane = S::splat(0);
         let mut dist_to_end_of_lane = S::splat(0);
 
-        let mut cur_max_j = 0;
+        let mut cur_end_last_below = 0;
 
         let mut next_check = first_check;
 
@@ -133,15 +136,16 @@ fn search_positions_maybe_bounded<P: Profile, const BOUNDED: bool>(
                     dist_to_end_of_lane -= hm[j];
 
                     if j >= first_check {
-                        cur_max_j = if (dist_to_end_of_lane.simd_le(S::splat(k as u64))).any() {
-                            j
-                        } else {
-                            cur_max_j
-                        };
+                        cur_end_last_below =
+                            if (dist_to_end_of_lane.simd_le(S::splat(k as u64))).any() {
+                                j
+                            } else {
+                                cur_end_last_below
+                            };
                         if j == next_check {
                             next_check *= 2;
 
-                            if j > prev_max_j {
+                            if j > prev_end_last_below {
                                 // Check for each lane
                                 for lane in 0..4 {
                                     let v = V(vp.as_array()[lane], vm.as_array()[lane]);
@@ -154,12 +158,11 @@ fn search_positions_maybe_bounded<P: Profile, const BOUNDED: bool>(
                                     }
                                 }
                                 // All lanes only have values > k. We set remaining horizontal deltas to +1.
-                                // FIXME: We should have a test that breaks when we completely omit this loop here.
                                 for j2 in j + 1..=prev_max_j {
                                     hp[j2] = S::splat(1);
                                     hm[j2] = S::splat(0);
                                 }
-                                prev_max_j = cur_max_j;
+                                prev_end_last_below = cur_end_last_below;
                                 for lane in 0..4 {
                                     let idx = lane * chunk_offset + i;
                                     if idx < deltas.len() {
@@ -167,6 +170,7 @@ fn search_positions_maybe_bounded<P: Profile, const BOUNDED: bool>(
                                             (Cost::MAX, <VV as VEncoding<Base>>::from(u64::MAX, 0));
                                     }
                                 }
+                                prev_max_j = j;
                                 continue 'text_chunk;
                             }
                         }
@@ -183,6 +187,7 @@ fn search_positions_maybe_bounded<P: Profile, const BOUNDED: bool>(
                 );
             }
         }
-        prev_max_j = cur_max_j;
+        prev_end_last_below = cur_end_last_below;
+        prev_max_j = query.len() - 1;
     }
 }
