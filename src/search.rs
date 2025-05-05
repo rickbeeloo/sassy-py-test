@@ -80,7 +80,7 @@ fn search_positions_maybe_bounded<P: Profile, const BOUNDED: bool>(
 
     let mut prev_max_j = usize::MAX;
 
-    let first_check = 3 * k as usize;
+    let first_check = (3 * k as usize).max(8);
 
     'text_chunk: for i in 0..blocks_per_chunk {
         // The alignment can start anywhere, so start with deltas of 0.
@@ -115,15 +115,19 @@ fn search_positions_maybe_bounded<P: Profile, const BOUNDED: bool>(
             dist_to_start_of_lane += hp[j];
             dist_to_start_of_lane -= hm[j];
 
-            let eq = from_fn(|lane| P::eq(&query_profile[j], &text_profile[lane])).into();
+            let eq = from_fn(|lane| {
+                P::eq(
+                    unsafe { &query_profile.get_unchecked(j) },
+                    &text_profile[lane],
+                )
+            })
+            .into();
             compute_block_simd(&mut hp[j], &mut hm[j], &mut vp, &mut vm, eq);
 
             if BOUNDED {
                 // For DNA, the distance between random/unrelated sequences is around q.len()/2.
                 // Thus, for threshold k, we can expect random matches between seqs of length ~2*k.
                 // To have some buffer, we start filtering at length 3*k.
-                //
-                // TODO: Currently this filtering is much too slow to be useable for small k.
                 'check: {
                     dist_to_end_of_lane += hp[j];
                     dist_to_end_of_lane -= hm[j];
