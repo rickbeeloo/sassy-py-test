@@ -71,12 +71,9 @@ pub fn search<P: Profile>(query: &[u8], text: &[u8], k: usize) -> Vec<Match> {
             simd_fill::<P>(query, text_slices, &mut m);
 
             for lane in 0..matches.len() {
-                traces.push(get_trace::<P>(
-                    query,
-                    offsets[lane],
-                    text_slices[lane],
-                    &m[lane],
-                ));
+                let m = get_trace::<P>(query, offsets[lane], text_slices[lane], &m[lane]);
+                assert!(m.cost <= k as Cost, "Match has cost {} > {}", m.cost, k);
+                traces.push(m);
             }
         });
     }
@@ -113,12 +110,9 @@ pub fn search_bounded<P: Profile>(query: &[u8], text: &[u8], k: usize) -> Vec<Ma
             simd_fill::<P>(query, text_slices, &mut m);
 
             for lane in 0..matches.len() {
-                traces.push(get_trace::<P>(
-                    query,
-                    offsets[lane],
-                    text_slices[lane],
-                    &m[lane],
-                ));
+                let m = get_trace::<P>(query, offsets[lane], text_slices[lane], &m[lane]);
+                assert!(m.cost <= k as Cost, "Match has cost {} > {}", m.cost, k);
+                traces.push(m);
             }
         });
     }
