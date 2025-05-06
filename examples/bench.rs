@@ -254,75 +254,68 @@ where
                     }
 
                     // Add sassy results
-                    error_msg.push_str("\nSassy matches found:\n");
-                    if sassy_result.is_empty() {
-                        error_msg.push_str("  (No matches found by sassy)\n");
-                    } else {
-                        for (j, m) in sassy_result.iter().enumerate() {
-                            let match_seq = &text_str[m.start.1 as usize..m.end.1 as usize];
-                            error_msg.push_str(&format!(
-                                "  {}. Position {}..{}: \"{}\"\n",
-                                j + 1,
-                                m.start.1,
-                                m.end.1,
-                                match_seq
-                            ));
-                        }
-                    }
+                    // error_msg.push_str("\nSassy matches found:\n");
+                    // if sassy_result.is_empty() {
+                    //     error_msg.push_str("  (No matches found by sassy)\n");
+                    // } else {
+                    //     for (j, m) in sassy_result.iter().enumerate() {
+                    //         let match_seq = &text_str[m.start.1 as usize..m.end.1 as usize];
+                    //         error_msg.push_str(&format!(
+                    //             "  {}. Position {}..{}: \"{}\"\n",
+                    //             j + 1,
+                    //             m.start.1,
+                    //             m.end.1,
+                    //             match_seq
+                    //         ));
+                    //     }
+                    // }
 
-                    // Add edlib results
-                    error_msg.push_str("\nEdlib matches found:\n");
+                    // // Add edlib results
+                    // error_msg.push_str("\nEdlib matches found:\n");
 
-                    if let Some(edlib_locations) = edlib_result.getStartLocations() {
-                        if edlib_locations.is_empty() {
-                            error_msg.push_str("  (No matches found by edlib)\n");
-                        } else {
-                            for (j, &start_pos) in edlib_locations.iter().enumerate() {
-                                let end_pos = start_pos as usize + query.len();
-                                let match_seq = if end_pos <= text.len() {
-                                    &text_str[start_pos as usize..end_pos]
-                                } else {
-                                    "(out of bounds)"
-                                };
-                                error_msg.push_str(&format!(
-                                    "  {}. Position {}..{}: \"{}\"\n",
-                                    j + 1,
-                                    start_pos,
-                                    end_pos,
-                                    match_seq
-                                ));
-                            }
-                        }
-                    } else {
-                        error_msg.push_str("  (No matches found by edlib)\n");
-                    }
+                    // if let Some(edlib_locations) = edlib_result.getStartLocations() {
+                    //     if edlib_locations.is_empty() {
+                    //         error_msg.push_str("  (No matches found by edlib)\n");
+                    //     } else {
+                    //         for (j, &start_pos) in edlib_locations.iter().enumerate() {
+                    //             let end_pos = start_pos as usize + query.len();
+                    //             let match_seq = if end_pos <= text.len() {
+                    //                 &text_str[start_pos as usize..end_pos]
+                    //             } else {
+                    //                 "(out of bounds)"
+                    //             };
+                    //             error_msg.push_str(&format!(
+                    //                 "  {}. Position {}..{}: \"{}\"\n",
+                    //                 j + 1,
+                    //                 start_pos,
+                    //                 end_pos,
+                    //                 match_seq
+                    //             ));
+                    //         }
+                    //     }
+                    // } else {
+                    //     error_msg.push_str("  (No matches found by edlib)\n");
+                    // }
                 }
             }
-            println!(
-                "✅ All {} planted matches found: {}",
-                planted_locs.len(),
-                planted_locs
-                    .iter()
-                    .map(|&(start, end)| format!("{}..{}", start, end))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            );
+            // planted_locs.sort();
+            println!("✅ All {} planted matches found:", planted_locs.len(),);
             // Print query, text, and edlib match locations (can be commented out for benchmarking)
-            println!("Query: {}", String::from_utf8_lossy(&query));
-            println!("Text: {}", String::from_utf8_lossy(&text));
-            if let Some(edlib_locations) = edlib_result.getStartLocations() {
-                println!(
-                    "Edlib match locations: {}",
-                    edlib_locations
-                        .iter()
-                        .map(|&start_pos| {
-                            let end_pos = start_pos as usize + query.len();
-                            format!("{}..{}", start_pos, end_pos)
-                        })
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                );
-            }
+            // println!("Query: {}", String::from_utf8_lossy(&query));
+            // println!("Text: {}", String::from_utf8_lossy(&text));
+            // if let Some(edlib_locations) = edlib_result.getStartLocations() {
+            //     println!(
+            //         "Edlib match locations:\n{}",
+            //         edlib_locations
+            //             .iter()
+            //             .map(|&start_pos| {
+            //                 let end_pos = start_pos as usize + query.len();
+            //                 format!("{}..{}", start_pos, end_pos)
+            //             })
+            //             .collect::<Vec<_>>()
+            //             .join(", ")
+            //     );
+            // }
         }
     }
 }
