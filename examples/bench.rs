@@ -76,7 +76,8 @@ fn get_edlib_config(k: i32, profile: &str) -> EdlibAlignConfigRs<'static> {
 fn mutate_sequence(sequence: &[u8], max_edits: usize) -> Vec<u8> {
     let mut rng = rand::rng();
     let mut mutated = sequence.to_vec();
-    let edits = rng.random_range(0..=max_edits.min(sequence.len()));
+    let edits = max_edits;
+    // let edits = rng.random_range(0..=max_edits.min(sequence.len()));
 
     for _ in 0..edits {
         let edit_type = rng.random_range(0..3);
