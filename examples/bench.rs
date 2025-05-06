@@ -12,6 +12,7 @@ use std::path::Path;
 
 macro_rules! time_it {
     ($label:expr, $expr:expr, $iters:expr) => {{
+        let label = $label;
         let mut times = Vec::with_capacity($iters);
         let mut result = None;
         for _ in 0..$iters {
@@ -23,6 +24,7 @@ macro_rules! time_it {
             result = Some(r);
         }
         let mean = times.iter().sum::<f64>() / times.len() as f64;
+        eprintln!("{label:>10} : {:.3}ms", mean / 1000.0);
         (result.unwrap(), mean)
     }};
 }
