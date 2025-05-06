@@ -19,7 +19,7 @@ mod minima;
 mod search;
 mod trace;
 
-use std::cell::RefCell;
+use std::{array::from_fn, cell::RefCell, simd::Simd};
 
 pub use minima::{find_below_threshold, find_local_minima, find_local_minima_slow};
 use pa_types::{Cigar, Cost, Pos};
@@ -27,6 +27,12 @@ pub use search::{search_positions, search_positions_bounded};
 
 use profiles::Profile;
 use trace::{CostMatrix, get_trace, simd_fill};
+
+#[cfg(feature = "avx512")]
+const LANES: usize = 8;
+#[cfg(not(feature = "avx512"))]
+const LANES: usize = 4;
+type S = Simd<u64, LANES>;
 
 #[derive(Debug, Clone)]
 pub struct Match {
@@ -52,13 +58,13 @@ pub fn search<P: Profile>(query: &[u8], text: &[u8], k: usize) -> Vec<Match> {
     let mut traces = Vec::with_capacity(matches.len());
 
     thread_local! {
-        static M: RefCell<[CostMatrix;4]> = RefCell::new([CostMatrix::default(), CostMatrix::default(), CostMatrix::default(), CostMatrix::default()]);
+        static M: RefCell<[CostMatrix;LANES]> = RefCell::new(from_fn(|_| CostMatrix::default()));
     }
 
     let fill_len = query.len() + k;
-    for matches in matches.chunks(4) {
-        let mut text_slices = [[].as_slice(); 4];
-        let mut offsets = [0; 4];
+    for matches in matches.chunks(LANES) {
+        let mut text_slices = [[].as_slice(); LANES];
+        let mut offsets = [0; LANES];
         for i in 0..matches.len() {
             let end_pos = matches[i].0;
             let offset = end_pos.saturating_sub(fill_len);
@@ -95,13 +101,13 @@ pub fn search_bounded<P: Profile>(query: &[u8], text: &[u8], k: usize) -> Vec<Ma
     let mut traces = Vec::with_capacity(matches.len());
 
     thread_local! {
-        static M: RefCell<[CostMatrix;4]> = RefCell::new([CostMatrix::default(), CostMatrix::default(), CostMatrix::default(), CostMatrix::default()]);
+        static M: RefCell<[CostMatrix;LANES]> = RefCell::new(from_fn(|_| CostMatrix::default()));
     }
 
     let fill_len = query.len() + k;
-    for matches in matches.chunks(4) {
-        let mut text_slices = [[].as_slice(); 4];
-        let mut offsets = [0; 4];
+    for matches in matches.chunks(LANES) {
+        let mut text_slices = [[].as_slice(); LANES];
+        let mut offsets = [0; LANES];
         for i in 0..matches.len() {
             let end_pos = matches[i].0;
             let offset = end_pos.saturating_sub(fill_len);

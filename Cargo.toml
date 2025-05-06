@@ -19,6 +19,10 @@ env_logger = "0.11.8"
 num_cpus = "1.16.0"
 needletail = "0.6.3"
 
+[features]
+avx512 = []
+# default = ["avx512"]
+
 [[bench]]
 name = "bench"
 harness = false

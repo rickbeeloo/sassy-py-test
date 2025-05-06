@@ -9,10 +9,11 @@ use crate::delta_encoding::VEncoding;
 use crate::profiles::Dna;
 use crate::profiles::Profile;
 
+use crate::LANES;
 use crate::Match;
+use crate::S;
 use crate::bitpacking::compute_block_simd;
 use std::array::from_fn;
-use std::simd::Simd;
 
 #[derive(Debug, Clone, Default)]
 pub struct CostMatrix {
@@ -37,7 +38,7 @@ impl CostMatrix {
 }
 
 /// Compute the full n*m matrix corresponding to the query * text alignment.
-/// TODO: SIMD variant that takes 1 query, and 4 text slices of the same length.
+/// TODO: SIMD variant that takes 1 query, and LANES text slices of the same length.
 #[allow(unused)] // FIXME
 fn fill(query: &[u8], text: &[u8], m: &mut CostMatrix) {
     m.q = query.len();
@@ -66,8 +67,8 @@ fn fill(query: &[u8], text: &[u8], m: &mut CostMatrix) {
     }
 }
 
-pub fn simd_fill<P: Profile>(query: &[u8], texts: &[&[u8]], m: &mut [CostMatrix; 4]) {
-    assert!(texts.len() <= 4);
+pub fn simd_fill<P: Profile>(query: &[u8], texts: &[&[u8]], m: &mut [CostMatrix; LANES]) {
+    assert!(texts.len() <= LANES);
     let lanes = texts.len();
 
     let (profiler, query_profile) = P::encode_query(query);
@@ -82,16 +83,10 @@ pub fn simd_fill<P: Profile>(query: &[u8], texts: &[&[u8]], m: &mut [CostMatrix;
 
     type Base = u64;
     type VV = V<Base>;
-    type S = Simd<Base, 4>;
 
     let mut hp = vec![S::splat(1); query.len()];
     let mut hm = vec![S::splat(0); query.len()];
-    let mut text_profile = [
-        profiler.alloc_out(),
-        profiler.alloc_out(),
-        profiler.alloc_out(),
-        profiler.alloc_out(),
-    ];
+    let mut text_profile: [_; LANES] = from_fn(|_| profiler.alloc_out());
 
     for i in 0..num_chunks {
         for lane in 0..lanes {
@@ -107,7 +102,7 @@ pub fn simd_fill<P: Profile>(query: &[u8], texts: &[&[u8]], m: &mut [CostMatrix;
             let v = <VV as VEncoding<Base>>::from(vp[lane], vm[lane]);
             m[lane].deltas.push(v);
         }
-        // FIXME: for large queries, use the SIMD within this single block, rather than spreading it thin over 4 'matches' when there is only a single candidate match.
+        // FIXME: for large queries, use the SIMD within this single block, rather than spreading it thin over LANES 'matches' when there is only a single candidate match.
         for j in 0..query.len() {
             let eq = from_fn(|lane| P::eq(&query_profile[j], &text_profile[lane])).into();
             compute_block_simd(&mut hp[j], &mut hm[j], &mut vp, &mut vm, eq);
@@ -250,7 +245,7 @@ fn test_traceback_simd() {
 // // Simd
 // let col_costs = simd_fill::<Dna>(&query, [&text2, &text2, &text2, &text2]);
 
-// for lane in 0..4 {
+// for lane in 0..LANES {
 //     //println!("\nCol costs for lane {}\n{:?}", lane, col_costs[lane]);
 //     let trace = get_trace(&col_costs[lane]);
 //     println!("Trace {}: {:?}", lane, trace);

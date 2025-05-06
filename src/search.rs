@@ -1,9 +1,6 @@
-use crate::minima::prefix_min;
+use crate::{LANES, S, minima::prefix_min};
 use pa_types::Cost;
-use std::{
-    array::from_fn,
-    simd::{Simd, cmp::SimdPartialOrd},
-};
+use std::{array::from_fn, simd::cmp::SimdPartialOrd};
 
 use crate::{
     bitpacking::compute_block_simd,
@@ -56,27 +53,21 @@ fn search_positions_maybe_bounded<P: Profile, const BOUNDED: bool>(
 
     // Total number of blocks to be processed, including overlaps.
     let text_blocks = text.len().div_ceil(64);
-    let total_blocks = text_blocks + 3 * overlap_blocks;
-    let blocks_per_chunk = total_blocks.div_ceil(4);
+    let total_blocks = text_blocks + (LANES - 1) * overlap_blocks;
+    let blocks_per_chunk = total_blocks.div_ceil(LANES);
     // Length of each of the four chunks.
     let chunk_offset = blocks_per_chunk.saturating_sub(overlap_blocks);
     deltas.resize(text_blocks, Default::default());
 
     type Base = u64;
     type VV = V<Base>;
-    type S = Simd<Base, 4>;
 
     let mut hp = vec![S::splat(1); query.len()];
     let mut hm = vec![S::splat(0); query.len()];
 
-    let mut text_profile: [P::B; 4] = [
-        profiler.alloc_out(),
-        profiler.alloc_out(),
-        profiler.alloc_out(),
-        profiler.alloc_out(),
-    ];
+    let mut text_profile: [P::B; LANES] = from_fn(|_| profiler.alloc_out());
 
-    let mut text_chunks: [[u8; 64]; 4] = [[0; 64]; 4];
+    let mut text_chunks: [[u8; 64]; LANES] = [[0; 64]; LANES];
 
     // Up to where the previous column was computed.
     let mut prev_max_j = 0;
@@ -90,9 +81,9 @@ fn search_positions_maybe_bounded<P: Profile, const BOUNDED: bool>(
         let mut vp = S::splat(0);
         let mut vm = S::splat(0);
 
-        // Collect the 4 slices of input text.
+        // Collect the LANES slices of input text.
         // Out-of-bounds characters are replaced by 'X', which doesn't match anything.
-        for lane in 0..4 {
+        for lane in 0..LANES {
             let start = lane * chunk_offset * 64 + 64 * i;
             if start + 64 <= text.len() {
                 text_chunks[lane] = text[start..start + 64].try_into().unwrap();
@@ -147,7 +138,7 @@ fn search_positions_maybe_bounded<P: Profile, const BOUNDED: bool>(
 
                             if j > prev_end_last_below {
                                 // Check for each lane
-                                for lane in 0..4 {
+                                for lane in 0..LANES {
                                     let v = V(vp.as_array()[lane], vm.as_array()[lane]);
                                     let min_in_lane = dist_to_start_of_lane.as_array()[lane]
                                         as Cost
@@ -163,7 +154,7 @@ fn search_positions_maybe_bounded<P: Profile, const BOUNDED: bool>(
                                     hm[j2] = S::splat(0);
                                 }
                                 prev_end_last_below = cur_end_last_below;
-                                for lane in 0..4 {
+                                for lane in 0..LANES {
                                     let idx = lane * chunk_offset + i;
                                     if idx < deltas.len() {
                                         deltas[idx] =
@@ -178,7 +169,7 @@ fn search_positions_maybe_bounded<P: Profile, const BOUNDED: bool>(
                 }
             }
         }
-        for lane in 0..4 {
+        for lane in 0..LANES {
             let idx = lane * chunk_offset + i;
             if idx < deltas.len() {
                 deltas[idx] = (
