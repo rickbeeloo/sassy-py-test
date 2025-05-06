@@ -107,6 +107,7 @@ pub fn simd_fill<P: Profile>(query: &[u8], texts: &[&[u8]], m: &mut [CostMatrix;
             let v = <VV as VEncoding<Base>>::from(vp[lane], vm[lane]);
             m[lane].deltas.push(v);
         }
+        // FIXME: for large queries, use the SIMD within this single block, rather than spreading it thin over 4 'matches' when there is only a single candidate match.
         for j in 0..query.len() {
             let eq = from_fn(|lane| P::eq(&query_profile[j], &text_profile[lane])).into();
             compute_block_simd(&mut hp[j], &mut hm[j], &mut vp, &mut vm, eq);
