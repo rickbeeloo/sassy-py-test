@@ -15,7 +15,9 @@ pub mod profiles {
     pub use iupac::Iupac;
 }
 
-pub mod crispr;
+pub mod implementations {
+    pub mod crispr;
+}
 mod minima;
 mod search;
 mod trace;

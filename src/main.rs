@@ -2,7 +2,7 @@
 use std::{path::PathBuf, sync::Mutex};
 
 use clap::Parser;
-use sassy::crispr::{CrisprArgs, crispr};
+use sassy::implementations::crispr::{CrisprArgs, crispr};
 use sassy::{
     Strand,
     profiles::{Ascii, Dna, Iupac},
