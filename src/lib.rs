@@ -1,4 +1,4 @@
-#![feature(portable_simd, int_roundings)]
+#![feature(portable_simd, int_roundings, let_chains)]
 mod bitpacking;
 mod delta_encoding;
 pub mod profiles {
@@ -15,6 +15,7 @@ pub mod profiles {
     pub use iupac::Iupac;
 }
 
+pub mod crispr;
 mod minima;
 mod search;
 mod trace;
@@ -43,7 +44,7 @@ pub struct Match {
     pub cigar: Cigar,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum Strand {
     Fwd,
     Rc,
