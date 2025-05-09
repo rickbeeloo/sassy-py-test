@@ -4,6 +4,7 @@ use edlib_rs::edlib_sys::*;
 use edlib_rs::*;
 use once_cell::sync::Lazy;
 use rand::Rng;
+use sassy::LocalMinK;
 use sassy::profiles::Profile;
 use serde::Deserialize;
 use std::fs::File;
@@ -209,7 +210,7 @@ where
             // Run sassy
             let (sassy_result, sassy_mean_ms) = time_it!(
                 "sassy",
-                sassy::search_generic::<P, D, B>(&query, &text, config.sassy_k),
+                sassy::search_generic::<P, D, B, LocalMinK>(&query, &text, config.sassy_k),
                 config.bench_iter
             );
             let sassy_found = sassy_result.len();

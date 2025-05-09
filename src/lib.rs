@@ -10,6 +10,7 @@ pub mod profiles {
 
     pub use profile::Profile;
 
+    pub use crate::LocalMinK;
     pub use ascii::{Ascii, CaseInsensitiveAscii, CaseSensitiveAscii};
     pub use dna::Dna;
     pub use iupac::Iupac;
@@ -17,16 +18,18 @@ pub mod profiles {
 
 pub mod implementations {
     pub mod crispr;
+    pub mod search;
 }
+
 mod minima;
 mod search;
 mod trace;
 
-use std::{array::from_fn, cell::RefCell, simd::Simd};
-
-pub use minima::{find_below_threshold, find_local_minima, find_local_minima_slow};
+pub use minima::{find_all_minima, find_below_threshold, find_local_minima};
 use pa_types::{Cigar, Cost, Pos};
+use search::Deltas;
 pub use search::{search_positions, search_positions_bounded};
+use std::{array::from_fn, cell::RefCell, simd::Simd};
 
 use profiles::Profile;
 use trace::{CostMatrix, get_trace, simd_fill};
@@ -170,6 +173,7 @@ pub struct Unbounded;
 
 pub trait BoundBehavior<P: Profile> {
     fn search(query: &[u8], text: &[u8], k: usize) -> Vec<Match>;
+    fn search_positions(query: &[u8], text: &[u8], k: Cost, deltas: &mut Deltas);
 }
 
 pub trait RcBehavior<P: Profile> {
@@ -181,7 +185,41 @@ pub trait RcBehavior<P: Profile> {
     ) -> Vec<Match>;
 }
 
-pub fn search_generic<P: Profile, RcOpt, BoundOpt>(
+pub struct AllK;
+pub struct LocalMinK;
+
+pub trait MinimaBehavior {
+    fn find_minima(
+        query: &[u8],
+        deltas: &mut Deltas,
+        k: Cost,
+        text_len: usize,
+    ) -> Vec<(usize, Cost)>;
+}
+
+impl MinimaBehavior for AllK {
+    fn find_minima(
+        query: &[u8],
+        deltas: &mut Deltas,
+        k: Cost,
+        text_len: usize,
+    ) -> Vec<(usize, Cost)> {
+        find_all_minima(query, deltas, k, text_len)
+    }
+}
+
+impl MinimaBehavior for LocalMinK {
+    fn find_minima(
+        query: &[u8],
+        deltas: &mut Deltas,
+        k: Cost,
+        text_len: usize,
+    ) -> Vec<(usize, Cost)> {
+        find_local_minima(query, deltas, k, text_len)
+    }
+}
+
+pub fn search_generic<P: Profile, RcOpt, BoundOpt, MinOpt>(
     query: &[u8],
     text: &[u8],
     k: usize,
@@ -189,11 +227,50 @@ pub fn search_generic<P: Profile, RcOpt, BoundOpt>(
 where
     RcOpt: RcBehavior<P>,
     BoundOpt: BoundBehavior<P>,
+    MinOpt: MinimaBehavior,
 {
-    // We first decide the "bound" type" to call BoundOpt::search.
-    // then bsaed on the RCOpt trait we basically decide if we want
-    // to call this twice (fr, rc) or once (fr)
-    RcOpt::search(query, text, k, BoundOpt::search)
+    RcOpt::search(query, text, k, |q, t, k| {
+        let mut deltas = vec![];
+        BoundOpt::search_positions(q, t, k as Cost, &mut deltas);
+        let matches = MinOpt::find_minima(q, &mut deltas, k as Cost, t.len());
+
+        let mut traces = Vec::with_capacity(matches.len());
+
+        thread_local! {
+            static M: RefCell<[CostMatrix;LANES]> = RefCell::new(from_fn(|_| CostMatrix::default()));
+        }
+
+        let fill_len = q.len() + k;
+
+        for matches in matches.chunks(LANES) {
+            let mut text_slices = [[].as_slice(); LANES];
+            let mut offsets = [0; LANES];
+            for i in 0..matches.len() {
+                let end_pos = matches[i].0;
+                let offset = end_pos.saturating_sub(fill_len);
+                offsets[i] = offset;
+                text_slices[i] = &t[offset..end_pos];
+            }
+            let text_slices = &text_slices[..matches.len()];
+            M.with(|m| {
+                let mut m = m.borrow_mut();
+                simd_fill::<P>(q, text_slices, &mut m);
+
+                for lane in 0..matches.len() {
+                    let m = get_trace::<P>(q, offsets[lane], text_slices[lane], &m[lane]);
+                    assert!(
+                        m.cost <= k as Cost,
+                        "Match has cost {} > {}: {m:?}",
+                        m.cost,
+                        k
+                    );
+                    traces.push(m);
+                }
+            });
+        }
+
+        traces
+    })
 }
 
 // Compiled version without reverse complement search
@@ -232,12 +309,18 @@ impl<P: Profile> BoundBehavior<P> for Unbounded {
     fn search(query: &[u8], text: &[u8], k: usize) -> Vec<Match> {
         search::<P>(query, text, k)
     }
+    fn search_positions(query: &[u8], text: &[u8], k: Cost, deltas: &mut Deltas) {
+        search_positions::<P>(query, text, deltas)
+    }
 }
 
 // Compiled version with bounds
 impl<P: Profile> BoundBehavior<P> for Bounded {
     fn search(query: &[u8], text: &[u8], k: usize) -> Vec<Match> {
         search_bounded::<P>(query, text, k)
+    }
+    fn search_positions(query: &[u8], text: &[u8], k: Cost, deltas: &mut Deltas) {
+        search_positions_bounded::<P>(query, text, k, deltas)
     }
 }
 

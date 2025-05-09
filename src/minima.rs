@@ -122,6 +122,56 @@ pub fn find_local_minima(
     all_valleys
 }
 
+pub fn find_all_minima(
+    query: &[u8],
+    deltas: &mut Deltas,
+    k: Cost,
+    text_len: usize,
+) -> Vec<(usize, Cost)> {
+    let mut prev_cost = query.len() as Cost;
+    let mut cur_cost = query.len() as Cost;
+    let mut all_valleys = Vec::new();
+
+    // Calculate the position where text ends
+    let text_end_pos = text_len;
+    for (word_idx, v) in deltas.iter().enumerate() {
+        if v.0 == Cost::MAX {
+            continue;
+        }
+        cur_cost = v.0;
+        let (min, delta) = prefix_min(v.1);
+        if cur_cost + (min as Cost) <= k {
+            let (p, m) = v.1.pm();
+            // Get positions where cost changes occur
+            let mut changes = p | m;
+            while changes != 0 {
+                let pos = changes.trailing_zeros() as usize;
+                let absolute_pos = word_idx * 64 + pos;
+                let p_bit = (p >> pos) & 1;
+                let m_bit = (m >> pos) & 1;
+
+                cur_cost += (p_bit as Cost) - (m_bit as Cost);
+                if prev_cost <= k && word_idx * 64 + pos <= text_len {
+                    all_valleys.push((absolute_pos, prev_cost));
+                }
+                prev_cost = cur_cost;
+                // Clear the processed bit
+                changes &= changes - 1;
+            }
+        } else {
+            cur_cost += delta as Cost;
+            prev_cost = cur_cost;
+        }
+    }
+
+    // Add minima at right end if cost is below threshold
+    if cur_cost <= k && text_end_pos > 0 {
+        all_valleys.push((text_end_pos, cur_cost));
+    }
+
+    all_valleys
+}
+
 pub fn find_below_threshold(
     query: &[u8],
     threshold: Cost,

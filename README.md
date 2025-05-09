@@ -13,7 +13,7 @@ shorter texts.
 ## Usage
 
 ```
-> cargo run -r -- --help
+> cargo run -r -- search --help
 
 Usage: sassy [OPTIONS] --alphabet <ALPHABET> <QUERY> <K> <PATH>
 
@@ -37,7 +37,7 @@ You can also first build with `cargo build -r` and then do
 To find matches of a pattern with up to 1 edit:
 
 ``` rust
-cargo run -r -- --alphabet dna --rc ACTGCTACTGTACA 1 hg.fa
+cargo run -r -- search --alphabet dna --rc ACTGCTACTGTACA 1 hg.fa
 ```
 
 Output is written as tab-separated values to stdout, containing the sequence id,

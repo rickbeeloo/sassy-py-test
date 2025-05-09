@@ -8,7 +8,8 @@ use std::{
 };
 
 use crate::Match;
-use crate::{Strand, profiles::Iupac, search_maybe_rc};
+use crate::{AllK, Strand, profiles::Iupac};
+use crate::{Bounded, WithRc, search_generic};
 use pa_types::CigarOp;
 
 #[derive(clap::Parser)]
@@ -76,12 +77,9 @@ fn check_n_frac(m: &Match, max_n_frac: f32, target_text: &[u8]) -> bool {
 
 fn print_and_check_params(args: &CrisprArgs, guide_sequence: &[u8]) -> (Option<isize>, f32) {
     // Only allow one of prefix/suffix
-    match (args.exact_prefix, args.exact_suffix) {
-        (Some(_), Some(_)) => {
-            eprintln!("[crispr] Error: cannot specify both exact prefix and suffix");
-            std::process::exit(1);
-        }
-        _ => {}
+    if let (Some(_), Some(_)) = (args.exact_prefix, args.exact_suffix) {
+        eprintln!("[crispr] Error: cannot specify both exact prefix and suffix");
+        std::process::exit(1);
     }
 
     let edit_free: Option<isize> = match (args.exact_prefix, args.exact_suffix) {
@@ -156,6 +154,7 @@ pub fn crispr(args: CrisprArgs) {
     let edits_in_pam = Arc::new(AtomicUsize::new(0));
 
     let num_threads = args.threads.unwrap_or_else(num_cpus::get);
+    println!("[Threads] Using {} threads", num_threads);
     std::thread::scope(|scope| {
         for _ in 0..num_threads {
             scope.spawn(|| {
@@ -166,7 +165,11 @@ pub fn crispr(args: CrisprArgs) {
                     let id = String::from_utf8(record.id().to_vec()).unwrap();
                     let text = &record.seq().into_owned();
 
-                    let matches = search_maybe_rc::<Iupac>(guide_sequence, text, args.k, args.rc);
+                    let matches = search_generic::<Iupac, WithRc, Bounded, AllK>(
+                        guide_sequence,
+                        text,
+                        args.k,
+                    );
                     total_found.fetch_add(matches.len(), Ordering::Relaxed);
 
                     let mut writer_guard = writer.lock().unwrap();
