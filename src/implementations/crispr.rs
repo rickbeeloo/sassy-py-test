@@ -53,9 +53,9 @@ fn check_edit_free(m: &Match, target: isize) -> bool {
     // We assume PAMs are always at the ends so we can either check if the first X are
     // Match or the last X
     let is_negative = target < 0;
-    let to_check: &pa_types::CigarElem = match (m.strand, is_negative) {
-        (Strand::Fwd, false) | (Strand::Rc, true) => m.cigar.ops.first().unwrap(),
-        (Strand::Fwd, true) | (Strand::Rc, false) => m.cigar.ops.last().unwrap(),
+    let to_check: &pa_types::CigarElem = match is_negative {
+        true => m.cigar.ops.last().unwrap(),
+        false => m.cigar.ops.first().unwrap(),
     };
     to_check.op == CigarOp::Match && to_check.cnt >= target.abs() as i32
 }

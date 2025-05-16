@@ -251,7 +251,6 @@ pub fn prefix_min(v: V<u64>, bytes: &mut [u8; 8]) -> (i8, i8) {
         *byte = ((deltas >> (i * 8)) & 0xFF) as u8;
     });
 
-    // Lookup into two Simd<i8, 8> vectors
     let mins = [
         TABLE_MIN[bytes[0] as usize],
         TABLE_MIN[bytes[1] as usize],
@@ -274,7 +273,6 @@ pub fn prefix_min(v: V<u64>, bytes: &mut [u8; 8]) -> (i8, i8) {
         TABLE_END[bytes[7] as usize],
     ];
 
-    // Process in pairs to maintain sequential order
     let mut cur = 0;
     let mut min = 0;
 
