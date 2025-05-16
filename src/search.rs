@@ -70,11 +70,11 @@ impl<'a, P: Profile, const RC: bool, const ALL_MINIMA: bool> Search<'a, P, RC, A
         let mut traces = self.process_matches(matches);
 
         if RC && !self.is_rc_search {
-            let query_rc = P::reverse_complement(self.query);
-            let query_rev: Vec<u8> = query_rc.iter().rev().copied().collect();
+            let query_complemented = P::complement(self.query);
             let text_rev: Vec<u8> = self.text.iter().rev().copied().collect();
 
-            let mut rc_search = Search::<P, RC, ALL_MINIMA>::new(&query_rev, &text_rev, self.k);
+            let mut rc_search =
+                Search::<P, RC, ALL_MINIMA>::new(&query_complemented, &text_rev, self.k);
             rc_search.is_rc_search = true;
 
             let mut rc_matches = rc_search.search();

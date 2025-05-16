@@ -22,4 +22,10 @@ pub trait Profile: Clone + std::fmt::Debug {
             std::any::type_name::<Self>()
         );
     }
+    fn complement(_query: &[u8]) -> Vec<u8> {
+        unimplemented!(
+            "Profile::reverse_complement not implemented for {:?}",
+            std::any::type_name::<Self>()
+        );
+    }
 }

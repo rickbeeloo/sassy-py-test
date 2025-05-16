@@ -225,5 +225,32 @@ fn benchmark_base_lookup(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, benchmark_base_lookup);
+fn benchmark_iupac_reverse_complement(c: &mut Criterion) {
+    let mut group = c.benchmark_group("IUPAC reverse complement");
+    group.warm_up_time(Duration::from_secs(1));
+    group.measurement_time(Duration::from_secs(1));
+    group.sample_size(10);
+
+    for size in [1024 * 1024] {
+        let seq = generate_dna_sequence(size);
+        group.throughput(Throughput::Bytes(size as u64));
+        group.bench_with_input(
+            BenchmarkId::new("iupac_reverse_complement", size),
+            &seq,
+            |b, seq| {
+                b.iter(|| {
+                    let rc = Iupac::reverse_complement(black_box(seq));
+                    black_box(rc);
+                })
+            },
+        );
+    }
+    group.finish();
+}
+
+criterion_group!(
+    benches,
+    benchmark_base_lookup,
+    benchmark_iupac_reverse_complement
+);
 criterion_main!(benches);

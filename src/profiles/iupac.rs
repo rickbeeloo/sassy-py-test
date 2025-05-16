@@ -162,6 +162,12 @@ impl Profile for Iupac {
     fn reverse_complement(seq: &[u8]) -> Vec<u8> {
         seq.iter().rev().map(|&c| RC[c as usize]).collect()
     }
+
+    // TODO: Implement this using SIMD
+    #[inline(always)]
+    fn complement(seq: &[u8]) -> Vec<u8> {
+        seq.iter().map(|&c| RC[c as usize]).collect()
+    }
 }
 
 const RC: [u8; 256] = {

@@ -102,20 +102,11 @@ impl Profile for Dna {
     }
 
     fn reverse_complement(query: &[u8]) -> Vec<u8> {
-        const RC: [u8; 256] = {
-            let mut rc = [0; 256];
-            let mut i = 0;
-            while i < 256 {
-                rc[i] = i as u8;
-                i += 1;
-            }
-            rc[b'A' as usize] = b'T';
-            rc[b'C' as usize] = b'G';
-            rc[b'T' as usize] = b'A';
-            rc[b'G' as usize] = b'C';
-            rc
-        };
         query.iter().rev().map(|&c| RC[c as usize]).collect()
+    }
+
+    fn complement(query: &[u8]) -> Vec<u8> {
+        query.iter().map(|&c| RC[c as usize]).collect()
     }
 }
 
@@ -126,6 +117,20 @@ const CODES: [u8x32; 4] = [
     u8x32::splat(2u8), // T
     u8x32::splat(3u8), // G
 ];
+
+const RC: [u8; 256] = {
+    let mut rc = [0; 256];
+    let mut i = 0;
+    while i < 256 {
+        rc[i] = i as u8;
+        i += 1;
+    }
+    rc[b'A' as usize] = b'T';
+    rc[b'C' as usize] = b'G';
+    rc[b'T' as usize] = b'A';
+    rc[b'G' as usize] = b'C';
+    rc
+};
 
 #[cfg(test)]
 mod test {
