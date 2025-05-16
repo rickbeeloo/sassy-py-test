@@ -1,7 +1,6 @@
 use crate::{
-    Strand,
     profiles::{Ascii, Dna, Iupac},
-    search_maybe_rc,
+    search::{Search, Strand},
 };
 use std::{path::PathBuf, sync::Mutex};
 
@@ -55,10 +54,22 @@ pub fn search(args: SearchArgs) {
 
                     let matches = match args.alphabet {
                         Alphabet::Ascii => {
-                            search_maybe_rc::<Ascii<true>>(query, text, args.k, args.rc)
+                            Search::<Ascii, false, false>::new(query, text, args.k).search()
                         }
-                        Alphabet::Dna => search_maybe_rc::<Dna>(query, text, args.k, args.rc),
-                        Alphabet::Iupac => search_maybe_rc::<Iupac>(query, text, args.k, args.rc),
+                        Alphabet::Dna => {
+                            if args.rc {
+                                Search::<Dna, true, false>::new(query, text, args.k).search()
+                            } else {
+                                Search::<Dna, false, false>::new(query, text, args.k).search()
+                            }
+                        }
+                        Alphabet::Iupac => {
+                            if args.rc {
+                                Search::<Iupac, true, false>::new(query, text, args.k).search()
+                            } else {
+                                Search::<Iupac, false, false>::new(query, text, args.k).search()
+                            }
+                        }
                     };
 
                     let _write_lock = write_lock.lock().unwrap();
@@ -66,7 +77,18 @@ pub fn search(args: SearchArgs) {
                         let cost = m.cost;
                         let start = m.start.1 as usize;
                         let end = m.end.1 as usize;
-                        let slice = str::from_utf8(&text[start..end]).unwrap();
+                        let slice = match m.strand {
+                            Strand::Fwd => String::from_utf8_lossy(&text[start..end]).to_string(),
+                            Strand::Rc => String::from_utf8_lossy(
+                                text[text.len() - end..text.len() - start]
+                                    .iter()
+                                    .rev()
+                                    .copied()
+                                    .collect::<Vec<_>>()
+                                    .as_slice(),
+                            )
+                            .to_string(),
+                        };
                         let cigar = m.cigar.to_string();
                         let strand = match m.strand {
                             Strand::Fwd => "+",

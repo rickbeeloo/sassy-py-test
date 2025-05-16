@@ -1,0 +1,9 @@
+sassy_path = "../sassy"
+swofinder_path = "../SWOffinder"
+chopoff_path = "../CHOPOFF"
+target_file = "../data/sub.fasta"
+out_dir = "results"
+dists = [1,2]
+threads = 1
+chopoff_db_path = "db_path"
+guides_file = "../data/guides_subset.txt"

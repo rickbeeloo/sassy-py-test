@@ -1,6 +1,8 @@
 #![feature(portable_simd, array_chunks)]
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
+use sassy::minima::find_below_threshold;
 use sassy::profiles::*;
+use sassy::search::{Deltas, Search};
 use std::time::Duration;
 
 fn generate_dna_sequence(size: usize) -> Vec<u8> {
@@ -82,10 +84,10 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             BenchmarkId::new("ascii_search_20", size),
             &ascii_seq,
             |b, seq| {
-                let mut deltas = vec![];
                 b.iter(|| {
-                    sassy::search_positions::<Ascii>(black_box(query), seq, &mut deltas);
-                    black_box(&deltas);
+                    let res =
+                        Search::<Ascii, false, false>::new(black_box(query), seq, 20).search();
+                    black_box(&res);
                 })
             },
         );
@@ -95,10 +97,9 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             BenchmarkId::new("dna_search_20", size),
             &dna_seq,
             |b, seq| {
-                let mut deltas = vec![];
                 b.iter(|| {
-                    sassy::search_positions::<Dna>(black_box(query), seq, &mut deltas);
-                    black_box(&deltas);
+                    let res = Search::<Dna, false, false>::new(black_box(query), seq, 20).search();
+                    black_box(&res);
                 })
             },
         );
@@ -108,10 +109,10 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             BenchmarkId::new("dna_search_20_k3", size),
             &dna_seq,
             |b, seq| {
-                let mut deltas = vec![];
                 b.iter(|| {
-                    sassy::search_positions_bounded::<Dna>(black_box(query), seq, 3, &mut deltas);
-                    black_box(&deltas);
+                    let matches =
+                        Search::<Dna, false, false>::new(black_box(query), seq, 3).search();
+                    black_box(&matches);
                 })
             },
         );
@@ -121,9 +122,9 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             BenchmarkId::new("dna_search_20_k1", size),
             &dna_seq,
             |b, seq| {
-                let mut deltas = vec![];
+                let mut deltas: Vec<Deltas> = vec![];
                 b.iter(|| {
-                    sassy::search_positions_bounded::<Dna>(black_box(query), seq, 1, &mut deltas);
+                    Search::<Dna, false, false>::new(black_box(query), seq, 1).search();
                     black_box(&deltas);
                 })
             },
@@ -134,10 +135,10 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             BenchmarkId::new("iupac_search_20", size),
             &dna_seq,
             |b, seq| {
-                let mut deltas = vec![];
                 b.iter(|| {
-                    sassy::search_positions::<Iupac>(black_box(query), seq, &mut deltas);
-                    black_box(&deltas);
+                    let res =
+                        Search::<Iupac, false, false>::new(black_box(query), seq, 20).search();
+                    black_box(&res);
                 })
             },
         );
@@ -147,10 +148,10 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             BenchmarkId::new("iupac_search_20_N", size),
             &dna_seq,
             |b, seq| {
-                let mut deltas = vec![];
                 b.iter(|| {
-                    sassy::search_positions::<Iupac>(black_box(query), seq, &mut deltas);
-                    black_box(&deltas);
+                    let res =
+                        Search::<Iupac, false, false>::new(black_box(query), seq, 20).search();
+                    black_box(&res);
                 })
             },
         );
@@ -160,10 +161,10 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             BenchmarkId::new("iupac_search_32", size),
             &dna_seq,
             |b, seq| {
-                let mut deltas = vec![];
                 b.iter(|| {
-                    sassy::search_positions::<Iupac>(black_box(query), seq, &mut deltas);
-                    black_box(&deltas);
+                    let res =
+                        Search::<Iupac, false, false>::new(black_box(query), seq, 32).search();
+                    black_box(&res);
                 })
             },
         );
@@ -173,36 +174,29 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             BenchmarkId::new("iupac_search_32_NRY", size),
             &dna_seq,
             |b, seq| {
-                let mut deltas = vec![];
                 b.iter(|| {
-                    sassy::search_positions::<Iupac>(black_box(query), seq, &mut deltas);
-                    black_box(&deltas);
+                    let res =
+                        Search::<Iupac, false, false>::new(black_box(query), seq, 32).search();
+                    black_box(&res);
                 })
             },
         );
 
-        let query = b"ACTGCAACTGCAACGACGTAACACCTACTAAC";
-        group.bench_with_input(
-            BenchmarkId::new("iupac_find_32", size),
-            &dna_seq,
-            |b, seq| {
-                let mut deltas = vec![];
-                let mut positions = vec![];
-                b.iter(|| {
-                    sassy::search_positions::<Iupac>(black_box(query), seq, &mut deltas);
-                    positions.clear();
-                    let mut costs = vec![];
-                    sassy::find_below_threshold(
-                        black_box(query),
-                        8,
-                        &deltas,
-                        &mut positions,
-                        &mut costs,
-                    );
-                    black_box(&positions);
-                })
-            },
-        );
+        // let query = b"ACTGCAACTGCAACGACGTAACACCTACTAAC";
+        // group.bench_with_input(
+        //     BenchmarkId::new("iupac_find_32", size),
+        //     &dna_seq,
+        //     |b, seq| {
+        //         let mut positions = vec![];
+        //         b.iter(|| {
+        //             Search::<Iupac, false, false>::new(black_box(query), seq, 32).search();
+        //             positions.clear();
+        //             let mut costs = vec![];
+        //             find_below_threshold(black_box(query), 8, &deltas, &mut positions, &mut costs);
+        //             black_box(&positions);
+        //         })
+        //     },
+        // );
 
         group.bench_with_input(
             BenchmarkId::new("dna_input_validation_valid", size),

@@ -2,3 +2,6 @@
 /perf.data*
 /flame*
 /examples/crispr
+/data
+*.ipynb
+*.png

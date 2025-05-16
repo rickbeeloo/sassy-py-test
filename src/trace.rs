@@ -10,9 +10,9 @@ use crate::profiles::Dna;
 use crate::profiles::Profile;
 
 use crate::LANES;
-use crate::Match;
 use crate::S;
 use crate::bitpacking::compute_block_simd;
+use crate::search::{Match, Strand};
 use std::array::from_fn;
 
 #[derive(Debug, Clone, Default)]
@@ -54,8 +54,6 @@ fn fill(query: &[u8], text: &[u8], m: &mut CostMatrix) {
         let mut slice: [u8; 64] = [b'X'; 64];
         slice[..block.len()].copy_from_slice(block);
         profiler.encode_ref(&slice, &mut text_profile);
-
-        println!("Chunk:: {}", String::from_utf8_lossy(&slice));
 
         let mut v = V::<u64>::zero();
 
@@ -187,7 +185,7 @@ pub fn get_trace<P: Profile>(
         cost: total_cost,
         start: Pos(0, (text_offset + j) as I),
         end: Pos(query.len() as I, (text_offset + text.len()) as I),
-        strand: crate::Strand::Fwd,
+        strand: Strand::Fwd,
         cigar,
     }
 }

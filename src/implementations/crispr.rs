@@ -1,3 +1,6 @@
+use crate::search::Match;
+use crate::{profiles::Iupac, search::Search, search::Strand};
+use pa_types::CigarOp;
 use std::fs::File;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -6,11 +9,6 @@ use std::{
     path::PathBuf,
     sync::Mutex,
 };
-
-use crate::Match;
-use crate::{AllK, Strand, profiles::Iupac};
-use crate::{Bounded, WithRc, search_generic};
-use pa_types::CigarOp;
 
 #[derive(clap::Parser)]
 pub struct CrisprArgs {
@@ -55,11 +53,10 @@ fn check_edit_free(m: &Match, target: isize) -> bool {
     // We assume PAMs are always at the ends so we can either check if the first X are
     // Match or the last X
     let is_negative = target < 0;
-    let to_check = match (m.strand, is_negative) {
+    let to_check: &pa_types::CigarElem = match (m.strand, is_negative) {
         (Strand::Fwd, false) | (Strand::Rc, true) => m.cigar.ops.first().unwrap(),
         (Strand::Fwd, true) | (Strand::Rc, false) => m.cigar.ops.last().unwrap(),
     };
-    // Check if all are matches and that we have at least abs(target) matches
     to_check.op == CigarOp::Match && to_check.cnt >= target.abs() as i32
 }
 
@@ -165,11 +162,9 @@ pub fn crispr(args: CrisprArgs) {
                     let id = String::from_utf8(record.id().to_vec()).unwrap();
                     let text = &record.seq().into_owned();
 
-                    let matches = search_generic::<Iupac, WithRc, Bounded, AllK>(
-                        guide_sequence,
-                        text,
-                        args.k,
-                    );
+                    let matches =
+                        Search::<Iupac, true, true>::new(guide_sequence, text, args.k).search();
+
                     total_found.fetch_add(matches.len(), Ordering::Relaxed);
 
                     let mut writer_guard = writer.lock().unwrap();
@@ -178,7 +173,21 @@ pub fn crispr(args: CrisprArgs) {
                             let cost = m.cost;
                             let start = m.start.1 as usize;
                             let end = m.end.1 as usize;
-                            let slice = str::from_utf8(&text[start..end]).unwrap();
+
+                            let slice = match m.strand {
+                                Strand::Fwd => {
+                                    String::from_utf8_lossy(&text[start..end]).to_string()
+                                }
+                                Strand::Rc => String::from_utf8_lossy(
+                                    text[text.len() - end..text.len() - start]
+                                        .iter()
+                                        .rev()
+                                        .copied()
+                                        .collect::<Vec<_>>()
+                                        .as_slice(),
+                                )
+                                .to_string(),
+                            };
                             let cigar = m.cigar.to_string();
                             let strand = match m.strand {
                                 Strand::Fwd => "+",
@@ -203,20 +212,12 @@ pub fn crispr(args: CrisprArgs) {
         "  Total targets found:   {}",
         total_found.load(Ordering::Relaxed)
     );
-    if edit_free.is_some() {
-        println!(
-            "  Discarded (edits + N's): {}",
-            edits_in_pam.load(Ordering::Relaxed)
-        );
-        println!(
-            "  Total targets passed:  {}",
-            total_found.load(Ordering::Relaxed) - edits_in_pam.load(Ordering::Relaxed)
-        );
-    } else {
-        println!("  Discarded (edit-free): 0");
-        println!(
-            "  Total targets passed:  {}",
-            total_found.load(Ordering::Relaxed)
-        );
-    }
+    println!(
+        "  Discarded (edits + N's): {}",
+        edits_in_pam.load(Ordering::Relaxed)
+    );
+    println!(
+        "  Total targets passed:  {}",
+        total_found.load(Ordering::Relaxed) - edits_in_pam.load(Ordering::Relaxed)
+    );
 }

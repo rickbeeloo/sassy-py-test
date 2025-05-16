@@ -49,6 +49,7 @@ pub fn find_local_minima(
     deltas: &mut Deltas,
     k: Cost,
     text_len: usize,
+    prefix_min_bytes: &mut [u8; 8],
 ) -> Vec<(usize, Cost)> {
     let mut prev_cost = query.len() as Cost;
     let mut cur_cost = query.len() as Cost;
@@ -85,7 +86,7 @@ pub fn find_local_minima(
             continue;
         }
         cur_cost = v.0;
-        let (min, delta) = prefix_min(v.1);
+        let (min, delta) = prefix_min(v.1, prefix_min_bytes);
         if cur_cost + (min as Cost) <= k {
             // FIXME?
             let (p, m) = v.1.pm();
@@ -122,66 +123,17 @@ pub fn find_local_minima(
     all_valleys
 }
 
-pub fn find_all_minima(
-    query: &[u8],
-    deltas: &mut Deltas,
-    k: Cost,
-    text_len: usize,
-) -> Vec<(usize, Cost)> {
-    let mut prev_cost = query.len() as Cost;
-    let mut cur_cost = query.len() as Cost;
-    let mut all_valleys = Vec::new();
-
-    // Calculate the position where text ends
-    let text_end_pos = text_len;
-    for (word_idx, v) in deltas.iter().enumerate() {
-        if v.0 == Cost::MAX {
-            continue;
-        }
-        cur_cost = v.0;
-        let (min, delta) = prefix_min(v.1);
-        if cur_cost + (min as Cost) <= k {
-            let (p, m) = v.1.pm();
-            // Get positions where cost changes occur
-            let mut changes = p | m;
-            while changes != 0 {
-                let pos = changes.trailing_zeros() as usize;
-                let absolute_pos = word_idx * 64 + pos;
-                let p_bit = (p >> pos) & 1;
-                let m_bit = (m >> pos) & 1;
-
-                cur_cost += (p_bit as Cost) - (m_bit as Cost);
-                if prev_cost <= k && word_idx * 64 + pos <= text_len {
-                    all_valleys.push((absolute_pos, prev_cost));
-                }
-                prev_cost = cur_cost;
-                // Clear the processed bit
-                changes &= changes - 1;
-            }
-        } else {
-            cur_cost += delta as Cost;
-            prev_cost = cur_cost;
-        }
-    }
-
-    // Add minima at right end if cost is below threshold
-    if cur_cost <= k && text_end_pos > 0 {
-        all_valleys.push((text_end_pos, cur_cost));
-    }
-
-    all_valleys
-}
-
 pub fn find_below_threshold(
     query: &[u8],
     threshold: Cost,
     deltas: &Deltas,
     positions: &mut Vec<usize>,
     costs: &mut Vec<Cost>,
+    prefix_min_bytes: &mut [u8; 8],
 ) {
     let mut cur_cost = query.len() as Cost;
     for (i, v) in deltas.iter().enumerate() {
-        let (min, delta) = prefix_min(v.1);
+        let (min, delta) = prefix_min(v.1, prefix_min_bytes);
         if cur_cost + (min as Cost) <= threshold {
             positions.push(i * 64);
             // Cost at start of block
@@ -218,148 +170,245 @@ const TABLE: [(i8, i8); 256] = {
     table
 };
 
-/// Return the min_cost in the word, and total cost across the word.
-#[inline(always)]
-pub fn prefix_min(v: V<u64>) -> (i8, i8) {
-    // extract only the relevant chars
-    let (p, m) = v.pm();
-    let delta = p | m;
-    let num_p = p.count_ones();
-    let num_m = m.count_ones();
-    let deltas = unsafe { _pext_u64(m, delta) };
-    let mut min = 0;
-    let mut cur = 0;
-    for i in 0..8 {
-        let byte = (deltas >> (i * 8)) as u8 as usize;
-        let (min_cost, end_cost) = TABLE[byte];
-        min = min.min(cur + min_cost);
-        cur += end_cost;
+pub fn find_all_minima(
+    query: &[u8],
+    deltas: &mut Deltas,
+    k: Cost,
+    text_len: usize,
+) -> Vec<(usize, Cost)> {
+    let mut cost = query.len() as Cost;
+    let mut all_valleys = Vec::new();
+
+    // Iterate through each block of 64 positions
+    for (word_idx, v) in deltas.iter().enumerate() {
+        if v.0 == Cost::MAX {
+            continue;
+        }
+
+        // Reset cost at start of block
+        cost = v.0;
+        let (p, m) = v.1.pm();
+        let base = word_idx * 64;
+
+        // Step through every bit position
+        for bit in 0..64 {
+            let pos = base + bit;
+            if pos > text_len {
+                break;
+            }
+
+            // Check valley before applying change
+            if cost <= k {
+                all_valleys.push((pos, cost));
+            }
+
+            // Update cost if there's a change at this bit
+            let p_bit = ((p >> bit) & 1) as Cost;
+            let m_bit = ((m >> bit) & 1) as Cost;
+            cost += p_bit;
+            cost -= m_bit;
+        }
     }
 
-    (min, num_p as i8 - num_m as i8)
+    // Check end-of-text position
+    if cost <= k && text_len > 0 {
+        all_valleys.push((text_len, cost));
+    }
+
+    all_valleys
 }
 
-// #[cfg(test)]
-// mod test {
-//     use super::*;
+static TABLE_MIN: [i8; 256] = {
+    let mut a = [0i8; 256];
+    let mut i = 0;
+    while i < 256 {
+        a[i] = TABLE[i].0;
+        i += 1;
+    }
+    a
+};
+static TABLE_END: [i8; 256] = {
+    let mut a = [0i8; 256];
+    let mut i = 0;
+    while i < 256 {
+        a[i] = TABLE[i].1;
+        i += 1;
+    }
+    a
+};
 
-//     /// Create Vencoding from (position, delta) vec
-//     fn make_pattern(changes: &[(usize, i8)]) -> V<u64> {
-//         let mut p = 0u64;
-//         let mut m = 0u64;
-//         for &(pos, delta) in changes {
-//             assert!(pos < 64, "Position must be < 64");
-//             if delta > 0 {
-//                 p |= 1u64 << pos;
-//             } else if delta < 0 {
-//                 m |= 1u64 << pos;
-//             }
-//         }
-//         V(p, m)
-//     }
+#[inline(always)]
+pub fn prefix_min(v: V<u64>, bytes: &mut [u8; 8]) -> (i8, i8) {
+    let (p, m) = v.pm();
+    let delta = p | m;
+    let num_p = p.count_ones() as i8;
+    let num_m = m.count_ones() as i8;
+    let deltas = unsafe { _pext_u64(m, delta) };
+
+    // Split 64 bits in 8 bytes
+    //let mut bytes = [0u8; 8];
+    bytes.iter_mut().enumerate().for_each(|(i, byte)| {
+        *byte = ((deltas >> (i * 8)) & 0xFF) as u8;
+    });
+
+    // Lookup into two Simd<i8, 8> vectors
+    let mins = [
+        TABLE_MIN[bytes[0] as usize],
+        TABLE_MIN[bytes[1] as usize],
+        TABLE_MIN[bytes[2] as usize],
+        TABLE_MIN[bytes[3] as usize],
+        TABLE_MIN[bytes[4] as usize],
+        TABLE_MIN[bytes[5] as usize],
+        TABLE_MIN[bytes[6] as usize],
+        TABLE_MIN[bytes[7] as usize],
+    ];
+
+    let sums = [
+        TABLE_END[bytes[0] as usize],
+        TABLE_END[bytes[1] as usize],
+        TABLE_END[bytes[2] as usize],
+        TABLE_END[bytes[3] as usize],
+        TABLE_END[bytes[4] as usize],
+        TABLE_END[bytes[5] as usize],
+        TABLE_END[bytes[6] as usize],
+        TABLE_END[bytes[7] as usize],
+    ];
+
+    // Process in pairs to maintain sequential order
+    let mut cur = 0;
+    let mut min = 0;
+
+    for i in 0..8 {
+        min = min.min(cur + mins[i]);
+        cur += sums[i];
+    }
+    (min, num_p - num_m)
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use rand::Rng;
+    use std::time::{Duration, Instant};
+
+    /// Create Vencoding from (position, delta) vec
+    fn make_pattern(changes: &[(usize, i8)]) -> V<u64> {
+        let mut p = 0u64;
+        let mut m = 0u64;
+        for &(pos, delta) in changes {
+            assert!(pos < 64, "Position must be < 64");
+            if delta > 0 {
+                p |= 1u64 << pos;
+            } else if delta < 0 {
+                m |= 1u64 << pos;
+            }
+        }
+        V(p, m)
+    }
+
+    fn random_pattern(len: usize) -> Vec<(usize, i8)> {
+        let mut rng = rand::rng();
+        let mut pattern = Vec::new();
+        for _ in 0..len {
+            let pos = rng.random_range(0..64);
+            let delta = if rng.random_bool(0.5) { -1 } else { 1 };
+            pattern.push((pos, delta));
+        }
+        pattern
+    }
+
+    fn random_query() -> Vec<u8> {
+        let mut rng = rand::rng();
+        let len = rng.random_range(1..20); // Random query length between 1 and 20
+        let mut query = Vec::with_capacity(len);
+        for _ in 0..len {
+            query.push(rng.random_range(b'A'..b'Z')); // Random uppercase letters
+        }
+        query
+    }
+}
 
 //     #[test]
 //     fn test_simple_valley() {
-//         // Pattern: down-down-up-up at start
 //         let v1 = make_pattern(&[(0, -1), (1, -1), (3, 1), (4, 1)]);
-//         //Length is 3, -1, -1 = 1 edit at position 2
-//         let minima = find_local_minima(b"ATG", &mut [v1], 100, 64);
+//         let mut deltas = vec![v1];
+//         let minima = find_local_minima(b"ATG", &mut deltas, 100, 64);
 //         assert_eq!(minima, vec![(3, 1)]); // valley till position 2, cost 1
 //     }
 
 //     #[test]
 //     fn test_cross_boundary_valley() {
-//         // First word ends with down-down
-//         let v1 = make_pattern(&[(62, -1), (63, -1)]); // so 64 = 0
-//         // Second word starts with up-up
-//         let v2 = make_pattern(&[(1, 1), (2, 1)]); // meaning we go up at the start of 2nd word = 64  + 1 = 65
+//         let v1 = make_pattern(&[(62, -1), (63, -1)]);
+//         let v2 = make_pattern(&[(1, 1), (2, 1)]);
 //         let v3 = V(0, 0);
-//         // Again length is 3, -1, -1 = 1 edit at position 64 (after valley - crossing word)
-//         let minima = find_local_minima(b"ATG", &mut [v1, v2, v3], 100, 64 * 3);
+//         let mut deltas = vec![v1, v2, v3];
+//         let minima = find_local_minima(b"ATG", &mut deltas, 100, 64 * 3);
 //         assert_eq!(minima, vec![(65, 1)]); // at word boundary
 //     }
 
 //     #[test]
 //     fn test_multiple_valleys() {
-//         // Two valleys in same word
 //         let v1 = make_pattern(&[
-//             (0, -1), // 2
-//             (1, -1), // 1 <- first valley
-//             (2, 1),  // 2
-//             (3, 1),  // 3
-//             (4, -1), // 2
-//             (5, -1), // 1 <- second valley
-//             (6, 1),  // 2
-//             (7, 1),  // 3
+//             (0, -1),
+//             (1, -1),
+//             (2, 1),
+//             (3, 1),
+//             (4, -1),
+//             (5, -1),
+//             (6, 1),
+//             (7, 1),
 //         ]);
-//         let minima = find_local_minima(b"ATG", &mut [v1], 100, 64);
+//         let mut deltas = vec![v1];
+//         let minima = find_local_minima(b"ATG", &mut deltas, 100, 64);
 //         println!("Minima: {:?}", minima);
 //         assert_eq!(minima, vec![(2, 1), (6, 1)]);
 //     }
 
 //     #[test]
 //     fn test_valley_with_plateau() {
-//         // Valley with flat region in middle
-//         let v1 = make_pattern(&[
-//             (10, -1), // 2
-//             (11, -1), // 1 <- start valley
-//             // positions 12-14 0 (by default see make_pattern)
-//             (15, 1), // 1 <- end valley,  so first up position after valley
-//             (16, 1), // 2
-//         ]);
+//         let v1 = make_pattern(&[(10, -1), (11, -1), (15, 1), (16, 1)]);
 //         let v2 = V(0, 0);
 //         let v3 = V(0, 0);
-
-//         let minima = find_local_minima(b"ATG", &mut [v1, v2, v3], 100, 64 * 3);
+//         let mut deltas = vec![v1, v2, v3];
+//         let minima = find_local_minima(b"ATG", &mut deltas, 100, 64 * 3);
 //         assert_eq!(minima, vec![(15, 1)]); // valley at end of plateau
 //     }
 
 //     #[test]
 //     fn test_long_cross_word_valley() {
-//         // Down at end of first word
 //         let v1 = make_pattern(&[(62, -1), (63, -1)]);
-//         // Zeros across entire second word
 //         let v2 = V(0, 0);
-//         // Up at start of third word
 //         let v3 = make_pattern(&[(0, 1), (1, 1)]);
-//         let minima = find_local_minima(b"ATG", &mut [v1, v2, v3], 100, 64 * 3);
+//         let mut deltas = vec![v1, v2, v3];
+//         let minima = find_local_minima(b"ATG", &mut deltas, 100, 64 * 3);
 //         assert_eq!(minima, vec![(64 * 2, 1)]); // valley at end of second word
 //     }
 
 //     #[test]
 //     fn test_cost_calculation_simple() {
-//         let v1 = make_pattern(&[
-//             (0, -1), // cost becomes 3-1 = 2
-//             (1, -1), // cost becomes 2-1 = 1
-//             (2, 1),  // cost becomes 1+1 = 2 (and here after valley)
-//         ]);
+//         let v1 = make_pattern(&[(0, -1), (1, -1), (2, 1)]);
 //         let v2 = V(0, 0);
 //         let v3 = V(0, 0);
-
-//         let minima = find_local_minima(b"ATG", &mut [v1, v2, v3], 100, 64 * 3);
+//         let mut deltas = vec![v1, v2, v3];
+//         let minima = find_local_minima(b"ATG", &mut deltas, 100, 64 * 3);
 //         assert_eq!(minima, vec![(2, 1)]); // valley at position 1 with cost 8
 //     }
 
 //     #[test]
 //     fn test_cost_calculation_complex() {
-//         // Starting at cost 20
-//         // First word: ends with down(-1), down(-1)  // 20 -> 19 -> 18
 //         let v1 = make_pattern(&[(62, -1), (63, -1)]);
-
-//         // Second word: all zeros (plateau)          // stays at 18
 //         let v2 = V(0, 0);
-
-//         // Third word: starts with up(+1), up(+1)    // 18 -> 19 -> 20
 //         let v3 = make_pattern(&[(0, 1), (1, 1)]);
-
-//         let minima = find_local_minima(&[b'A'; 20], &mut [v1, v2, v3], 100, 64 * 3);
+//         let mut deltas = vec![v1, v2, v3];
+//         let minima = find_local_minima(&[b'A'; 20], &mut deltas, 100, 64 * 3);
 //         assert_eq!(minima, vec![(64 * 2, 18)]); // valley at end of second word with cost 18
 //     }
 
 //     #[test]
 //     fn test_at_right_end() {
-//         let v1 = make_pattern(&[(0, -1), (1, -1)]); // edits 1 3-2 = 1
-//         let minima = find_local_minima(b"ATG", &mut [v1], 100, 64);
+//         let v1 = make_pattern(&[(0, -1), (1, -1)]);
+//         let mut deltas = vec![v1];
+//         let minima = find_local_minima(b"ATG", &mut deltas, 100, 64);
 //         assert_eq!(minima, vec![(64, 1)]); // We end with  a valley, right end true, so still report
 //     }
 // }

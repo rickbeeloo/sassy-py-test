@@ -6,7 +6,7 @@ edition = "2024"
 [profile.release]
 incremental = true
 opt-level = 3
-debug = true
+debug = true  
 
 [dependencies]
 arrayvec = "0.7.6"
@@ -26,13 +26,18 @@ avx512 = []
 [[bench]]
 name = "bench"
 harness = false
+debug = true    
+opt-level = 3     
 
 [dev-dependencies]
 edlib_rs.git = "https://github.com/pairwise-alignment/edlib-rs"
 toml = "0.7"
 serde = { version = "1.0", features = ["derive"] }
 once_cell = "1.19.0"
+tempfile = "*"
 
-[[example]]
-name = "bench"
-path = "examples/bench.rs"
+[workspace]
+members = [
+    ".",
+    "benchmarks"
+]
