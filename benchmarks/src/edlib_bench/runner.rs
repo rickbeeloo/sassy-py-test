@@ -39,7 +39,7 @@ pub fn run(grid_config: &str) {
     // Write header
     writeln!(
         writer,
-        "query_length,text_length,k,match_fraction,max_edits,bench_iter,alphabet,profile,rc,bound,edlib_ms,sassy_ms"
+        "query_length,text_length,k,match_fraction,max_edits,bench_iter,alphabet,profile,rc,edlib_ms,sassy_ms"
     ).unwrap();
 
     // Get combinations
