@@ -1,6 +1,6 @@
 use crate::{
     profiles::{Ascii, Dna, Iupac},
-    search::{Search, Strand},
+    search::{Searcher, Strand},
 };
 use std::{path::PathBuf, sync::Mutex};
 
@@ -54,20 +54,20 @@ pub fn search(args: SearchArgs) {
 
                     let matches = match args.alphabet {
                         Alphabet::Ascii => {
-                            Search::<Ascii, false, false>::new(query, text, args.k).search()
+                            Searcher::<Ascii, false, false>::new().search(query, &text, args.k)
                         }
                         Alphabet::Dna => {
                             if args.rc {
-                                Search::<Dna, true, false>::new(query, text, args.k).search()
+                                Searcher::<Dna, true, false>::new().search(query, &text, args.k)
                             } else {
-                                Search::<Dna, false, false>::new(query, text, args.k).search()
+                                Searcher::<Dna, false, false>::new().search(query, &text, args.k)
                             }
                         }
                         Alphabet::Iupac => {
                             if args.rc {
-                                Search::<Iupac, true, false>::new(query, text, args.k).search()
+                                Searcher::<Iupac, true, false>::new().search(query, &text, args.k)
                             } else {
-                                Search::<Iupac, false, false>::new(query, text, args.k).search()
+                                Searcher::<Iupac, false, false>::new().search(query, &text, args.k)
                             }
                         }
                     };

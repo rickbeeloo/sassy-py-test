@@ -26,8 +26,6 @@ avx512 = []
 [[bench]]
 name = "bench"
 harness = false
-debug = true    
-opt-level = 3     
 
 [dev-dependencies]
 edlib_rs.git = "https://github.com/pairwise-alignment/edlib-rs"

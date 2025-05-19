@@ -49,7 +49,6 @@ pub fn find_local_minima(
     deltas: &mut Deltas,
     k: Cost,
     text_len: usize,
-    prefix_min_bytes: &mut [u8; 8],
 ) -> Vec<(usize, Cost)> {
     let mut prev_cost = query.len() as Cost;
     let mut cur_cost = query.len() as Cost;
@@ -86,7 +85,7 @@ pub fn find_local_minima(
             continue;
         }
         cur_cost = v.0;
-        let (min, delta) = prefix_min(v.1, prefix_min_bytes);
+        let (min, delta) = prefix_min(v.1.0, v.1.1);
         if cur_cost + (min as Cost) <= k {
             // FIXME?
             let (p, m) = v.1.pm();
@@ -129,11 +128,10 @@ pub fn find_below_threshold(
     deltas: &Deltas,
     positions: &mut Vec<usize>,
     costs: &mut Vec<Cost>,
-    prefix_min_bytes: &mut [u8; 8],
 ) {
     let mut cur_cost = query.len() as Cost;
     for (i, v) in deltas.iter().enumerate() {
-        let (min, delta) = prefix_min(v.1, prefix_min_bytes);
+        let (min, delta) = prefix_min(v.1.0, v.1.1);
         if cur_cost + (min as Cost) <= threshold {
             positions.push(i * 64);
             // Cost at start of block
@@ -218,76 +216,120 @@ pub fn find_all_minima(
     all_valleys
 }
 
-static TABLE_MIN: [i8; 256] = {
-    let mut a = [0i8; 256];
+/// Compute any prefix min <= k over 8 bytes via SIMD vectorized DP approach.
+#[inline(always)]
+pub fn prefix_min(p: u64, m: u64) -> (i8, i8) {
+    // extract only the relevant chars
+    let delta = p | m;
+    let num_p = p.count_ones();
+    let num_m = m.count_ones();
+    let deltas = unsafe { _pext_u64(m, delta) };
+    let mut min = 0;
+    let mut cur = 0;
+    for i in 0..8 {
+        let byte = (deltas >> (i * 8)) as u8 as usize;
+        let (min_cost, end_cost) = TABLE[byte];
+        min = min.min(cur + min_cost);
+        cur += end_cost;
+    }
+
+    (min, num_p as i8 - num_m as i8)
+}
+
+const NODE_TABLE: [Node; 256] = {
+    let mut table = [Node {
+        min_prefix: 0,
+        total: 0,
+    }; 256];
     let mut i = 0;
     while i < 256 {
-        a[i] = TABLE[i].0;
+        let mut cur = 0;
+        let mut min = i8::MAX;
+        let mut j = 0;
+        while j < 8 {
+            let bit = (i >> j) & 1;
+            let delta = if bit == 1 { -1 } else { 1 };
+            cur += delta;
+            if cur < min {
+                min = cur;
+            }
+            j += 1;
+        }
+        table[i] = Node {
+            min_prefix: min,
+            total: cur,
+        };
         i += 1;
     }
-    a
+    table
 };
-static TABLE_END: [i8; 256] = {
-    let mut a = [0i8; 256];
-    let mut i = 0;
-    while i < 256 {
-        a[i] = TABLE[i].1;
-        i += 1;
-    }
-    a
-};
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct Node {
+    min_prefix: i8,
+    total: i8,
+}
 
 #[inline(always)]
-pub fn prefix_min(v: V<u64>, bytes: &mut [u8; 8]) -> (i8, i8) {
-    let (p, m) = v.pm();
-    let delta = p | m;
-    let num_p = p.count_ones() as i8;
-    let num_m = m.count_ones() as i8;
-    let deltas = unsafe { _pext_u64(m, delta) };
-
-    // Split 64 bits in 8 bytes
-    //let mut bytes = [0u8; 8];
-    bytes.iter_mut().enumerate().for_each(|(i, byte)| {
-        *byte = ((deltas >> (i * 8)) & 0xFF) as u8;
-    });
-
-    let mins = [
-        TABLE_MIN[bytes[0] as usize],
-        TABLE_MIN[bytes[1] as usize],
-        TABLE_MIN[bytes[2] as usize],
-        TABLE_MIN[bytes[3] as usize],
-        TABLE_MIN[bytes[4] as usize],
-        TABLE_MIN[bytes[5] as usize],
-        TABLE_MIN[bytes[6] as usize],
-        TABLE_MIN[bytes[7] as usize],
-    ];
-
-    let sums = [
-        TABLE_END[bytes[0] as usize],
-        TABLE_END[bytes[1] as usize],
-        TABLE_END[bytes[2] as usize],
-        TABLE_END[bytes[3] as usize],
-        TABLE_END[bytes[4] as usize],
-        TABLE_END[bytes[5] as usize],
-        TABLE_END[bytes[6] as usize],
-        TABLE_END[bytes[7] as usize],
-    ];
-
-    let mut cur = 0;
-    let mut min = 0;
-
-    for i in 0..8 {
-        min = min.min(cur + mins[i]);
-        cur += sums[i];
+fn combine(a: Node, b: Node) -> Node {
+    Node {
+        min_prefix: a.min_prefix.min(a.total + b.min_prefix),
+        total: a.total + b.total,
     }
-    (min, num_p - num_m)
+}
+
+#[inline(always)]
+fn node_from_byte(byte: u8) -> Node {
+    let mut cur = 0i8;
+    let mut min = i8::MAX;
+    for j in 0..8 {
+        let bit = (byte >> j) & 1;
+        let delta = if bit == 1 { -1 } else { 1 };
+        cur += delta;
+        if cur < min {
+            min = cur;
+        }
+    }
+    Node {
+        min_prefix: min,
+        total: cur,
+    }
+}
+
+#[inline(always)]
+pub fn prefix_min_tree(p: u64, m: u64) -> i8 {
+    let delta = p | m;
+    let deltas = unsafe { core::arch::x86_64::_pext_u64(m, delta) };
+    let bytes = deltas.to_le_bytes();
+
+    // "Leafs"
+    let n0 = node_from_byte(bytes[0]);
+    let n1 = node_from_byte(bytes[1]);
+    let n2 = node_from_byte(bytes[2]);
+    let n3 = node_from_byte(bytes[3]);
+    let n4 = node_from_byte(bytes[4]);
+    let n5 = node_from_byte(bytes[5]);
+    let n6 = node_from_byte(bytes[6]);
+    let n7 = node_from_byte(bytes[7]);
+
+    // Tree like combine
+    let a = combine(n0, n1);
+    let b = combine(n2, n3);
+    let c = combine(n4, n5);
+    let d = combine(n6, n7);
+
+    let ab = combine(a, b);
+    let cd = combine(c, d);
+    let root = combine(ab, cd);
+
+    root.min_prefix
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
     use rand::Rng;
-    use std::time::{Duration, Instant};
 
     /// Create Vencoding from (position, delta) vec
     fn make_pattern(changes: &[(usize, i8)]) -> V<u64> {
@@ -325,24 +367,6 @@ mod test {
         query
     }
 }
-
-//     #[test]
-//     fn test_simple_valley() {
-//         let v1 = make_pattern(&[(0, -1), (1, -1), (3, 1), (4, 1)]);
-//         let mut deltas = vec![v1];
-//         let minima = find_local_minima(b"ATG", &mut deltas, 100, 64);
-//         assert_eq!(minima, vec![(3, 1)]); // valley till position 2, cost 1
-//     }
-
-//     #[test]
-//     fn test_cross_boundary_valley() {
-//         let v1 = make_pattern(&[(62, -1), (63, -1)]);
-//         let v2 = make_pattern(&[(1, 1), (2, 1)]);
-//         let v3 = V(0, 0);
-//         let mut deltas = vec![v1, v2, v3];
-//         let minima = find_local_minima(b"ATG", &mut deltas, 100, 64 * 3);
-//         assert_eq!(minima, vec![(65, 1)]); // at word boundary
-//     }
 
 //     #[test]
 //     fn test_multiple_valleys() {

@@ -1,9 +1,11 @@
 use crate::search::Match;
-use crate::{profiles::Iupac, search::Search, search::Strand};
+use crate::{profiles::Iupac, search::Searcher, search::StaticText, search::Strand};
 use pa_types::CigarOp;
 use std::fs::File;
+use std::io::{BufRead, BufReader};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Instant;
 use std::{
     io::{BufWriter, Write},
     path::PathBuf,
@@ -12,7 +14,7 @@ use std::{
 
 #[derive(clap::Parser)]
 pub struct CrisprArgs {
-    /// Guide sequence to search for (with PAM)
+    /// Path to file with guide sequences (including PAM)
     #[arg(long, short = 'g')]
     guide: String,
 
@@ -137,87 +139,115 @@ fn pass(
     pam_ok && n_ok
 }
 
+pub fn read_guide_sequences(path: &str) -> Vec<Vec<u8>> {
+    let file = File::open(path).expect("Failed to open guide file");
+    let reader = BufReader::new(file);
+    reader
+        .lines()
+        .map(|l| l.unwrap().as_bytes().to_vec())
+        .collect::<Vec<_>>()
+        .into_iter()
+        .filter(|seq| !seq.is_empty())
+        .collect()
+}
+
 pub fn crispr(args: CrisprArgs) {
-    let guide_sequence = args.guide.as_bytes();
+    let guide_sequences = read_guide_sequences(&args.guide);
+    println!("[GUIDES] Found {} guides", guide_sequences.len());
 
-    let file = File::create(&args.output).expect("Failed to create output file");
-    let writer = Mutex::new(BufWriter::new(file));
-    let reader = Mutex::new(needletail::parse_fastx_file(args.target.clone()).unwrap());
+    if !guide_sequences.is_empty() {
+        // Read the first record from the FASTA file for benchmarking
+        let file = File::create(&args.output).expect("Failed to create output file");
+        let writer = Mutex::new(BufWriter::new(file));
+        let reader = Mutex::new(needletail::parse_fastx_file(args.target.clone()).unwrap());
 
-    let (edit_free, max_n_frac) = print_and_check_params(&args, guide_sequence);
-    let edit_free_value = edit_free.unwrap_or(0);
+        let (edit_free, max_n_frac) = print_and_check_params(&args, &guide_sequences[0]);
+        let edit_free_value = edit_free.unwrap_or(0);
 
-    let total_found = Arc::new(AtomicUsize::new(0));
-    let edits_in_pam = Arc::new(AtomicUsize::new(0));
+        let total_found = Arc::new(AtomicUsize::new(0));
+        let edits_in_pam = Arc::new(AtomicUsize::new(0));
 
-    let num_threads = args.threads.unwrap_or_else(num_cpus::get);
-    println!("[Threads] Using {} threads", num_threads);
-    std::thread::scope(|scope| {
-        for _ in 0..num_threads {
-            scope.spawn(|| {
-                while let Ok(mut guard) = reader.lock()
-                    && let Some(record) = guard.next()
-                {
-                    let record = record.unwrap();
-                    let id = String::from_utf8(record.id().to_vec()).unwrap();
-                    let text = &record.seq().into_owned();
+        let num_threads = args.threads.unwrap_or_else(num_cpus::get);
+        println!("[Threads] Using {} threads", num_threads);
 
-                    let matches =
-                        Search::<Iupac, true, true>::new(guide_sequence, text, args.k).search();
+        let start = Instant::now();
+        std::thread::scope(|scope| {
+            for _ in 0..num_threads {
+                scope.spawn(|| {
+                    while let Ok(mut guard) = reader.lock()
+                        && let Some(record) = guard.next()
+                    {
+                        // Get fasta record
+                        let record = record.unwrap();
+                        let id = String::from_utf8(record.id().to_vec()).unwrap();
+                        let text = &record.seq().into_owned();
 
-                    total_found.fetch_add(matches.len(), Ordering::Relaxed);
+                        // Create static text by precomputing reverse
+                        let static_text = StaticText::new(text);
 
-                    let mut writer_guard = writer.lock().unwrap();
-                    for m in matches {
-                        if pass(&m, edit_free, edit_free_value, max_n_frac, text) {
-                            let cost = m.cost;
-                            let start = m.start.1 as usize;
-                            let end = m.end.1 as usize;
+                        // Searcher, IUPAC and always reverse complement
+                        let mut searcher = Searcher::<Iupac, true, true>::new();
 
-                            let slice = match m.strand {
-                                Strand::Fwd => {
-                                    String::from_utf8_lossy(&text[start..end]).to_string()
+                        // Search for each guide sequence
+                        guide_sequences.iter().for_each(|guide_sequence| {
+                            let matches = searcher.search(guide_sequence, &static_text, args.k);
+
+                            total_found.fetch_add(matches.len(), Ordering::Relaxed);
+
+                            let mut writer_guard = writer.lock().unwrap();
+                            for m in matches {
+                                if pass(&m, edit_free, edit_free_value, max_n_frac, text) {
+                                    let cost = m.cost;
+                                    let start = m.start.1 as usize;
+                                    let end = m.end.1 as usize;
+
+                                    let slice = match m.strand {
+                                        Strand::Fwd => {
+                                            String::from_utf8_lossy(&text[start..end]).to_string()
+                                        }
+                                        Strand::Rc => String::from_utf8_lossy(
+                                            text[text.len() - end..text.len() - start]
+                                                .iter()
+                                                .rev()
+                                                .copied()
+                                                .collect::<Vec<_>>()
+                                                .as_slice(),
+                                        )
+                                        .to_string(),
+                                    };
+                                    let cigar = m.cigar.to_string();
+                                    let strand = match m.strand {
+                                        Strand::Fwd => "+",
+                                        Strand::Rc => "-",
+                                    };
+                                    writeln!(
+                                        writer_guard,
+                                        "{id}\t{cost}\t{strand}\t{start}\t{end}\t{slice}\t{cigar}"
+                                    )
+                                    .unwrap();
+                                } else {
+                                    edits_in_pam.fetch_add(1, Ordering::Relaxed);
                                 }
-                                Strand::Rc => String::from_utf8_lossy(
-                                    text[text.len() - end..text.len() - start]
-                                        .iter()
-                                        .rev()
-                                        .copied()
-                                        .collect::<Vec<_>>()
-                                        .as_slice(),
-                                )
-                                .to_string(),
-                            };
-                            let cigar = m.cigar.to_string();
-                            let strand = match m.strand {
-                                Strand::Fwd => "+",
-                                Strand::Rc => "-",
-                            };
-                            writeln!(
-                                writer_guard,
-                                "{id}\t{cost}\t{strand}\t{start}\t{end}\t{slice}\t{cigar}"
-                            )
-                            .unwrap();
-                        } else {
-                            edits_in_pam.fetch_add(1, Ordering::Relaxed);
-                        }
+                            }
+                        });
                     }
-                }
-            });
-        }
-    });
+                });
+            }
+        });
 
-    println!("\nSummary");
-    println!(
-        "  Total targets found:   {}",
-        total_found.load(Ordering::Relaxed)
-    );
-    println!(
-        "  Discarded (edits + N's): {}",
-        edits_in_pam.load(Ordering::Relaxed)
-    );
-    println!(
-        "  Total targets passed:  {}",
-        total_found.load(Ordering::Relaxed) - edits_in_pam.load(Ordering::Relaxed)
-    );
+        println!("\nSummary");
+        println!(
+            "  Total targets found:   {}",
+            total_found.load(Ordering::Relaxed)
+        );
+        println!(
+            "  Discarded (edits + N's): {}",
+            edits_in_pam.load(Ordering::Relaxed)
+        );
+        println!(
+            "  Total targets passed:  {}",
+            total_found.load(Ordering::Relaxed) - edits_in_pam.load(Ordering::Relaxed)
+        );
+        println!("  Time taken: {:?}", start.elapsed());
+    }
 }

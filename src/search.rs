@@ -2,10 +2,12 @@ pub use crate::minima::{find_all_minima, find_local_minima};
 use crate::profiles::Profile;
 use crate::trace::{CostMatrix, get_trace, simd_fill};
 use pa_types::{Cigar, Cost, Pos};
+use std::borrow::Cow;
 use std::simd::cmp::SimdPartialOrd;
 use std::{array::from_fn, cell::RefCell};
 
-use crate::{LANES, S, minima::prefix_min};
+use crate::minima::prefix_min;
+use crate::{LANES, S};
 
 use crate::{
     bitpacking::compute_block_simd,
@@ -41,69 +43,90 @@ pub enum RcMode {
     Yes,
 }
 
-#[derive(Clone)]
-pub struct Search<'a, P: Profile, const RC: bool, const ALL_MINIMA: bool> {
-    query: &'a [u8],
-    text: &'a [u8],
-    k: usize,
-    is_rc_search: bool,
-    _phantom: std::marker::PhantomData<P>,
-    deltas: Deltas,
-    minima_buffer: [u8; 8],
+pub trait SearchAble {
+    /// The forward text
+    fn text(&self) -> &[u8];
+    /// Produce the reverse‐complement (or reverse) when requested
+    fn rc_text(&self) -> Cow<[u8]>;
 }
 
-impl<'a, P: Profile, const RC: bool, const ALL_MINIMA: bool> Search<'a, P, RC, ALL_MINIMA> {
-    pub fn new(query: &'a [u8], text: &'a [u8], k: usize) -> Self {
+impl<T> SearchAble for T
+where
+    T: AsRef<[u8]>,
+{
+    fn text(&self) -> &[u8] {
+        self.as_ref()
+    }
+
+    fn rc_text(&self) -> Cow<[u8]> {
+        Cow::Owned(self.as_ref().iter().rev().copied().collect())
+    }
+}
+
+pub struct StaticText<'a> {
+    pub text: &'a [u8],
+    pub rc: Vec<u8>,
+}
+
+impl<'a> StaticText<'a> {
+    pub fn new(text: &'a [u8]) -> Self {
+        let rc = text.iter().rev().copied().collect();
+        StaticText { text, rc }
+    }
+}
+
+impl<'a> SearchAble for StaticText<'a> {
+    fn text(&self) -> &[u8] {
+        self.text
+    }
+    fn rc_text(&self) -> Cow<[u8]> {
+        // borrow stored, is free
+        Cow::Borrowed(&self.rc)
+    }
+}
+
+#[derive(Clone)]
+pub struct Searcher<P: Profile, const RC: bool, const ALL_MINIMA: bool> {
+    _phantom: std::marker::PhantomData<P>,
+    deltas: Deltas,
+}
+
+impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MINIMA> {
+    pub fn new() -> Self {
         Self {
-            query,
-            text,
-            k,
-            is_rc_search: false,
             _phantom: std::marker::PhantomData,
-            deltas: vec![Default::default(); text.len() / 64],
-            minima_buffer: [0u8; 8],
+            deltas: vec![],
         }
     }
 
-    pub fn search(&mut self) -> Vec<Match> {
-        let matches = self.find_matches();
-        let mut traces = self.process_matches(matches);
-
-        if RC && !self.is_rc_search {
-            let query_complemented = P::complement(self.query);
-            let text_rev: Vec<u8> = self.text.iter().rev().copied().collect();
-
-            let mut rc_search =
-                Search::<P, RC, ALL_MINIMA>::new(&query_complemented, &text_rev, self.k);
-            rc_search.is_rc_search = true;
-
-            let mut rc_matches = rc_search.search();
-            for m in &mut rc_matches {
+    pub fn search<I: SearchAble>(&mut self, query: &[u8], input: &I, k: usize) -> Vec<Match> {
+        let mut matches = self.search_internal(query, input.text(), k);
+        if RC {
+            let rc_matches = self.search_internal(&P::complement(query), &input.rc_text(), k);
+            matches.extend(rc_matches.into_iter().map(|mut m| {
                 m.strand = Strand::Rc;
-            }
-            traces.extend(rc_matches);
+                m
+            }));
         }
-        traces
+        matches
     }
 
-    fn find_matches(&mut self) -> Vec<(usize, Cost)> {
-        self.search_positions_bounded(self.query, self.text, self.k as Cost);
+    fn search_internal(&mut self, query: &[u8], text: &[u8], k: usize) -> Vec<Match> {
+        let matches = self.find_matches(query, text, k);
+        if !matches.is_empty() {
+            self.process_matches(matches, query, text, k)
+        } else {
+            vec![]
+        }
+    }
+
+    fn find_matches(&mut self, query: &[u8], text: &[u8], k: usize) -> Vec<(usize, Cost)> {
+        self.search_positions_bounded(query, text, k as Cost);
 
         if ALL_MINIMA {
-            find_all_minima(
-                self.query,
-                &mut self.deltas,
-                self.k as Cost,
-                self.text.len(),
-            )
+            find_all_minima(query, &mut self.deltas, k as Cost, text.len())
         } else {
-            find_local_minima(
-                self.query,
-                &mut self.deltas,
-                self.k as Cost,
-                self.text.len(),
-                &mut self.minima_buffer,
-            )
+            find_local_minima(query, &mut self.deltas, k as Cost, text.len())
         }
     }
 
@@ -182,7 +205,7 @@ impl<'a, P: Profile, const RC: bool, const ALL_MINIMA: bool> Search<'a, P, RC, A
 
                 let eq = from_fn(|lane| {
                     P::eq(
-                        unsafe { &query_profile.get_unchecked(j) },
+                        unsafe { query_profile.get_unchecked(j) },
                         &text_profile[lane],
                     )
                 })
@@ -212,7 +235,7 @@ impl<'a, P: Profile, const RC: bool, const ALL_MINIMA: bool> Search<'a, P, RC, A
                                     let v = V(vp.as_array()[lane], vm.as_array()[lane]);
                                     let min_in_lane = dist_to_start_of_lane.as_array()[lane]
                                         as Cost
-                                        + prefix_min(v, &mut self.minima_buffer).0 as Cost;
+                                        + prefix_min(v.0, v.1).0 as Cost;
                                     if min_in_lane <= k {
                                         // Go to the post-processing below.
                                         break 'check;
@@ -252,9 +275,15 @@ impl<'a, P: Profile, const RC: bool, const ALL_MINIMA: bool> Search<'a, P, RC, A
         }
     }
 
-    fn process_matches(&self, matches: Vec<(usize, Cost)>) -> Vec<Match> {
+    fn process_matches(
+        &self,
+        matches: Vec<(usize, Cost)>,
+        query: &[u8],
+        text: &[u8],
+        k: usize,
+    ) -> Vec<Match> {
         let mut traces = Vec::with_capacity(matches.len());
-        let fill_len = self.query.len() + self.k;
+        let fill_len = query.len() + k;
 
         thread_local! {
             static M: RefCell<[CostMatrix;LANES]> = RefCell::new(from_fn(|_| CostMatrix::default()));
@@ -267,26 +296,32 @@ impl<'a, P: Profile, const RC: bool, const ALL_MINIMA: bool> Search<'a, P, RC, A
                 let end_pos = matches[i].0;
                 let offset = end_pos.saturating_sub(fill_len);
                 offsets[i] = offset;
-                text_slices[i] = &self.text[offset..end_pos];
+                text_slices[i] = &text[offset..end_pos];
             }
             let text_slices = &text_slices[..matches.len()];
             M.with(|m| {
                 let mut m = m.borrow_mut();
-                simd_fill::<P>(self.query, text_slices, &mut m);
+                simd_fill::<P>(query, text_slices, &mut m);
 
                 for lane in 0..matches.len() {
-                    let m = get_trace::<P>(self.query, offsets[lane], text_slices[lane], &m[lane]);
+                    let m = get_trace::<P>(query, offsets[lane], text_slices[lane], &m[lane]);
                     assert!(
-                        m.cost <= self.k as Cost,
+                        m.cost <= k as Cost,
                         "Match has cost {} > {}: {m:?}",
                         m.cost,
-                        self.k
+                        k
                     );
                     traces.push(m);
                 }
             });
         }
         traces
+    }
+}
+
+impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Default for Searcher<P, RC, ALL_MINIMA> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -300,7 +335,7 @@ mod tests {
     fn test_case1() {
         let query = b"AGATGTGTCC";
         let text = b"GAGAGATAACCGTGCGCTCACTGTTACAGTTTATGTGTCGAATTCTTTTAGGGCTGGTCACTGCCCATGCGTAGGAATGAATAGCGGTTGCGGATAACTAAGCAGTGCTTGTCGCTATTAAAGTTAGACCCCGCTCCCACCTTGCCACTCCTAGATGTCGACGAGATTCTCACCGCCAAGGGATCAGGCATATCATAGTAGCTGGCGCAGCCCGTCGTTTAAGGAGGCCCATATACTAATTCAAACGATGGGGTGGGCACATCCCCTAGAAGCACTTGTCCCTTGAGTCACGACTGATGCGTGGTCTCTCGCTAAATGTTCCGGCCTCTCGGACATTTAAAGGGTGGCATGTGACCATGGAGGATTAGTGAATGAGAGGTGTCCGCCTTTGTTCGCCAGAACTCTTATAGCGTAGGGGAGTGTACTCACCGCGAACCCGTATCAGCAATCTTGTCAGTGGCTCCTGACTCAAACATCGATGCGCTGCACATGGCCTTAGAATGAAGCAGCCCCTTTCTATTGTGGCCGGGCTGATTCTTTGTTTTGTTGAATGGTCGGGCCTGTCTGCCTTTTCCTAGTGTTGAAACTCCGAACCGCATGAACTGCGTTGCTAGCGAGCTATCACTGGACTGGCCGGGGGACGAAAGTTCGCGGGACCCACTACCCGCGCCCAGAAGACCACACTAGGGAGAAGGATTCTATCGGCATAGCCGTC";
-        let matches = Search::<Dna, true, false>::new(query, text, 2).search();
+        let matches = Searcher::<Dna, true, false>::new().search(query, &text, 2);
         println!("Matches: {:?}", matches);
     }
 
@@ -310,7 +345,7 @@ mod tests {
         let expected_idx = 277;
         let query = b"TAAGCAGAAGGGAGGTATAAAGTCTGTCAGCGGTGCTTAAG";
         let text = b"ACCGTAACCGCTTGGTACCATCCGGCCAGTCGCTCGTTGCGCCCCACTATCGGGATCGACGCGCAGTAATTAAACACCACCCACGCCACGAGGTAGAACGAGAGCGGGGGGCTAGCAAATAATAGTGAGAGTGCGTTCAAAGGGTCTTTCGTAACCTCAGCGGGCGGGTACGGGGGAAATATCGCACCAATTTTGGAGATGCGATTAGCTCAGCGTAACGCGAATTCCCTATAACTTGCCTAGTGTGTGTGAATGGACAATTCGTTTTACAGTTTCAAGGTAGCAGAAGGGCAGGATAAGTCTGTCGCGGTGCTTAAGGCTTTCCATCCATGTTGCCCCCTACATGAATCGGATCGCCAGCCAGAATATCACATGGTTCCAAAAGTTGCAAGCTTCCCCGTACCGCTACTTCACCTCACGCCAGAGGCCTATCGCCGCTCGGCCGTTCCGTTTTGGGGAAGAATCTGCCTGTTCTCGTCACAAGCTTCTTAGTCCTTCCACCATGGTGCTGTTACTCATGCCATCAAATATTCGAGCTCTTGCCTAGGGGGGTTATACCTGTGCGATAGATACACCCCCTATGACCGTAGGTAGAGAGCCTATTTTCAACGTGTCGATCGTTTAATGACACCAACTCCCGGTGTCGAGGTCCCCAAGTTTCGTAGATCTACTGAGCGGGGGAATATTTGACGGTAAGGCATCGCTTGTAGGATCGTATCGCGACGGTAGATACCCATAAGCGTTGCTAACCTGCCAATAACTGTCTCGCGATCCCAATTTAGCACAAGTCGGTGGCCTTGATAAGGCTAACCAGTTTCGCACCGCTTCCGTTCCATTTTACGATCTACCGCTCGGATGGATCCGAAATACCGAGGTAGTAATATCAACACGTACCCAATGTCC";
-        let matches = Search::<Dna, false, false>::new(query, text, edits).search();
+        let matches = Searcher::<Dna, false, false>::new().search(query, &text, edits);
         let m = matches
             .iter()
             .find(|m| (m.start.1 as usize).abs_diff(expected_idx) <= edits);
@@ -340,12 +375,12 @@ mod tests {
         let query = b"ATCGATCA";
         let rc = Dna::reverse_complement(query);
         let text = [b"GGGGGGGG".as_ref(), &rc, b"GGGGGGGG"].concat();
-        let matches = Search::<Dna, true, false>::new(query, &text, 1).search();
+        let matches = Searcher::<Dna, true, false>::new().search(query, &text, 1);
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].start.1, 8);
         assert_eq!(matches[0].end.1, 8 + query.len() as i32);
         // Now disableing rc search should yield no matches
-        let matches = Search::<Dna, false, false>::new(query, &text, 1).search();
+        let matches = Searcher::<Dna, false, false>::new().search(query, &text, 1);
         assert_eq!(matches.len(), 0);
     }
 
@@ -367,6 +402,10 @@ mod tests {
 
         query_lens.sort();
         text_lens.sort();
+
+        // Create single searcher for all tests to check proper resetting of internal states
+        let mut searcher = Searcher::<Dna, false, false>::new();
+        let mut rc_searcher = Searcher::<Dna, true, false>::new();
 
         for q in query_lens {
             for t in text_lens.clone() {
@@ -424,7 +463,7 @@ mod tests {
                 eprintln!("text {}", show(&text));
 
                 // Just fwd
-                let matches = Search::<Dna, false, false>::new(&query, &text, edits).search();
+                let matches = searcher.search(&query, &text, edits);
                 eprintln!("matches {matches:?}");
                 let m = matches
                     .iter()
@@ -432,7 +471,7 @@ mod tests {
                 assert!(m.is_some());
 
                 // Also rc search, should still find the same match
-                let matches = Search::<Dna, true, false>::new(&query, &text, edits).search();
+                let matches = rc_searcher.search(&query, &text, edits);
 
                 eprintln!("matches {matches:?}");
                 let m = matches

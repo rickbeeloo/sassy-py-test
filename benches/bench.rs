@@ -2,7 +2,7 @@
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use sassy::minima::find_below_threshold;
 use sassy::profiles::*;
-use sassy::search::{Deltas, Search};
+use sassy::search::{Deltas, Searcher};
 use std::time::Duration;
 
 fn generate_dna_sequence(size: usize) -> Vec<u8> {
@@ -35,6 +35,15 @@ fn benchmark_base_lookup(c: &mut Criterion) {
     #[allow(clippy::single_element_loop)]
     for size in [1024 * 1024] {
         let dna_seq = generate_dna_sequence(size);
+
+        // Dna sequence with middle isnert
+        let mut dna_seq_inserted = dna_seq.clone();
+        // in the middle of the sequence insert a random query sequence
+        let inserted_query = generate_dna_sequence(20);
+        let inserted_query_len = inserted_query.len();
+        let middle = size / 2;
+        dna_seq_inserted[middle..middle + inserted_query_len].copy_from_slice(&inserted_query);
+
         let ascii_seq = generate_ascii_sequence(size);
         group.throughput(Throughput::Bytes(size as u64));
 
@@ -84,9 +93,9 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             BenchmarkId::new("ascii_search_20", size),
             &ascii_seq,
             |b, seq| {
+                let mut searcher = Searcher::<Ascii, false, false>::new();
                 b.iter(|| {
-                    let res =
-                        Search::<Ascii, false, false>::new(black_box(query), seq, 20).search();
+                    let res = searcher.search(black_box(query), seq, 20);
                     black_box(&res);
                 })
             },
@@ -97,8 +106,10 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             BenchmarkId::new("dna_search_20", size),
             &dna_seq,
             |b, seq| {
+                let mut searcher: Searcher<Dna, false, false> =
+                    Searcher::<Dna, false, false>::new();
                 b.iter(|| {
-                    let res = Search::<Dna, false, false>::new(black_box(query), seq, 20).search();
+                    let res = searcher.search(black_box(query), seq, 20);
                     black_box(&res);
                 })
             },
@@ -110,8 +121,22 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             &dna_seq,
             |b, seq| {
                 b.iter(|| {
-                    let matches =
-                        Search::<Dna, false, false>::new(black_box(query), seq, 3).search();
+                    let mut searcher: Searcher<Dna, false, false> =
+                        Searcher::<Dna, false, false>::new();
+                    let matches = searcher.search(black_box(query), seq, 3);
+                    black_box(&matches);
+                })
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("dna_search_inserted_20_k3", size),
+            &dna_seq_inserted,
+            |b, seq| {
+                b.iter(|| {
+                    let mut searcher: Searcher<Dna, false, false> =
+                        Searcher::<Dna, false, false>::new();
+                    let matches = searcher.search(black_box(&inserted_query), seq, 3);
                     black_box(&matches);
                 })
             },
@@ -122,10 +147,11 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             BenchmarkId::new("dna_search_20_k1", size),
             &dna_seq,
             |b, seq| {
-                let mut deltas: Vec<Deltas> = vec![];
+                let mut searcher: Searcher<Dna, false, false> =
+                    Searcher::<Dna, false, false>::new();
                 b.iter(|| {
-                    Search::<Dna, false, false>::new(black_box(query), seq, 1).search();
-                    black_box(&deltas);
+                    let matches = searcher.search(black_box(query), seq, 1);
+                    black_box(&matches);
                 })
             },
         );
@@ -135,9 +161,10 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             BenchmarkId::new("iupac_search_20", size),
             &dna_seq,
             |b, seq| {
+                let mut searcher: Searcher<Iupac, false, false> =
+                    Searcher::<Iupac, false, false>::new();
                 b.iter(|| {
-                    let res =
-                        Search::<Iupac, false, false>::new(black_box(query), seq, 20).search();
+                    let res = searcher.search(black_box(query), seq, 20);
                     black_box(&res);
                 })
             },
@@ -148,9 +175,10 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             BenchmarkId::new("iupac_search_20_N", size),
             &dna_seq,
             |b, seq| {
+                let mut searcher: Searcher<Iupac, false, false> =
+                    Searcher::<Iupac, false, false>::new();
                 b.iter(|| {
-                    let res =
-                        Search::<Iupac, false, false>::new(black_box(query), seq, 20).search();
+                    let res = searcher.search(black_box(query), seq, 20);
                     black_box(&res);
                 })
             },
@@ -161,9 +189,10 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             BenchmarkId::new("iupac_search_32", size),
             &dna_seq,
             |b, seq| {
+                let mut searcher: Searcher<Iupac, false, false> =
+                    Searcher::<Iupac, false, false>::new();
                 b.iter(|| {
-                    let res =
-                        Search::<Iupac, false, false>::new(black_box(query), seq, 32).search();
+                    let res = searcher.search(black_box(query), seq, 32);
                     black_box(&res);
                 })
             },
@@ -174,9 +203,10 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             BenchmarkId::new("iupac_search_32_NRY", size),
             &dna_seq,
             |b, seq| {
+                let mut searcher: Searcher<Iupac, false, false> =
+                    Searcher::<Iupac, false, false>::new();
                 b.iter(|| {
-                    let res =
-                        Search::<Iupac, false, false>::new(black_box(query), seq, 32).search();
+                    let res = searcher.search(black_box(query), seq, 32);
                     black_box(&res);
                 })
             },

@@ -1,7 +1,7 @@
 use crate::edlib_bench::edlib::*;
 use crate::edlib_bench::grid::*;
 use crate::edlib_bench::sim_data::*;
-use sassy::search::{Match, Search};
+use sassy::search::{Match, Searcher};
 use std::fs::OpenOptions;
 use std::io::{BufWriter, Write};
 
@@ -107,26 +107,26 @@ fn get_search_fn(param_set: &ParamSet) -> SearchFn {
     match (param_set.profile, param_set.rc, &param_set.alphabet) {
         // IUPAC profile
         ("iupac", "withrc", _) => {
-            |q, t, k| Search::<sassy::profiles::Iupac, true, false>::new(q, t, k).search()
+            |q, t, k| Searcher::<sassy::profiles::Iupac, true, false>::new().search(&q, &t, k)
         }
         ("iupac", "withoutrc", _) => {
-            |q, t, k| Search::<sassy::profiles::Iupac, false, false>::new(q, t, k).search()
+            |q, t, k| Searcher::<sassy::profiles::Iupac, false, false>::new().search(&q, &t, k)
         }
 
         // DNA profile
         ("dna", "withrc", _) => {
-            |q, t, k| Search::<sassy::profiles::Dna, true, false>::new(q, t, k).search()
+            |q, t, k| Searcher::<sassy::profiles::Dna, true, false>::new().search(&q, &t, k)
         }
         ("dna", "withoutrc", _) => {
-            |q, t, k| Search::<sassy::profiles::Dna, false, false>::new(q, t, k).search()
+            |q, t, k| Searcher::<sassy::profiles::Dna, false, false>::new().search(&q, &t, k)
         }
 
         // ASCII profile
         ("ascii", "withrc", _) => {
-            |q, t, k| Search::<sassy::profiles::Ascii, true, false>::new(q, t, k).search()
+            |q, t, k| Searcher::<sassy::profiles::Ascii, true, false>::new().search(&q, &t, k)
         }
         ("ascii", "withoutrc", _) => {
-            |q, t, k| Search::<sassy::profiles::Ascii, false, false>::new(q, t, k).search()
+            |q, t, k| Searcher::<sassy::profiles::Ascii, false, false>::new().search(&q, &t, k)
         }
 
         _ => panic!(
