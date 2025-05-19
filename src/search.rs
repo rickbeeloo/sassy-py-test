@@ -144,7 +144,9 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
 
         // The query will match a pattern of length at most query.len() + k.
         // We round that up to a multiple of 64 to find the number of blocks overlap between chunks.
-        let overlap_blocks = (query.len() + k as usize).next_multiple_of(64) / 64;
+        let max_overlap_blocks = (query.len() + k as usize).next_multiple_of(64) / 64;
+        // let overlap_blocks = max_overlap_blocks;
+        let overlap_blocks = 0;
 
         // Total number of blocks to be processed, including overlaps.
         let text_blocks = text.len().div_ceil(64);
@@ -176,7 +178,7 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
 
         let first_check = (3 * k as usize).max(8);
 
-        'text_chunk: for i in 0..blocks_per_chunk {
+        'text_chunk: for i in 0..blocks_per_chunk + max_overlap_blocks {
             // The alignment can start anywhere, so start with deltas of 0.
             let mut vp = S::splat(0);
             let mut vm = S::splat(0);
@@ -261,6 +263,25 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
                                     }
                                 }
                                 prev_max_j = j;
+                                // eprintln!("Skipping chunk {i} j {j}");
+
+                                if i >= blocks_per_chunk {
+                                    // ii = start col of next block
+                                    // let ii = 64 * (i+1);
+                                    // go from (64*blocks_per_chunk, 0) to (ii, j).
+                                    // how many edits at least?
+                                    // eprintln!(
+                                    //     "col {} row {j} diff {}",
+                                    //     64 * (i - blocks_per_chunk),
+                                    //     (64 * (i - blocks_per_chunk)).saturating_sub(j)
+                                    // );
+                                    if (64 * (i - blocks_per_chunk)).saturating_sub(j) > k as usize
+                                    {
+                                        // eprintln!("BREAK {i} {j}");
+                                        break 'text_chunk;
+                                    }
+                                    // eprintln!("continue");
+                                }
                                 continue 'text_chunk;
                             }
                         }
