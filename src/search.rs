@@ -166,7 +166,7 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
         // Up to where the previous column was computed.
         let mut prev_max_j = 0;
         // The max row where the right of the previous column was <=k
-        let mut prev_end_last_below = usize::MAX;
+        let mut prev_end_last_below = 0;
 
         let first_check = (3 * k as usize).max(8);
 
