@@ -6,7 +6,7 @@ use std::fs;
 pub struct GridConfig {
     pub query_lengths: Vec<usize>,
     pub text_lengths: Vec<usize>,
-    pub k: Vec<usize>,
+    pub k: Vec<f32>,
     pub match_fraction: Vec<f64>,
     pub bench_iter: Vec<usize>,
     pub alphabet: Vec<Alphabet>,
@@ -41,6 +41,11 @@ impl GridConfig {
                                 self.profile
                                     .iter()
                                     .flat_map(move |p| {
+                                        let k = if k < 1.0 {
+                                            (k * ql as f32).round() as usize
+                                        } else {
+                                            k as usize
+                                        };
                                         // Only allow matching profile/alphabet pairs
                                         self.rc.iter().map(move |rc| ParamSet {
                                             query_length: ql,
