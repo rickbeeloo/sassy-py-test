@@ -10,7 +10,7 @@ pub struct Dna {
 }
 
 impl Profile for Dna {
-    type A = usize;
+    type A = u8;
     type B = [u64; 4];
 
     fn encode_query(a: &[u8]) -> (Self, Vec<Self::A>) {
@@ -42,8 +42,8 @@ impl Profile for Dna {
     }
 
     #[inline(always)]
-    fn eq(ca: &usize, cb: &[u64; 4]) -> u64 {
-        unsafe { *cb.get_unchecked(*ca) }
+    fn eq(ca: &u8, cb: &[u64; 4]) -> u64 {
+        unsafe { *cb.get_unchecked(*ca as usize) }
     }
 
     #[inline(always)]
