@@ -47,19 +47,19 @@ pub fn run(grid_config: &str) {
         println!("Param set: {:?}", param_set);
 
         // Aboslute number of matches
-        let num_matches = (param_set.match_fraction * param_set.text_length as f64).ceil() as usize;
+        let num_matches = param_set.match_fraction as usize;
 
         // Generating random data
         let (q, t, locs) = generate_query_and_text_with_matches(
             param_set.query_length,
             param_set.text_length,
-            1,
+            num_matches,
             param_set.max_edits,
             &param_set.alphabet,
         );
 
         // Number of  bench iterations;
-        let bench_iter = 50;
+        let bench_iter = param_set.bench_iter;
 
         // Running Edlib
         let (edlib_matches, edlib_mean_ms) = if param_set.edlib {
