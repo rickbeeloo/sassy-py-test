@@ -176,8 +176,6 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
         // The max row where the right of the previous column was <=k
         let mut prev_end_last_below = 0;
 
-        let first_check = (3 * k as usize).max(8);
-
         'text_chunk: for i in 0..blocks_per_chunk + max_overlap_blocks {
             // The alignment can start anywhere, so start with deltas of 0.
             let mut vp = S::splat(0);
@@ -204,8 +202,6 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
 
             let mut cur_end_last_below = 0;
 
-            let mut next_check = first_check;
-
             // Iterate over query chars.
             for j in 0..query.len() {
                 dist_to_start_of_lane += self.hp[j];
@@ -227,67 +223,60 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
                     dist_to_end_of_lane += self.hp[j];
                     dist_to_end_of_lane -= self.hm[j];
 
-                    if j >= first_check {
-                        cur_end_last_below =
-                            if (dist_to_end_of_lane.simd_le(S::splat(k as u64))).any() {
-                                j
-                            } else {
-                                cur_end_last_below
-                            };
-                        if j == next_check {
-                            next_check *= 2;
+                    let end_leq_k = (dist_to_end_of_lane.simd_le(S::splat(k as u64))).any();
+                    cur_end_last_below = if end_leq_k { j } else { cur_end_last_below };
 
-                            if j > prev_end_last_below {
-                                // Check for each lane
-                                for lane in 0..LANES {
-                                    let v = V(vp.as_array()[lane], vm.as_array()[lane]);
-                                    let min_in_lane = dist_to_start_of_lane.as_array()[lane]
-                                        as Cost
-                                        + prefix_min(v.0, v.1).0 as Cost;
-                                    if min_in_lane <= k {
-                                        // Go to the post-processing below.
-                                        break 'check;
-                                    }
-                                }
-                                // All lanes only have values > k. We set remaining horizontal deltas to +1.
-                                for j2 in j + 1..=prev_max_j {
-                                    self.hp[j2] = S::splat(1);
-                                    self.hm[j2] = S::splat(0);
-                                }
-                                prev_end_last_below = cur_end_last_below;
-                                for lane in 0..LANES {
-                                    let idx = lane * chunk_offset + i;
-                                    if idx < self.deltas.len() {
-                                        self.deltas[idx] =
-                                            (Cost::MAX, <VV as VEncoding<Base>>::from(u64::MAX, 0));
-                                    }
-                                }
-                                prev_max_j = j;
-                                // eprintln!("Skipping chunk {i} j {j}");
-
-                                if i >= blocks_per_chunk {
-                                    // ii = start col of next block
-                                    // let ii = 64 * (i+1);
-                                    // go from (64*blocks_per_chunk, 0) to (ii, j).
-                                    // how many edits at least?
-                                    // eprintln!(
-                                    //     "col {} row {j} diff {}",
-                                    //     64 * (i - blocks_per_chunk),
-                                    //     (64 * (i - blocks_per_chunk)).saturating_sub(j)
-                                    // );
-                                    if (64 * (i - blocks_per_chunk)).saturating_sub(j) > k as usize
-                                    {
-                                        // eprintln!("BREAK {i} {j}");
-                                        break 'text_chunk;
-                                    }
-                                    // eprintln!("continue");
-                                }
-                                continue 'text_chunk;
+                    if j > prev_end_last_below {
+                        // Check for each lane
+                        for lane in 0..LANES {
+                            let v = V(vp.as_array()[lane], vm.as_array()[lane]);
+                            let min_in_lane = dist_to_start_of_lane.as_array()[lane] as Cost
+                                + prefix_min(v.0, v.1).0 as Cost;
+                            if min_in_lane <= k {
+                                // Go to the post-processing below.
+                                // And avoid checking the next few rows.
+                                prev_end_last_below = j + 4.max((k - min_in_lane) as usize);
+                                break 'check;
                             }
                         }
+                        // All lanes only have values > k. We set remaining horizontal deltas to +1.
+                        for j2 in j + 1..=prev_max_j {
+                            self.hp[j2] = S::splat(1);
+                            self.hm[j2] = S::splat(0);
+                        }
+                        prev_end_last_below = cur_end_last_below.max(8);
+                        for lane in 0..LANES {
+                            let idx = lane * chunk_offset + i;
+                            if idx < self.deltas.len() {
+                                self.deltas[idx] =
+                                    (Cost::MAX, <VV as VEncoding<Base>>::from(u64::MAX, 0));
+                            }
+                        }
+                        prev_max_j = j;
+                        // eprintln!("Skipping chunk {i} j {j}");
+
+                        if i >= blocks_per_chunk {
+                            // ii = start col of next block
+                            // let ii = 64 * (i+1);
+                            // go from (64*blocks_per_chunk, 0) to (ii, j).
+                            // how many edits at least?
+                            // eprintln!(
+                            //     "col {} row {j} diff {}",
+                            //     64 * (i - blocks_per_chunk),
+                            //     (64 * (i - blocks_per_chunk)).saturating_sub(j)
+                            // );
+                            if (64 * (i - blocks_per_chunk)).saturating_sub(j) > k as usize {
+                                // eprintln!("BREAK {i} {j}");
+                                break 'text_chunk;
+                            }
+                            // eprintln!("continue");
+                        }
+                        continue 'text_chunk;
                     }
                 }
             }
+
+            // Save deltas and then continue with row j+1.
             for lane in 0..LANES {
                 let idx = lane * chunk_offset + i;
                 if idx < self.deltas.len() {
@@ -297,7 +286,7 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
                     );
                 }
             }
-            prev_end_last_below = cur_end_last_below;
+            prev_end_last_below = cur_end_last_below.max(8);
             prev_max_j = query.len() - 1;
         }
 
