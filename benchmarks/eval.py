@@ -7,13 +7,14 @@ f = "results.csv"
 df = pd.read_csv(f, delimiter=",")
 
 profile = "dna"
-k = 3
+k = 1
 
-filtered = df[
-    (df["profile"] == profile) & (df["alphabet"] == "Dna") & (df["k"] == k)
-].copy()
+# filtered = df[
+#     (df["profile"] == profile) & (df["alphabet"] == "Dna") & (df["k"] == k)
+# ].copy()
+filtered = df.copy()
 
-print(filtered)
+# print(filtered)
 
 # Create a custom colormap from gray to #fcc007
 colors = ["#fcc007", "black"]
