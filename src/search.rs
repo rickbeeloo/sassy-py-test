@@ -297,7 +297,7 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
     }
 
     fn process_matches(
-        &self,
+        &mut self,
         matches: Vec<(usize, Cost)>,
         query: &[u8],
         text: &[u8],
@@ -322,7 +322,7 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
             let text_slices = &text_slices[..matches.len()];
             M.with(|m| {
                 let mut m = m.borrow_mut();
-                simd_fill::<P>(query, text_slices, &mut m);
+                simd_fill::<P>(query, text_slices, &mut m, &mut self.hp, &mut self.hm);
 
                 for lane in 0..matches.len() {
                     let m = get_trace::<P>(query, offsets[lane], text_slices[lane], &m[lane]);

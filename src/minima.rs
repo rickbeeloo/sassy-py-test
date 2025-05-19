@@ -232,7 +232,6 @@ pub fn prefix_min(p: u64, m: u64) -> (i8, i8) {
         min = min.min(cur + min_cost);
         cur += end_cost;
     }
-
     (min, num_p as i8 - num_m as i8)
 }
 

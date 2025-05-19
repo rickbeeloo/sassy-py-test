@@ -65,7 +65,13 @@ fn fill(query: &[u8], text: &[u8], m: &mut CostMatrix) {
     }
 }
 
-pub fn simd_fill<P: Profile>(query: &[u8], texts: &[&[u8]], m: &mut [CostMatrix; LANES]) {
+pub fn simd_fill<P: Profile>(
+    query: &[u8],
+    texts: &[&[u8]],
+    m: &mut [CostMatrix; LANES],
+    hp: &mut [S],
+    hm: &mut [S],
+) {
     assert!(texts.len() <= LANES);
     let lanes = texts.len();
 
@@ -82,8 +88,6 @@ pub fn simd_fill<P: Profile>(query: &[u8], texts: &[&[u8]], m: &mut [CostMatrix;
     type Base = u64;
     type VV = V<Base>;
 
-    let mut hp = vec![S::splat(1); query.len()];
-    let mut hm = vec![S::splat(0); query.len()];
     let mut text_profile: [_; LANES] = from_fn(|_| profiler.alloc_out());
 
     for i in 0..num_chunks {
@@ -211,7 +215,13 @@ fn test_traceback_simd() {
     let text4 = b"TTTTTTTTTTATTTTGGGGATTTT".as_slice();
 
     let mut cost_matrix = Default::default();
-    simd_fill::<Dna>(&query, &[&text1, &text2, &text3, &text4], &mut cost_matrix);
+    simd_fill::<Dna>(
+        &query,
+        &[&text1, &text2, &text3, &text4],
+        &mut cost_matrix,
+        &mut vec![],
+        &mut vec![],
+    );
     let _trace = get_trace::<Dna>(query, 0, text1, &cost_matrix[0]);
     let _trace = get_trace::<Dna>(query, 0, text2, &cost_matrix[1]);
     let _trace = get_trace::<Dna>(query, 0, text3, &cost_matrix[2]);
