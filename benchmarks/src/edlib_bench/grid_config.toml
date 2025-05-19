@@ -5,4 +5,4 @@ match_fraction  = [0.001]
 bench_iter      = [200]
 alphabet        = ["dna"]
 profile         = ["dna", "iupac"]
-rc              = ["withoutrc"]
+rc              = ["withoutrc"]edlib           = false

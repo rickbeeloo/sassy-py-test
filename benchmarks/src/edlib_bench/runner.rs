@@ -62,9 +62,14 @@ pub fn run(grid_config: &str) {
         let bench_iter = 50;
 
         // Running Edlib
-        let edlib_config = get_edlib_config(param_set.k as i32, &param_set.alphabet);
-        let (edlib_result, edlib_mean_ms) =
-            time_it!("edlib", run_edlib(&q, &t, &edlib_config), bench_iter);
+        let (edlib_matches, edlib_mean_ms) = if param_set.edlib {
+            let edlib_config = get_edlib_config(param_set.k as i32, &param_set.alphabet);
+            let (r, ms) = time_it!("edlib", run_edlib(&q, &t, &edlib_config), bench_iter);
+            let edlib_matches = r.startLocations.unwrap_or(vec![]).len();
+            (edlib_matches, ms)
+        } else {
+            (0, 0.0)
+        };
 
         // Get the correct search function (not timed)
         let search_fn = get_search_fn(&param_set);
@@ -74,9 +79,10 @@ pub fn run(grid_config: &str) {
             time_it!("sassy", search_fn(&q, &t, param_set.k), bench_iter);
 
         // Print number of matches to validate
-        let edlib_matches = edlib_result.startLocations.unwrap_or(vec![]).len();
         let sassy_matches = sassy_result.len();
-        println!("Edlib matches: {:?}", edlib_matches);
+        if param_set.edlib {
+            println!("Edlib matches: {:?}", edlib_matches);
+        }
         println!("Sassy matches: {:?}", sassy_matches);
 
         // Write row to CSV
