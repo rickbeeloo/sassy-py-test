@@ -72,7 +72,7 @@ pub fn run(grid_config: &str) {
         };
 
         // Get the correct search function (not timed)
-        let search_fn = get_search_fn(&param_set);
+        let mut search_fn = get_search_fn(&param_set);
 
         // Now time the search
         let (sassy_result, sassy_mean_ms) =
@@ -107,32 +107,38 @@ pub fn run(grid_config: &str) {
     writer.flush().unwrap();
 }
 
-type SearchFn = fn(&[u8], &[u8], usize) -> Vec<Match>;
+type SearchFn = Box<dyn FnMut(&[u8], &[u8], usize) -> Vec<Match>>;
 
 fn get_search_fn(param_set: &ParamSet) -> SearchFn {
     match (param_set.profile, param_set.rc, &param_set.alphabet) {
         // IUPAC profile
         ("iupac", "withrc", _) => {
-            |q, t, k| Searcher::<sassy::profiles::Iupac, true, false>::new().search(&q, &t, k)
+            let mut searcher = Searcher::<sassy::profiles::Iupac, true, false>::new();
+            Box::new(move |q, t, k| searcher.search(&q, &t, k))
         }
         ("iupac", "withoutrc", _) => {
-            |q, t, k| Searcher::<sassy::profiles::Iupac, false, false>::new().search(&q, &t, k)
+            let mut searcher = Searcher::<sassy::profiles::Iupac, false, false>::new();
+            Box::new(move |q, t, k| searcher.search(&q, &t, k))
         }
 
         // DNA profile
         ("dna", "withrc", _) => {
-            |q, t, k| Searcher::<sassy::profiles::Dna, true, false>::new().search(&q, &t, k)
+            let mut searcher = Searcher::<sassy::profiles::Dna, true, false>::new();
+            Box::new(move |q, t, k| searcher.search(&q, &t, k))
         }
         ("dna", "withoutrc", _) => {
-            |q, t, k| Searcher::<sassy::profiles::Dna, false, false>::new().search(&q, &t, k)
+            let mut searcher = Searcher::<sassy::profiles::Dna, false, false>::new();
+            Box::new(move |q, t, k| searcher.search(&q, &t, k))
         }
 
         // ASCII profile
         ("ascii", "withrc", _) => {
-            |q, t, k| Searcher::<sassy::profiles::Ascii, true, false>::new().search(&q, &t, k)
+            let mut searcher = Searcher::<sassy::profiles::Ascii, true, false>::new();
+            Box::new(move |q, t, k| searcher.search(&q, &t, k))
         }
         ("ascii", "withoutrc", _) => {
-            |q, t, k| Searcher::<sassy::profiles::Ascii, false, false>::new().search(&q, &t, k)
+            let mut searcher = Searcher::<sassy::profiles::Ascii, false, false>::new();
+            Box::new(move |q, t, k| searcher.search(&q, &t, k))
         }
 
         _ => panic!(
