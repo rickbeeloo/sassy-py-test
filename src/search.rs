@@ -89,6 +89,8 @@ impl<'a> SearchAble for StaticText<'a> {
 pub struct Searcher<P: Profile, const RC: bool, const ALL_MINIMA: bool> {
     _phantom: std::marker::PhantomData<P>,
     deltas: Deltas,
+    hp: Vec<S>,
+    hm: Vec<S>,
 }
 
 impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MINIMA> {
@@ -96,6 +98,8 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
         Self {
             _phantom: std::marker::PhantomData,
             deltas: vec![],
+            hp: vec![],
+            hm: vec![],
         }
     }
 
@@ -148,16 +152,18 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
         let blocks_per_chunk = total_blocks.div_ceil(LANES);
         // Length of each of the four chunks.
         let chunk_offset = blocks_per_chunk.saturating_sub(overlap_blocks);
+
+        // No need to overwrite deltas, since it'll be fully written anyway.
         self.deltas.resize(text_blocks, Default::default());
 
         // We should also clear?
-        self.deltas.fill(Default::default());
+        // self.deltas.fill(Default::default());
 
         type Base = u64;
         type VV = V<Base>;
 
-        let mut hp = vec![S::splat(1); query.len()];
-        let mut hm = vec![S::splat(0); query.len()];
+        self.hp.resize(query.len(), S::splat(1));
+        self.hm.resize(query.len(), S::splat(0));
 
         let mut text_profile: [P::B; LANES] = from_fn(|_| profiler.alloc_out());
 
@@ -200,8 +206,8 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
 
             // Iterate over query chars.
             for j in 0..query.len() {
-                dist_to_start_of_lane += hp[j];
-                dist_to_start_of_lane -= hm[j];
+                dist_to_start_of_lane += self.hp[j];
+                dist_to_start_of_lane -= self.hm[j];
 
                 let eq = from_fn(|lane| {
                     P::eq(
@@ -210,14 +216,14 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
                     )
                 })
                 .into();
-                compute_block_simd(&mut hp[j], &mut hm[j], &mut vp, &mut vm, eq);
+                compute_block_simd(&mut self.hp[j], &mut self.hm[j], &mut vp, &mut vm, eq);
 
                 // For DNA, the distance between random/unrelated sequences is around q.len()/2.
                 // Thus, for threshold k, we can expect random matches between seqs of length ~2*k.
                 // To have some buffer, we start filtering at length 3*k.
                 'check: {
-                    dist_to_end_of_lane += hp[j];
-                    dist_to_end_of_lane -= hm[j];
+                    dist_to_end_of_lane += self.hp[j];
+                    dist_to_end_of_lane -= self.hm[j];
 
                     if j >= first_check {
                         cur_end_last_below =
@@ -243,8 +249,8 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
                                 }
                                 // All lanes only have values > k. We set remaining horizontal deltas to +1.
                                 for j2 in j + 1..=prev_max_j {
-                                    hp[j2] = S::splat(1);
-                                    hm[j2] = S::splat(0);
+                                    self.hp[j2] = S::splat(1);
+                                    self.hm[j2] = S::splat(0);
                                 }
                                 prev_end_last_below = cur_end_last_below;
                                 for lane in 0..LANES {
@@ -272,6 +278,11 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
             }
             prev_end_last_below = cur_end_last_below;
             prev_max_j = query.len() - 1;
+        }
+
+        for j in 0..=prev_max_j {
+            self.hp[j] = S::splat(1);
+            self.hm[j] = S::splat(0);
         }
     }
 
