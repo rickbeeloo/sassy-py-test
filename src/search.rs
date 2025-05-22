@@ -1,13 +1,13 @@
+use crate::minima::prefix_min;
 pub use crate::minima::{find_all_minima, find_local_minima};
 use crate::profiles::Profile;
 use crate::trace::{CostMatrix, get_trace, simd_fill};
+use crate::{LANES, S};
 use pa_types::{Cigar, Cost, Pos};
+use smallvec::{Array, SmallVec};
 use std::borrow::Cow;
 use std::simd::cmp::SimdPartialOrd;
 use std::{array::from_fn, cell::RefCell};
-
-use crate::minima::prefix_min;
-use crate::{LANES, S};
 
 use crate::{
     bitpacking::compute_block_simd,
@@ -88,26 +88,18 @@ impl<'a> SearchAble for StaticText<'a> {
 #[derive(Clone)]
 pub struct Searcher<P: Profile, const RC: bool, const ALL_MINIMA: bool> {
     _phantom: std::marker::PhantomData<P>,
-    deltas: Deltas,
-    hp: Vec<S>,
-    hm: Vec<S>,
+    cost_matrices: [CostMatrix; LANES],
 }
 
 impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MINIMA> {
     pub fn new() -> Self {
         Self {
             _phantom: std::marker::PhantomData,
-            deltas: vec![],
-            hp: vec![],
-            hm: vec![],
+            cost_matrices: std::array::from_fn(|_| CostMatrix::default()),
         }
     }
 
     pub fn search<I: SearchAble>(&mut self, query: &[u8], input: &I, k: usize) -> Vec<Match> {
-        self.hp.clear();
-        self.hm.clear();
-        self.hp.resize(query.len(), S::splat(1));
-        self.hm.resize(query.len(), S::splat(0));
         let mut matches = self.search_internal(query, input.text(), k);
         if RC {
             let rc_matches = self.search_internal(&P::complement(query), &input.rc_text(), k);
@@ -129,16 +121,15 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
     }
 
     fn find_matches(&mut self, query: &[u8], text: &[u8], k: usize) -> Vec<(usize, Cost)> {
-        self.search_positions_bounded(query, text, k as Cost);
-
-        if ALL_MINIMA {
-            find_all_minima(query, &mut self.deltas, k as Cost, text.len())
-        } else {
-            find_local_minima(query, &mut self.deltas, k as Cost, text.len())
-        }
+        self.search_positions_bounded(query, text, k as Cost)
     }
 
-    fn search_positions_bounded(&mut self, query: &[u8], text: &[u8], k: Cost) {
+    fn search_positions_bounded(
+        &mut self,
+        query: &[u8],
+        text: &[u8],
+        k: Cost,
+    ) -> Vec<(usize, Cost)> {
         let (profiler, query_profile) = P::encode_query(query);
 
         // Terminology:
@@ -149,7 +140,6 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
         // The query will match a pattern of length at most query.len() + k.
         // We round that up to a multiple of 64 to find the number of blocks overlap between chunks.
         let max_overlap_blocks = (query.len() + k as usize).next_multiple_of(64) / 64;
-        // let overlap_blocks = max_overlap_blocks;
         let overlap_blocks = 0;
 
         // Total number of blocks to be processed, including overlaps.
@@ -159,26 +149,26 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
         // Length of each of the four chunks.
         let chunk_offset = blocks_per_chunk.saturating_sub(overlap_blocks);
 
-        // No need to overwrite deltas, since it'll be fully written anyway.
-        self.deltas.resize(text_blocks, Default::default());
-
-        // We should also clear?
-        // self.deltas.fill(Default::default());
+        // Instead of storing deltas, collect matches as we find them
+        let mut all_matches = Vec::new();
 
         type Base = u64;
         type VV = V<Base>;
 
-        self.hp.resize(query.len(), S::splat(1));
-        self.hm.resize(query.len(), S::splat(0));
-
         let mut text_profile: [P::B; LANES] = from_fn(|_| profiler.alloc_out());
-
         let mut text_chunks: [[u8; 64]; LANES] = [[0; 64]; LANES];
 
         // Up to where the previous column was computed.
         let mut prev_max_j = 0;
         // The max row where the right of the previous column was <=k
         let mut prev_end_last_below = 0;
+
+        // SmallVec will now stack alloc 128 elements, and heap allocate beyond that.
+        // Only little difference in practice, perhaps switch back to regular vecs
+        let mut hp: SmallVec<[S; 128]> = SmallVec::with_capacity(query.len());
+        let mut hm: SmallVec<[S; 128]> = SmallVec::with_capacity(query.len());
+        hp.resize(query.len(), S::splat(1));
+        hm.resize(query.len(), S::splat(0));
 
         'text_chunk: for i in 0..blocks_per_chunk + max_overlap_blocks {
             // The alignment can start anywhere, so start with deltas of 0.
@@ -208,8 +198,8 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
 
             // Iterate over query chars.
             for j in 0..query.len() {
-                dist_to_start_of_lane += self.hp[j];
-                dist_to_start_of_lane -= self.hm[j];
+                dist_to_start_of_lane += hp[j];
+                dist_to_start_of_lane -= hm[j];
 
                 let eq = from_fn(|lane| {
                     P::eq(
@@ -218,14 +208,14 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
                     )
                 })
                 .into();
-                compute_block_simd(&mut self.hp[j], &mut self.hm[j], &mut vp, &mut vm, eq);
+                compute_block_simd(&mut hp[j], &mut hm[j], &mut vp, &mut vm, eq);
 
                 // For DNA, the distance between random/unrelated sequences is around q.len()/2.
                 // Thus, for threshold k, we can expect random matches between seqs of length ~2*k.
                 // To have some buffer, we start filtering at length 3*k.
                 'check: {
-                    dist_to_end_of_lane += self.hp[j];
-                    dist_to_end_of_lane -= self.hm[j];
+                    dist_to_end_of_lane += hp[j];
+                    dist_to_end_of_lane -= hm[j];
 
                     let end_leq_k = (dist_to_end_of_lane.simd_le(S::splat(k as u64))).any();
                     cur_end_last_below = if end_leq_k { j } else { cur_end_last_below };
@@ -245,59 +235,77 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
                         }
                         // All lanes only have values > k. We set remaining horizontal deltas to +1.
                         for j2 in j + 1..=prev_max_j {
-                            self.hp[j2] = S::splat(1);
-                            self.hm[j2] = S::splat(0);
+                            hp[j2] = S::splat(1);
+                            hm[j2] = S::splat(0);
                         }
                         prev_end_last_below = cur_end_last_below.max(8);
-                        for lane in 0..LANES {
-                            let idx = lane * chunk_offset + i;
-                            if idx < self.deltas.len() {
-                                self.deltas[idx] =
-                                    (Cost::MAX, <VV as VEncoding<Base>>::from(u64::MAX, 0));
-                            }
-                        }
                         prev_max_j = j;
-                        // eprintln!("Skipping chunk {i} j {j}");
 
-                        if i >= blocks_per_chunk {
-                            // ii = start col of next block
-                            // let ii = 64 * (i+1);
-                            // go from (64*blocks_per_chunk, 0) to (ii, j).
-                            // how many edits at least?
-                            // eprintln!(
-                            //     "col {} row {j} diff {}",
-                            //     64 * (i - blocks_per_chunk),
-                            //     (64 * (i - blocks_per_chunk)).saturating_sub(j)
-                            // );
-                            if (64 * (i - blocks_per_chunk)).saturating_sub(j) > k as usize {
-                                // eprintln!("BREAK {i} {j}");
-                                break 'text_chunk;
-                            }
-                            // eprintln!("continue");
+                        if i >= blocks_per_chunk
+                            && (64 * (i - blocks_per_chunk)).saturating_sub(j) > k as usize
+                        {
+                            break 'text_chunk;
                         }
                         continue 'text_chunk;
                     }
                 }
             }
 
-            // Save deltas and then continue with row j+1.
+            // Save positions with cost <= k directly after processing each row
             for lane in 0..LANES {
-                let idx = lane * chunk_offset + i;
-                if idx < self.deltas.len() {
-                    self.deltas[idx] = (
-                        dist_to_start_of_lane.as_array()[lane] as _,
-                        <VV as VEncoding<Base>>::from(vp[lane], vm[lane]),
-                    );
+                let (p, m) = <VV as VEncoding<Base>>::from(vp[lane], vm[lane]).pm();
+
+                let min_in_lane =
+                    dist_to_start_of_lane.as_array()[lane] as Cost + prefix_min(p, m).0 as Cost;
+
+                if min_in_lane > k {
+                    continue;
+                }
+
+                let base_pos = lane * chunk_offset * 64 + 64 * i;
+
+                // This can happen I suppose?
+                if base_pos >= text.len() {
+                    continue;
+                }
+
+                let mut cost = dist_to_start_of_lane.as_array()[lane] as Cost;
+
+                // All <=k end points
+                //FIXME: move to seperation function in minima.rs / combine with find_all_minima
+                for bit in 0..64 {
+                    let pos = base_pos + bit;
+                    if pos >= text.len() {
+                        break;
+                    }
+
+                    // Check if this position is a match (cost <= k)
+                    if cost <= k {
+                        all_matches.push((pos, cost));
+                    }
+
+                    // Update cost based on the P/M bit patterns
+                    let p_bit = ((p >> bit) & 1) as Cost;
+                    let m_bit = ((m >> bit) & 1) as Cost;
+                    cost += p_bit;
+                    cost -= m_bit;
+                }
+
+                if cost <= k {
+                    all_matches.push(((base_pos + 64).min(text.len()), cost));
                 }
             }
+
             prev_end_last_below = cur_end_last_below.max(8);
             prev_max_j = query.len() - 1;
         }
 
         for j in 0..=prev_max_j {
-            self.hp[j] = S::splat(1);
-            self.hm[j] = S::splat(0);
+            hp[j] = S::splat(1);
+            hm[j] = S::splat(0);
         }
+
+        all_matches
     }
 
     fn process_matches(
@@ -310,10 +318,6 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
         let mut traces = Vec::with_capacity(matches.len());
         let fill_len = query.len() + k;
 
-        thread_local! {
-            static M: RefCell<[CostMatrix;LANES]> = RefCell::new(from_fn(|_| CostMatrix::default()));
-        }
-
         for matches in matches.chunks(LANES) {
             let mut text_slices = [[].as_slice(); LANES];
             let mut offsets = [0; LANES];
@@ -324,21 +328,24 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
                 text_slices[i] = &text[offset..end_pos];
             }
             let text_slices = &text_slices[..matches.len()];
-            M.with(|m| {
-                let mut m = m.borrow_mut();
-                simd_fill::<P>(query, text_slices, &mut m, &mut self.hp, &mut self.hm);
 
-                for lane in 0..matches.len() {
-                    let m = get_trace::<P>(query, offsets[lane], text_slices[lane], &m[lane]);
-                    assert!(
-                        m.cost <= k as Cost,
-                        "Match has cost {} > {}: {m:?}",
-                        m.cost,
-                        k
-                    );
-                    traces.push(m);
-                }
-            });
+            simd_fill::<P>(query, text_slices, &mut self.cost_matrices);
+
+            for lane in 0..matches.len() {
+                let m = get_trace::<P>(
+                    query,
+                    offsets[lane],
+                    text_slices[lane],
+                    &self.cost_matrices[lane],
+                );
+                assert!(
+                    m.cost <= k as Cost,
+                    "Match has cost {} > {}: {m:?}",
+                    m.cost,
+                    k
+                );
+                traces.push(m);
+            }
         }
         traces
     }
@@ -400,12 +407,12 @@ mod tests {
         let query = b"ATCGATCA";
         let rc = Dna::reverse_complement(query);
         let text = [b"GGGGGGGG".as_ref(), &rc, b"GGGGGGGG"].concat();
-        let matches = Searcher::<Dna, true, false>::new().search(query, &text, 1);
+        let matches = Searcher::<Dna, true, false>::new().search(query, &text, 0);
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].start.1, 8);
         assert_eq!(matches[0].end.1, 8 + query.len() as i32);
         // Now disableing rc search should yield no matches
-        let matches = Searcher::<Dna, false, false>::new().search(query, &text, 1);
+        let matches = Searcher::<Dna, false, false>::new().search(query, &text, 0);
         assert_eq!(matches.len(), 0);
     }
 

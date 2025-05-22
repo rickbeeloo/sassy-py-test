@@ -1,13 +1,13 @@
-use pa_types::Cigar;
-use pa_types::Cost;
-use pa_types::I;
-use pa_types::Pos;
-
 use crate::bitpacking::compute_block;
 use crate::delta_encoding::V;
 use crate::delta_encoding::VEncoding;
 use crate::profiles::Dna;
 use crate::profiles::Profile;
+use pa_types::Cigar;
+use pa_types::Cost;
+use pa_types::I;
+use pa_types::Pos;
+use smallvec::SmallVec;
 
 use crate::LANES;
 use crate::S;
@@ -65,13 +65,7 @@ fn fill(query: &[u8], text: &[u8], m: &mut CostMatrix) {
     }
 }
 
-pub fn simd_fill<P: Profile>(
-    query: &[u8],
-    texts: &[&[u8]],
-    m: &mut [CostMatrix; LANES],
-    hp: &mut [S],
-    hm: &mut [S],
-) {
+pub fn simd_fill<P: Profile>(query: &[u8], texts: &[&[u8]], m: &mut [CostMatrix; LANES]) {
     assert!(texts.len() <= LANES);
     let lanes = texts.len();
 
@@ -87,6 +81,11 @@ pub fn simd_fill<P: Profile>(
 
     type Base = u64;
     type VV = V<Base>;
+
+    let mut hp: SmallVec<[S; 128]> = SmallVec::with_capacity(query.len());
+    let mut hm: SmallVec<[S; 128]> = SmallVec::with_capacity(query.len());
+    hp.resize(query.len(), S::splat(1));
+    hm.resize(query.len(), S::splat(0));
 
     let mut text_profile: [_; LANES] = from_fn(|_| profiler.alloc_out());
 
@@ -215,13 +214,7 @@ fn test_traceback_simd() {
     let text4 = b"TTTTTTTTTTATTTTGGGGATTTT".as_slice();
 
     let mut cost_matrix = Default::default();
-    simd_fill::<Dna>(
-        &query,
-        &[&text1, &text2, &text3, &text4],
-        &mut cost_matrix,
-        &mut vec![],
-        &mut vec![],
-    );
+    simd_fill::<Dna>(&query, &[&text1, &text2, &text3, &text4], &mut cost_matrix);
     let _trace = get_trace::<Dna>(query, 0, text1, &cost_matrix[0]);
     let _trace = get_trace::<Dna>(query, 0, text2, &cost_matrix[1]);
     let _trace = get_trace::<Dna>(query, 0, text3, &cost_matrix[2]);
