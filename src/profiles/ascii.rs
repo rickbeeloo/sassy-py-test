@@ -17,7 +17,7 @@ pub type CaseInsensitiveAscii = Ascii<false>;
 
 impl<const CASE_SENSITIVE: bool> Profile for Ascii<CASE_SENSITIVE> {
     type A = usize;
-    type B = Vec<u64>;
+    type B = [u64; 256]; // Maximum number of ASCII characters
 
     fn encode_query(a: &[u8]) -> (Self, Vec<Self::A>) {
         let mut bases = Vec::new();
@@ -41,7 +41,7 @@ impl<const CASE_SENSITIVE: bool> Profile for Ascii<CASE_SENSITIVE> {
     }
 
     #[inline(always)]
-    fn eq(ca: &usize, cb: &Vec<u64>) -> u64 {
+    fn eq(ca: &usize, cb: &[u64; 256]) -> u64 {
         unsafe { *cb.get_unchecked(*ca) }
     }
 
@@ -57,7 +57,7 @@ impl<const CASE_SENSITIVE: bool> Profile for Ascii<CASE_SENSITIVE> {
 
     #[inline(always)]
     fn alloc_out(&self) -> Self::B {
-        vec![0; self.bases.len()]
+        [0; 256]
     }
 
     #[inline(always)]

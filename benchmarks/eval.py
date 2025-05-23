@@ -3,16 +3,18 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 import pandas as pd
 
-f = "results.csv"
+f = "benchmarks/results.csv"
 df = pd.read_csv(f, delimiter=",")
 
 profile = "dna"
 k = 1
 
-# filtered = df[
-#     (df["profile"] == profile) & (df["alphabet"] == "Dna") & (df["k"] == k)
-# ].copy()
-filtered = df.copy()
+filtered = df[
+    (df["profile"] == profile)
+    & (df["alphabet"] == "Dna")
+    & (df["k"] == k)
+    & (df["match_fraction"] == 1)
+].copy()
 
 # print(filtered)
 

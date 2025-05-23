@@ -5,6 +5,8 @@ use sassy::search::{Match, Searcher};
 use std::fs::OpenOptions;
 use std::io::{BufWriter, Write};
 
+const VERBOSE: bool = true;
+
 macro_rules! time_it {
     ($label:expr, $expr:expr, $iters:expr) => {{
         let label = $label;
@@ -65,25 +67,34 @@ pub fn run(grid_config: &str) {
         let (edlib_matches, edlib_mean_ms) = if param_set.edlib {
             let edlib_config = get_edlib_config(param_set.k as i32, &param_set.alphabet);
             let (r, ms) = time_it!("edlib", run_edlib(&q, &t, &edlib_config), bench_iter);
-            let edlib_matches = r.startLocations.unwrap_or(vec![]).len();
+            let edlib_matches = r.startLocations.unwrap_or(vec![]);
             (edlib_matches, ms)
         } else {
-            (0, 0.0)
+            (vec![], 0.0)
         };
 
         // Get the correct search function (not timed)
         let mut search_fn = get_search_fn(&param_set);
 
         // Now time the search
-        let (sassy_result, sassy_mean_ms) =
+        let (sassy_matches, sassy_mean_ms) =
             time_it!("sassy", search_fn(&q, &t, param_set.k), bench_iter);
 
-        // Print number of matches to validate
-        let sassy_matches = sassy_result.len();
         if param_set.edlib {
-            println!("Edlib matches: {:?}", edlib_matches);
+            println!("Edlib matches: {:?}", edlib_matches.len());
         }
-        println!("Sassy matches: {:?}", sassy_matches);
+        println!("Sassy matches: {:?}", sassy_matches.len());
+
+        if VERBOSE {
+            println!("Edlib matches");
+            for loc in edlib_matches {
+                println!("{}", loc);
+            }
+            println!("Sassy matches");
+            for loc in sassy_matches {
+                println!("{:?}", loc);
+            }
+        }
 
         // Write row to CSV
         writeln!(

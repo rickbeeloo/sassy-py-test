@@ -12,7 +12,7 @@ pub struct Iupac {
 
 impl Profile for Iupac {
     type A = usize;
-    type B = Vec<u64>;
+    type B = [u64; 16]; // Maximum number of bases we'll ever need
 
     fn encode_query(a: &[u8]) -> (Self, Vec<Self::A>) {
         let mut bases = vec![b'A', b'C', b'T', b'G'];
@@ -29,7 +29,7 @@ impl Profile for Iupac {
     /// NOTE: `out` should be initialized using `self.alloc_out()`.
     #[inline(always)]
     fn encode_ref(&self, b: &[u8; 64], out: &mut Self::B) {
-        assert_eq!(out.len(), self.bases.len());
+        assert!(self.bases.len() <= out.len());
         let extra_bases: &[u8] = &self.bases[4..];
         unsafe {
             let zero = u8x32::splat(0);
@@ -88,7 +88,7 @@ impl Profile for Iupac {
     }
 
     #[inline(always)]
-    fn eq(ca: &usize, cb: &Vec<u64>) -> u64 {
+    fn eq(ca: &usize, cb: &[u64; 16]) -> u64 {
         unsafe { *cb.get_unchecked(*ca) }
     }
 
@@ -99,7 +99,7 @@ impl Profile for Iupac {
 
     #[inline(always)]
     fn alloc_out(&self) -> Self::B {
-        vec![0; self.bases.len()]
+        [0; 16]
     }
 
     #[inline(always)]

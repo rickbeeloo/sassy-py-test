@@ -129,14 +129,17 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             },
         );
 
+        let mut searcher: Searcher<Dna, false, false> = Searcher::<Dna, false, false>::new();
+
+        let matches = searcher.search(black_box(&inserted_query), &dna_seq, 1);
+
         group.bench_with_input(
-            BenchmarkId::new("dna_search_inserted_20_k3", size),
+            BenchmarkId::new("dna_search_inserted_20_k1", size),
             &dna_seq_inserted,
             |b, seq| {
+                black_box(&matches);
                 b.iter(|| {
-                    let mut searcher: Searcher<Dna, false, false> =
-                        Searcher::<Dna, false, false>::new();
-                    let matches = searcher.search(black_box(&inserted_query), seq, 3);
+                    let matches = searcher.search(black_box(&inserted_query), seq, 1);
                     black_box(&matches);
                 })
             },

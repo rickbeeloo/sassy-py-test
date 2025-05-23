@@ -58,7 +58,7 @@ impl Profile for Dna {
         (char1 | 0x20) == (char2 | 0x20)
     }
 
-    #[inline(always)] // bit ugly to not use length though, but better to have static here
+    #[inline(always)]
     fn alloc_out(&self) -> Self::B {
         [0; 4]
     }
