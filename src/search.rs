@@ -14,6 +14,8 @@ use crate::{
 };
 
 pub type Deltas = Vec<(Cost, V<u64>)>;
+type Base = u64;
+type VV = V<Base>;
 
 #[derive(Debug, Clone)]
 pub struct Match {
@@ -148,9 +150,6 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
         // Clear matches
         self.matches.clear();
 
-        type Base = u64;
-        type VV = V<Base>;
-
         let mut text_profile: [P::B; LANES] = [profiler.alloc_out(); LANES];
         let mut text_chunks: [[u8; 64]; LANES] = [[0; 64]; LANES];
 
@@ -158,6 +157,9 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
         let mut prev_max_j = 0;
         // The max row where the right of the previous column was <=k
         let mut prev_end_last_below = 0;
+
+        // To track local minima
+        let mut decreasing: [bool; LANES] = [false; LANES];
 
         // SmallVec will now stack alloc 128 elements, and heap allocate beyond that.
         // Only little difference in practice, perhaps switch back to regular vecs
@@ -255,6 +257,8 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
             for lane in 0..LANES {
                 let (p, m) = <VV as VEncoding<Base>>::from(vp[lane], vm[lane]).pm();
 
+                // FIXME: would it be faster to 1) prefix min each lane and then run minima search
+                // or 2) just directly run minima search on each lane directly
                 let min_in_lane =
                     dist_to_start_of_lane.as_array()[lane] as Cost + prefix_min(p, m).0 as Cost;
 
@@ -263,36 +267,20 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
                 }
 
                 let base_pos = lane * chunk_offset * 64 + 64 * i;
+                let cost = dist_to_start_of_lane.as_array()[lane] as Cost;
 
-                // This can happen I suppose?
-                if base_pos >= text.len() {
-                    continue;
-                }
-
-                let mut cost = dist_to_start_of_lane.as_array()[lane] as Cost;
-
-                // All <=k end points
-                //FIXME: move to seperation function in minima.rs / combine with find_all_minima
-                for bit in 0..64 {
-                    let pos = base_pos + bit;
-                    if pos >= text.len() {
-                        break;
-                    }
-
-                    // Check if this position is a match (cost <= k)
-                    if cost <= k {
-                        self.matches.push((pos, cost));
-                    }
-
-                    // Update cost based on the P/M bit patterns
-                    let p_bit = ((p >> bit) & 1) as Cost;
-                    let m_bit = ((m >> bit) & 1) as Cost;
-                    cost += p_bit;
-                    cost -= m_bit;
-                }
-
-                if cost <= k {
-                    self.matches.push(((base_pos + 64).min(text.len()), cost));
+                if ALL_MINIMA {
+                    self.find_all_minima(p, m, cost, k, text.len(), base_pos);
+                } else {
+                    self.find_local_minima(
+                        p,
+                        m,
+                        cost,
+                        k,
+                        text.len(),
+                        &mut decreasing[lane],
+                        base_pos,
+                    );
                 }
             }
 
@@ -303,6 +291,87 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
         for j in 0..=prev_max_j {
             self.hp[j] = S::splat(1);
             self.hm[j] = S::splat(0);
+        }
+    }
+
+    pub fn find_local_minima(
+        &mut self,
+        p: u64,
+        m: u64,
+        cur_cost: Cost,
+        k: Cost,
+        text_len: usize,
+        is_decreasing: &mut bool,
+        base_pos: usize,
+    ) {
+        let changes = p | m;
+        if changes == 0 {
+            return;
+        }
+
+        let max_pos = (text_len.saturating_sub(base_pos)).min(64);
+        let mut prev_cost = cur_cost;
+        let mut cur_cost = cur_cost;
+        let mut changes = changes;
+
+        while changes != 0 {
+            let pos = changes.trailing_zeros() as usize;
+
+            if pos >= max_pos {
+                break;
+            }
+
+            let delta = ((p >> pos) & 1) as Cost - ((m >> pos) & 1) as Cost;
+            cur_cost += delta;
+
+            // Check for local minimum
+            let was_decreasing = *is_decreasing;
+            let is_increasing = cur_cost > prev_cost;
+            let is_now_decreasing = cur_cost < prev_cost;
+
+            // Add match if we were decreasing and now increasing (local minimum)
+            if was_decreasing && is_increasing && prev_cost <= k {
+                self.matches.push((base_pos + pos, prev_cost));
+            }
+
+            *is_decreasing = is_now_decreasing || (was_decreasing && !is_increasing);
+            prev_cost = cur_cost;
+            changes &= changes - 1;
+        }
+
+        // Check final position
+        if *is_decreasing && cur_cost <= k && base_pos + 64 >= text_len {
+            self.matches.push(((base_pos + 64).min(text_len), cur_cost));
+        }
+    }
+
+    fn find_all_minima(
+        &mut self,
+        p: u64,
+        m: u64,
+        cur_cost: Cost,
+        k: Cost,
+        text_len: usize,
+        base_pos: usize,
+    ) {
+        let mut cost = cur_cost;
+        // All <=k end points
+        for bit in 0..64 {
+            let pos = base_pos + bit;
+            if base_pos + pos >= text_len {
+                break;
+            }
+
+            // Check if this position is a match (cost <= k)
+            if cost <= k {
+                self.matches.push((base_pos + pos, cost));
+            }
+
+            // Update cost based on the P/M bit patterns
+            let p_bit = ((p >> bit) & 1) as Cost;
+            let m_bit = ((m >> bit) & 1) as Cost;
+            cost += p_bit;
+            cost -= m_bit;
         }
     }
 
