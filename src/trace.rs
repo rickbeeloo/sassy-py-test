@@ -1,13 +1,11 @@
 use crate::bitpacking::compute_block;
 use crate::delta_encoding::V;
 use crate::delta_encoding::VEncoding;
-use crate::profiles::Dna;
 use crate::profiles::Profile;
 use pa_types::Cigar;
 use pa_types::Cost;
 use pa_types::I;
 use pa_types::Pos;
-use smallvec::SmallVec;
 
 use crate::LANES;
 use crate::S;
@@ -82,8 +80,8 @@ pub fn simd_fill<P: Profile>(query: &[u8], texts: &[&[u8]], m: &mut [CostMatrix;
     type Base = u64;
     type VV = V<Base>;
 
-    let mut hp: SmallVec<[S; 128]> = SmallVec::with_capacity(query.len());
-    let mut hm: SmallVec<[S; 128]> = SmallVec::with_capacity(query.len());
+    let mut hp: Vec<S> = Vec::with_capacity(query.len());
+    let mut hm: Vec<S> = Vec::with_capacity(query.len());
     hp.resize(query.len(), S::splat(1));
     hm.resize(query.len(), S::splat(0));
 
@@ -193,35 +191,39 @@ pub fn get_trace<P: Profile>(
     }
 }
 
-#[test]
-fn test_traceback() {
-    let query = b"ATTTTCCCGGGGATTTT".as_slice();
-    let text2: &[u8] = b"ATTTTGGGGATTTT".as_slice();
+mod tests {
+    use super::*;
+    use crate::profiles::Dna;
 
-    let mut cost_matrix = Default::default();
-    fill::<Dna>(query, text2, &mut cost_matrix);
+    #[test]
+    fn test_traceback() {
+        let query = b"ATTTTCCCGGGGATTTT".as_slice();
+        let text2: &[u8] = b"ATTTTGGGGATTTT".as_slice();
 
-    let trace = get_trace::<Dna>(query, 0, text2, &cost_matrix);
-    println!("Trace: {:?}", trace);
+        let mut cost_matrix = Default::default();
+        fill::<Dna>(query, text2, &mut cost_matrix);
+
+        let trace = get_trace::<Dna>(query, 0, text2, &cost_matrix);
+        println!("Trace: {:?}", trace);
+    }
+
+    #[test]
+    fn test_traceback_simd() {
+        let query = b"ATTTTCCCGGGGATTTT".as_slice();
+        let text1 = b"ATTTTCCCGGGGATTTT".as_slice();
+        let text2 = b"ATTTTGGGGATTTT".as_slice();
+        let text3 = b"TGGGGATTTT".as_slice();
+        let text4 = b"TTTTTTTTTTATTTTGGGGATTTT".as_slice();
+
+        let mut cost_matrix = Default::default();
+        simd_fill::<Dna>(&query, &[&text1, &text2, &text3, &text4], &mut cost_matrix);
+        let _trace = get_trace::<Dna>(query, 0, text1, &cost_matrix[0]);
+        let _trace = get_trace::<Dna>(query, 0, text2, &cost_matrix[1]);
+        let _trace = get_trace::<Dna>(query, 0, text3, &cost_matrix[2]);
+        let trace = get_trace::<Dna>(query, 0, text4, &cost_matrix[3]);
+        println!("Trace: {:?}", trace);
+    }
 }
-
-#[test]
-fn test_traceback_simd() {
-    let query = b"ATTTTCCCGGGGATTTT".as_slice();
-    let text1 = b"ATTTTCCCGGGGATTTT".as_slice();
-    let text2 = b"ATTTTGGGGATTTT".as_slice();
-    let text3 = b"TGGGGATTTT".as_slice();
-    let text4 = b"TTTTTTTTTTATTTTGGGGATTTT".as_slice();
-
-    let mut cost_matrix = Default::default();
-    simd_fill::<Dna>(&query, &[&text1, &text2, &text3, &text4], &mut cost_matrix);
-    let _trace = get_trace::<Dna>(query, 0, text1, &cost_matrix[0]);
-    let _trace = get_trace::<Dna>(query, 0, text2, &cost_matrix[1]);
-    let _trace = get_trace::<Dna>(query, 0, text3, &cost_matrix[2]);
-    let trace = get_trace::<Dna>(query, 0, text4, &cost_matrix[3]);
-    println!("Trace: {:?}", trace);
-}
-
 // let text1 = b"ATCGACTAGC".as_slice();
 
 // let text3 = b"CTAGC".as_slice();

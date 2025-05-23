@@ -5,8 +5,6 @@ use sassy::search::{Match, Searcher};
 use std::fs::OpenOptions;
 use std::io::{BufWriter, Write};
 
-const VERBOSE: bool = true;
-
 macro_rules! time_it {
     ($label:expr, $expr:expr, $iters:expr) => {{
         let label = $label;
@@ -49,6 +47,7 @@ pub fn run(grid_config: &str) {
         println!("Param set: {:?}", param_set);
 
         // Aboslute number of matches
+        // let num_matches = (param_set.match_fraction * param_set.text_length as f64) as usize;
         let num_matches = param_set.match_fraction as usize;
 
         // Generating random data
@@ -57,15 +56,19 @@ pub fn run(grid_config: &str) {
             param_set.text_length,
             num_matches,
             param_set.max_edits,
+            param_set.max_edits,
             &param_set.alphabet,
         );
 
         // Number of  bench iterations;
         let bench_iter = param_set.bench_iter;
 
+        // K always at 10% of query length
+        let k = (param_set.query_length as f64 * 0.1) as usize;
+
         // Running Edlib
         let (edlib_matches, edlib_mean_ms) = if param_set.edlib {
-            let edlib_config = get_edlib_config(param_set.k as i32, &param_set.alphabet);
+            let edlib_config = get_edlib_config(k as i32, &param_set.alphabet);
             let (r, ms) = time_it!("edlib", run_edlib(&q, &t, &edlib_config), bench_iter);
             let edlib_matches = r.startLocations.unwrap_or(vec![]);
             (edlib_matches, ms)
@@ -77,15 +80,14 @@ pub fn run(grid_config: &str) {
         let mut search_fn = get_search_fn(&param_set);
 
         // Now time the search
-        let (sassy_matches, sassy_mean_ms) =
-            time_it!("sassy", search_fn(&q, &t, param_set.k), bench_iter);
+        let (sassy_matches, sassy_mean_ms) = time_it!("sassy", search_fn(&q, &t, k), bench_iter);
 
         if param_set.edlib {
             println!("Edlib matches: {:?}", edlib_matches.len());
         }
         println!("Sassy matches: {:?}", sassy_matches.len());
 
-        if VERBOSE {
+        if param_set.verbose {
             println!("Edlib matches");
             for loc in edlib_matches {
                 println!("{}", loc);

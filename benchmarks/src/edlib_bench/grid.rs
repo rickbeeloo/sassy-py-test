@@ -13,6 +13,7 @@ pub struct GridConfig {
     pub profile: Vec<String>,
     pub rc: Vec<String>,
     pub edlib: bool,
+    pub verbose: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -27,6 +28,7 @@ pub struct ParamSet<'a> {
     pub profile: &'a str,
     pub rc: &'a str,
     pub edlib: bool,
+    pub verbose: bool,
 }
 
 impl GridConfig {
@@ -58,6 +60,7 @@ impl GridConfig {
                                             profile: p.as_str(),
                                             rc: rc.as_str(),
                                             edlib: self.edlib,
+                                            verbose: self.verbose,
                                         })
                                     })
                                     .filter(|param| {

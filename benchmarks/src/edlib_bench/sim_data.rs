@@ -14,6 +14,7 @@ pub fn generate_query_and_text_with_matches(
     ql: usize,
     tl: usize,
     num: usize,
+    min_edits: usize,
     max_edits: usize,
     alphabet: &Alphabet,
 ) -> (Vec<u8>, Vec<u8>, Vec<(usize, usize)>) {
@@ -22,7 +23,7 @@ pub fn generate_query_and_text_with_matches(
     let mut text = generate_random_sequence(tl, alphabet);
     let mut locs = Vec::new();
     for _ in 0..num {
-        let m = mutate_sequence(&query, max_edits);
+        let m = mutate_sequence(&query, min_edits, max_edits);
         if m.len() > text.len() {
             continue;
         }
@@ -57,13 +58,24 @@ fn generate_random_sequence(length: usize, alphabet: &Alphabet) -> Vec<u8> {
 }
 
 /// Mutate sequence with at most max_edits
-fn mutate_sequence(sequence: &[u8], max_edits: usize) -> Vec<u8> {
+fn mutate_sequence(sequence: &[u8], min_edits: usize, max_edits: usize) -> Vec<u8> {
     let mut rng = rand::rng();
     let mut seq = sequence.to_vec();
-    for _ in 0..max_edits {
+    for _ in 0..rng.random_range(min_edits..=max_edits) {
         let idx = rng.random_range(0..seq.len());
         match rng.random_range(0..3) {
-            0 => seq[idx] = b"ACGT"[rng.random_range(0..4)],
+            0 => {
+                let current = seq[idx];
+                let mut new_char;
+                // Keep trying until we get a different character
+                loop {
+                    new_char = b"ACGT"[rng.random_range(0..4)];
+                    if new_char != current {
+                        break;
+                    }
+                }
+                seq[idx] = new_char;
+            }
             1 if seq.len() > 1 => {
                 seq.remove(idx);
             }
@@ -110,14 +122,14 @@ mod test {
 
     #[test]
     fn test_random_data_single_match_no_edits() {
-        let (q, t, locs) = generate_query_and_text_with_matches(10, 100, 1, 0, &Alphabet::Dna);
+        let (q, t, locs) = generate_query_and_text_with_matches(10, 100, 1, 0, 0, &Alphabet::Dna);
         let (s, e) = locs[0];
         assert_eq!(q, t[s..e]);
     }
 
     #[test]
     fn test_random_data_single_match_1_edit() {
-        let (q, t, locs) = generate_query_and_text_with_matches(10, 100, 1, 1, &Alphabet::Dna);
+        let (q, t, locs) = generate_query_and_text_with_matches(10, 100, 1, 1, 1, &Alphabet::Dna);
         let (s, e) = locs[0];
         assert_ne!(q, t[s..e]);
         // Get actual edits using edlib wrapper
@@ -127,7 +139,7 @@ mod test {
 
     #[test]
     fn test_random_two_matches() {
-        let (q, t, locs) = generate_query_and_text_with_matches(10, 100, 2, 1, &Alphabet::Dna);
+        let (q, t, locs) = generate_query_and_text_with_matches(10, 100, 2, 1, 1, &Alphabet::Dna);
         assert_eq!(locs.len(), 2);
         for loc in locs {
             let (s, e) = loc;

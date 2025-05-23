@@ -4,7 +4,6 @@ use crate::profiles::Profile;
 use crate::trace::{CostMatrix, fill, get_trace, simd_fill};
 use crate::{LANES, S};
 use pa_types::{Cigar, Cost, Pos};
-use smallvec::SmallVec;
 use std::borrow::Cow;
 use std::simd::cmp::SimdPartialOrd;
 
@@ -125,8 +124,8 @@ impl<P: Profile> LaneState<P> {
 pub struct Searcher<P: Profile, const RC: bool, const ALL_MINIMA: bool> {
     _phantom: std::marker::PhantomData<P>,
     cost_matrices: [CostMatrix; LANES],
-    hp: SmallVec<[S; 128]>,
-    hm: SmallVec<[S; 128]>,
+    hp: Vec<S>,
+    hm: Vec<S>,
     lanes: [LaneState<P>; LANES],
 }
 
@@ -135,8 +134,8 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
         Self {
             _phantom: std::marker::PhantomData,
             cost_matrices: std::array::from_fn(|_| CostMatrix::default()),
-            hp: SmallVec::new(),
-            hm: SmallVec::new(),
+            hp: Vec::new(),
+            hm: Vec::new(),
             lanes: std::array::from_fn(|_| LaneState::new(P::alloc_out(), 0)),
         }
     }
@@ -162,6 +161,7 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
         self.search_positions_bounded(query, text, k as Cost)
     }
 
+    #[inline(always)]
     fn check_lanes(
         &self,
         vp: &S,
@@ -308,6 +308,7 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
         }
     }
 
+    #[inline(always)]
     pub fn find_local_minima(
         &mut self,
         v: V<u64>,
@@ -361,6 +362,7 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
         }
     }
 
+    #[inline(always)]
     fn find_all_minima(
         &mut self,
         v: V<u64>,
@@ -440,20 +442,39 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
             }
         }
 
-        // If something is left, it's <LANES text slices, use non SIMD fill to avoid
-        // SIMD overhead with "empty" lanes
+        // We now have less < LANES text slices to process, we use SIMD fill if number of slices > 1
+        // else we fall back to scalar fill to avoid SIMD overhead with "empty" lanes
         if num_slices > 0 {
             for i in 0..num_slices {
-                let mut cost_matrix = CostMatrix::default();
-                fill::<P>(query, text_slices[i], &mut cost_matrix);
-                let m = get_trace::<P>(query, offsets[i], text_slices[i], &cost_matrix);
-                assert!(
-                    m.cost <= k as Cost,
-                    "Match has cost {} > {}: {m:?}",
-                    m.cost,
-                    k
-                );
-                traces.push(m);
+                if num_slices > 1 {
+                    simd_fill::<P>(query, &text_slices[..num_slices], &mut self.cost_matrices);
+                    for i in 0..num_slices {
+                        let m = get_trace::<P>(
+                            query,
+                            offsets[i],
+                            text_slices[i],
+                            &self.cost_matrices[i],
+                        );
+                        assert!(
+                            m.cost <= k as Cost,
+                            "Match has cost {} > {}: {m:?}",
+                            m.cost,
+                            k
+                        );
+                        traces.push(m);
+                    }
+                } else {
+                    let mut cost_matrix = CostMatrix::default();
+                    fill::<P>(query, text_slices[i], &mut cost_matrix);
+                    let m = get_trace::<P>(query, offsets[i], text_slices[i], &cost_matrix);
+                    assert!(
+                        m.cost <= k as Cost,
+                        "Match has cost {} > {}: {m:?}",
+                        m.cost,
+                        k
+                    );
+                    traces.push(m);
+                }
             }
         }
         traces
