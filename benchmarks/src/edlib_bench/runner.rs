@@ -64,8 +64,8 @@ pub fn run(grid_config: &str) {
         let bench_iter = param_set.bench_iter;
 
         // K always at 10% of query length
-        let k = (param_set.query_length as f64 * 0.1) as usize;
-
+        // let k = (param_set.query_length as f64 * 0.1) as usize;
+        let k = param_set.max_edits;
         // Running Edlib
         let (edlib_matches, edlib_mean_ms) = if param_set.edlib {
             let edlib_config = get_edlib_config(k as i32, &param_set.alphabet);

@@ -3,14 +3,13 @@ pub use crate::minima::{find_all_minima, find_local_minima};
 use crate::profiles::Profile;
 use crate::trace::{CostMatrix, fill, get_trace, simd_fill};
 use crate::{LANES, S};
-use pa_types::{Cigar, Cost, Pos};
-use std::borrow::Cow;
-use std::simd::cmp::SimdPartialOrd;
-
 use crate::{
     bitpacking::compute_block_simd,
     delta_encoding::{V, VEncoding},
 };
+use pa_types::{Cigar, Cost, Pos};
+use std::borrow::Cow;
+use std::simd::cmp::SimdPartialOrd;
 
 pub type Deltas = Vec<(Cost, V<u64>)>;
 type Base = u64;
@@ -255,7 +254,10 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
                     dist_to_end_of_lane += self.hp[j];
                     dist_to_end_of_lane -= self.hm[j];
 
-                    let end_leq_k = (dist_to_end_of_lane.simd_le(S::splat(k as u64))).any();
+                    let cmp = dist_to_end_of_lane.simd_le(S::splat(k as u64));
+                    let bitmask = cmp.to_bitmask(); // less assembly than .any
+                    let end_leq_k = bitmask != 0;
+
                     cur_end_last_below = if end_leq_k { j } else { cur_end_last_below };
 
                     if j > prev_end_last_below {
