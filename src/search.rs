@@ -1,4 +1,5 @@
 use crate::minima::prefix_min;
+use crate::minima::prefix_min_k;
 pub use crate::minima::{find_all_minima, find_local_minima};
 use crate::profiles::Profile;
 use crate::trace::{CostMatrix, fill, get_trace, simd_fill};
@@ -171,8 +172,10 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
     ) -> Option<usize> {
         for lane in 0..LANES {
             let v = V(vp.as_array()[lane], vm.as_array()[lane]);
+
+            //Fixme: to go back to old impl. we could use prefix_min here again. Check speed difference
             let min_in_lane =
-                dist_to_start_of_lane.as_array()[lane] as Cost + prefix_min(v.0, v.1).0 as Cost;
+                prefix_min_k(dist_to_start_of_lane.as_array()[lane] as Cost, v.0, v.1, k).0 as Cost;
             if min_in_lane <= k {
                 return Some(j + 4.max((k - min_in_lane) as usize));
             }

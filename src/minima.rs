@@ -3,7 +3,14 @@ use crate::{
     search::Deltas,
 };
 use pa_types::Cost;
-use std::arch::x86_64::_pext_u64;
+use std::{
+    arch::x86_64::_pext_u64,
+    simd::{
+        Mask, Simd,
+        cmp::SimdOrd,
+        num::{SimdInt, SimdUint},
+    },
+};
 
 // Note: also reports minima at the end of the range.
 #[allow(unused)] // only for testing
@@ -235,94 +242,136 @@ pub fn prefix_min(p: u64, m: u64) -> (i8, i8) {
     (min, num_p as i8 - num_m as i8)
 }
 
-const NODE_TABLE: [Node; 256] = {
-    let mut table = [Node {
-        min_prefix: 0,
-        total: 0,
-    }; 256];
+// split TABLE into two flat arrays for SIMD gather test
+const TABLE_MIN: [Cost; 256] = {
+    let mut a = [0 as Cost; 256];
     let mut i = 0;
     while i < 256 {
-        let mut cur = 0;
-        let mut min = i8::MAX;
-        let mut j = 0;
-        while j < 8 {
-            let bit = (i >> j) & 1;
-            let delta = if bit == 1 { -1 } else { 1 };
-            cur += delta;
-            if cur < min {
-                min = cur;
-            }
-            j += 1;
-        }
-        table[i] = Node {
-            min_prefix: min,
-            total: cur,
-        };
+        a[i] = TABLE[i].0 as Cost;
         i += 1;
     }
-    table
+    a
 };
 
-#[repr(C)]
-#[derive(Copy, Clone)]
-struct Node {
-    min_prefix: i8,
-    total: i8,
-}
-
-#[inline(always)]
-fn combine(a: Node, b: Node) -> Node {
-    Node {
-        min_prefix: a.min_prefix.min(a.total + b.min_prefix),
-        total: a.total + b.total,
+const TABLE_END: [Cost; 256] = {
+    let mut a = [0 as Cost; 256];
+    let mut i = 0;
+    while i < 256 {
+        a[i] = TABLE[i].1 as Cost;
+        i += 1;
     }
-}
+    a
+};
 
 #[inline(always)]
-fn node_from_byte(byte: u8) -> Node {
-    let mut cur = 0i8;
-    let mut min = i8::MAX;
-    for j in 0..8 {
-        let bit = (byte >> j) & 1;
-        let delta = if bit == 1 { -1 } else { 1 };
-        cur += delta;
-        if cur < min {
-            min = cur;
+pub fn prefix_min_k(start_cost: Cost, p: u64, m: u64, k: i32) -> (Cost, i8) {
+    // We can use the best case scenario for the number of m-bits idea here.
+    // after having a certain sum the "best" minima we can reach is always
+    // current cost - remaining m-bits.
+    // So we can abort early if this is already greater than k.
+    let delta = p | m;
+    let num_p = p.count_ones() as i8;
+    let num_m = m.count_ones() as i8;
+
+    // compress m-bits down into the delta‐positions
+    let compressed_m = unsafe { _pext_u64(m, delta) };
+
+    let lanes = Simd::from_array([
+        (compressed_m) as u8,
+        (compressed_m >> 8) as u8,
+        (compressed_m >> 16) as u8,
+        (compressed_m >> 24) as u8,
+        (compressed_m >> 32) as u8,
+        (compressed_m >> 40) as u8,
+        (compressed_m >> 48) as u8,
+        (compressed_m >> 56) as u8,
+    ]);
+
+    // count_ones on each lane in parallel
+    let mut byte_pop: Simd<u8, 8> = lanes.count_ones();
+    let counts = *byte_pop.as_array();
+    byte_pop = Simd::from_array(counts);
+
+    // Build a small suffix-sum table, pass as mut?
+    let mut rem_pop = [0u8; 9];
+    for i in (0..8).rev() {
+        rem_pop[i] = rem_pop[i + 1] + byte_pop[i];
+    }
+
+    let mut min_cost = start_cost;
+    let mut cur_cost = start_cost;
+
+    for i in 0..8 {
+        let byte = (compressed_m >> (i * 8)) as u8 as usize;
+        let (tbl_min, tbl_end) = TABLE[byte];
+        min_cost = min_cost.min(cur_cost + tbl_min as Cost);
+        cur_cost += tbl_end as Cost;
+
+        let remaining_m = rem_pop[i + 1] as i32;
+
+        let min_i = min_cost;
+        let best_possible = cur_cost - remaining_m;
+
+        if min_i > k && best_possible > k {
+            //  println!("Aborted at byte: {}, best_possible: {}", i, best_possible);
+            break;
         }
     }
-    Node {
-        min_prefix: min,
-        total: cur,
-    }
+
+    (min_cost, num_p - num_m)
 }
 
 #[inline(always)]
-pub fn prefix_min_tree(p: u64, m: u64) -> i8 {
+pub fn prefix_min_k_simd(start_cost: Cost, p: u64, m: u64, k: i32) -> (Cost, i8) {
     let delta = p | m;
-    let deltas = unsafe { core::arch::x86_64::_pext_u64(m, delta) };
-    let bytes = deltas.to_le_bytes();
+    let num_p = p.count_ones() as i8;
+    let num_m = m.count_ones() as i8;
+    let compressed_m = unsafe { _pext_u64(m, delta) };
 
-    // "Leafs"
-    let n0 = node_from_byte(bytes[0]);
-    let n1 = node_from_byte(bytes[1]);
-    let n2 = node_from_byte(bytes[2]);
-    let n3 = node_from_byte(bytes[3]);
-    let n4 = node_from_byte(bytes[4]);
-    let n5 = node_from_byte(bytes[5]);
-    let n6 = node_from_byte(bytes[6]);
-    let n7 = node_from_byte(bytes[7]);
+    let byte_vec: Simd<u8, 8> = Simd::from_array([
+        compressed_m as u8,
+        (compressed_m >> 8) as u8,
+        (compressed_m >> 16) as u8,
+        (compressed_m >> 24) as u8,
+        (compressed_m >> 32) as u8,
+        (compressed_m >> 40) as u8,
+        (compressed_m >> 48) as u8,
+        (compressed_m >> 56) as u8,
+    ]);
+    let byte_pop: [u8; 8] = byte_vec.count_ones().to_array();
 
-    // Tree like combine
-    let a = combine(n0, n1);
-    let b = combine(n2, n3);
-    let c = combine(n4, n5);
-    let d = combine(n6, n7);
+    // Fixme: we could pass as mut so we dont have to realloc
+    let mut rem_pop = [0i32; 9];
+    for i in (0..8).rev() {
+        rem_pop[i] = rem_pop[i + 1] + (byte_pop[i] as i32);
+    }
 
-    let ab = combine(a, b);
-    let cd = combine(c, d);
-    let root = combine(ab, cd);
+    let idxs: Simd<usize, 8> = byte_vec.cast(); // lanes = the raw bytes
+    let mins_vec = Simd::gather_or_default(&TABLE_MIN, idxs);
+    let ends_vec = Simd::gather_or_default(&TABLE_END, idxs);
 
-    root.min_prefix
+    let mins_arr = mins_vec.to_array();
+    let ends_arr = ends_vec.to_array();
+
+    // We have to do this loop sequentially
+    // (or simd scan prefix idea but that's also a lot of operations and no earlye exit)
+    let mut min_cost = start_cost;
+    let mut cur_cost = start_cost;
+
+    for i in 0..8 {
+        let tbl_min = mins_arr[i];
+        let tbl_end = ends_arr[i];
+
+        min_cost = min_cost.min(cur_cost + tbl_min);
+        cur_cost += tbl_end;
+
+        let best_possible = cur_cost - rem_pop[i + 1];
+        if min_cost > k && best_possible > k {
+            break;
+        }
+    }
+
+    (min_cost, num_p - num_m)
 }
 
 #[cfg(test)]
