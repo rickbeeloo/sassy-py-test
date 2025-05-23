@@ -40,14 +40,14 @@ impl CostMatrix {
 /// Compute the full n*m matrix corresponding to the query * text alignment.
 /// TODO: SIMD variant that takes 1 query, and LANES text slices of the same length.
 #[allow(unused)] // FIXME
-fn fill(query: &[u8], text: &[u8], m: &mut CostMatrix) {
+pub fn fill<P: Profile>(query: &[u8], text: &[u8], m: &mut CostMatrix) {
     m.q = query.len();
     m.deltas.clear();
     m.deltas.reserve((m.q + 1) * text.len().div_ceil(64));
-    let (profiler, query_profile) = Dna::encode_query(query);
+    let (profiler, query_profile) = P::encode_query(query);
     let mut h = vec![(1, 0); query.len()];
 
-    let mut text_profile = profiler.alloc_out();
+    let mut text_profile = P::alloc_out();
 
     // Process chunks of 64 chars, that end exactly at the end of the text.
     for (i, block) in text.chunks(64).enumerate() {
@@ -59,7 +59,7 @@ fn fill(query: &[u8], text: &[u8], m: &mut CostMatrix) {
 
         m.deltas.push(v);
         for j in 0..query.len() {
-            compute_block::<Dna, _, _>(&mut h[j], &mut v, &query_profile[j], &text_profile);
+            compute_block::<P, _, _>(&mut h[j], &mut v, &query_profile[j], &text_profile);
             m.deltas.push(v);
         }
     }
@@ -87,7 +87,7 @@ pub fn simd_fill<P: Profile>(query: &[u8], texts: &[&[u8]], m: &mut [CostMatrix;
     hp.resize(query.len(), S::splat(1));
     hm.resize(query.len(), S::splat(0));
 
-    let mut text_profile: [_; LANES] = from_fn(|_| profiler.alloc_out());
+    let mut text_profile: [_; LANES] = from_fn(|_| P::alloc_out());
 
     for i in 0..num_chunks {
         for lane in 0..lanes {
@@ -199,7 +199,7 @@ fn test_traceback() {
     let text2: &[u8] = b"ATTTTGGGGATTTT".as_slice();
 
     let mut cost_matrix = Default::default();
-    fill(query, text2, &mut cost_matrix);
+    fill::<Dna>(query, text2, &mut cost_matrix);
 
     let trace = get_trace::<Dna>(query, 0, text2, &cost_matrix);
     println!("Trace: {:?}", trace);

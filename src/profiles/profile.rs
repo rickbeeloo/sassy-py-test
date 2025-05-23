@@ -11,7 +11,7 @@ pub trait Profile: Clone + std::fmt::Debug {
     /// return a bitmask of which characters of `b` equal the corresponding character of `a`.
     fn eq(ca: &Self::A, cb: &Self::B) -> u64;
     /// Allocate a buffer of at most n_bases in search (and reuse)
-    fn alloc_out(&self) -> Self::B;
+    fn alloc_out() -> Self::B;
     fn n_bases(&self) -> usize;
     /// Verify whether a seqeunce matching the profile characters
     fn valid_seq(&self, seq: &[u8]) -> bool;

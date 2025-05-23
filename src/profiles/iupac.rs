@@ -12,7 +12,7 @@ pub struct Iupac {
 
 impl Profile for Iupac {
     type A = usize;
-    type B = [u64; 16]; // Maximum number of bases we'll ever need
+    type B = [u64; 16];
 
     fn encode_query(a: &[u8]) -> (Self, Vec<Self::A>) {
         let mut bases = vec![b'A', b'C', b'T', b'G'];
@@ -98,8 +98,8 @@ impl Profile for Iupac {
     }
 
     #[inline(always)]
-    fn alloc_out(&self) -> Self::B {
-        [0; 16]
+    fn alloc_out() -> Self::B {
+        [0; 16] //FIME: is this always valid?
     }
 
     #[inline(always)]
@@ -326,7 +326,7 @@ mod test {
         seq[0] = b'a';
         seq[1] = b'y'; // C or T
         let profiler = Iupac::encode_query(b"").0;
-        let mut result = profiler.alloc_out();
+        let mut result = Iupac::alloc_out();
         profiler.encode_ref(&seq, &mut result);
         let positions = get_match_positions_u64(&result);
         let a_positions = positions[0].clone();
@@ -346,7 +346,7 @@ mod test {
         seq[1] = b'y'; // Matches Y
         seq[2] = b'C'; // Matches Y
         let profiler = Iupac::encode_query(b"NY").0;
-        let mut result = profiler.alloc_out();
+        let mut result = Iupac::alloc_out();
         profiler.encode_ref(&seq, &mut result);
         let positions = get_match_positions_u64(&result);
         let n_positions = positions[4].clone();
@@ -364,7 +364,7 @@ mod test {
         seq[1] = b'y'; // C or T
         seq[34] = b'y'; // C or T
         let profiler = Iupac::encode_query(b"").0;
-        let mut result = profiler.alloc_out();
+        let mut result = Iupac::alloc_out();
         profiler.encode_ref(&seq, &mut result);
         let positions = get_match_positions_u64(&result);
         let a_positions = positions[0].clone();
@@ -393,7 +393,7 @@ mod test {
         seq[50] = b'y'; // Matches Y
         seq[63] = b'y'; // Matches Y
         let profiler = Iupac::encode_query(b"NY").0;
-        let mut result = profiler.alloc_out();
+        let mut result = Iupac::alloc_out();
         profiler.encode_ref(&seq, &mut result);
         let positions = get_match_positions_u64(&result);
         let n_positions = positions[4].clone();
@@ -411,7 +411,7 @@ mod test {
         seq[3] = b'r';
         seq[4] = b'W';
         let profiler = Iupac::encode_query(b"").0;
-        let mut result = profiler.alloc_out();
+        let mut result = Iupac::alloc_out();
         profiler.encode_ref(&seq, &mut result);
         let positions = get_match_positions_u64(&result);
         assert_eq!(positions[0], vec![0, 1, 3, 4]);

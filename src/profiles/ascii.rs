@@ -56,7 +56,7 @@ impl<const CASE_SENSITIVE: bool> Profile for Ascii<CASE_SENSITIVE> {
     }
 
     #[inline(always)]
-    fn alloc_out(&self) -> Self::B {
+    fn alloc_out() -> Self::B {
         [0; 256]
     }
 

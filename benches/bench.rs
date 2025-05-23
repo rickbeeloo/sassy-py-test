@@ -52,7 +52,7 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             &dna_seq,
             |b, seq| {
                 let profiler = Iupac::encode_query(b"NY").0;
-                let mut result = profiler.alloc_out();
+                let mut result = Iupac::alloc_out();
                 b.iter(|| {
                     for chunk in seq.array_chunks() {
                         profiler.encode_ref(chunk, &mut result);
@@ -64,7 +64,7 @@ fn benchmark_base_lookup(c: &mut Criterion) {
 
         group.bench_with_input(BenchmarkId::new("encode_dna", size), &dna_seq, |b, seq| {
             let profiler = Dna::encode_query(b"ACTG").0;
-            let mut result = profiler.alloc_out();
+            let mut result = Dna::alloc_out();
             b.iter(|| {
                 for chunk in seq.array_chunks() {
                     profiler.encode_ref(chunk, &mut result);
@@ -78,7 +78,7 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             &ascii_seq,
             |b, seq| {
                 let profiler = Ascii::<true>::encode_query(b"ABCDEFGHIJKLMNOPQRSTUVWXYZ").0;
-                let mut result = profiler.alloc_out();
+                let mut result = Ascii::<true>::alloc_out();
                 b.iter(|| {
                     for chunk in seq.array_chunks() {
                         profiler.encode_ref(chunk, &mut result);

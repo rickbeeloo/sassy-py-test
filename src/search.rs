@@ -1,7 +1,7 @@
 use crate::minima::prefix_min;
 pub use crate::minima::{find_all_minima, find_local_minima};
 use crate::profiles::Profile;
-use crate::trace::{CostMatrix, get_trace, simd_fill};
+use crate::trace::{CostMatrix, fill, get_trace, simd_fill};
 use crate::{LANES, S};
 use pa_types::{Cigar, Cost, Pos};
 use smallvec::SmallVec;
@@ -87,12 +87,47 @@ impl<'a> SearchAble for StaticText<'a> {
 }
 
 #[derive(Clone)]
+struct LaneState<P: Profile> {
+    decreasing: bool,
+    text_slice: [u8; 64],
+    text_profile: P::B,
+    matches: Vec<(usize, Cost)>,
+    chunk_offset: usize,
+}
+
+impl<P: Profile> LaneState<P> {
+    fn new(text_profile: P::B, chunk_offset: usize) -> Self {
+        Self {
+            decreasing: false,
+            text_slice: [0; 64],
+            text_profile,
+            matches: Vec::new(),
+            chunk_offset,
+        }
+    }
+
+    fn update_and_encode(&mut self, text: &[u8], i: usize, profiler: &P) {
+        let start = self.chunk_offset * 64 + 64 * i;
+        if start + 64 <= text.len() {
+            self.text_slice.copy_from_slice(&text[start..start + 64]);
+        } else {
+            self.text_slice.fill(b'X');
+            if start <= text.len() {
+                let slice = &text[start..];
+                self.text_slice[..slice.len()].copy_from_slice(slice);
+            }
+        }
+        profiler.encode_ref(&self.text_slice, &mut self.text_profile);
+    }
+}
+
+#[derive(Clone)]
 pub struct Searcher<P: Profile, const RC: bool, const ALL_MINIMA: bool> {
     _phantom: std::marker::PhantomData<P>,
     cost_matrices: [CostMatrix; LANES],
-    matches: Vec<(usize, Cost)>,
     hp: SmallVec<[S; 128]>,
     hm: SmallVec<[S; 128]>,
+    lanes: [LaneState<P>; LANES],
 }
 
 impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MINIMA> {
@@ -100,9 +135,9 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
         Self {
             _phantom: std::marker::PhantomData,
             cost_matrices: std::array::from_fn(|_| CostMatrix::default()),
-            matches: Vec::new(),
             hp: SmallVec::new(),
             hm: SmallVec::new(),
+            lanes: std::array::from_fn(|_| LaneState::new(P::alloc_out(), 0)),
         }
     }
 
@@ -127,6 +162,25 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
         self.search_positions_bounded(query, text, k as Cost)
     }
 
+    fn check_lanes(
+        &self,
+        vp: &S,
+        vm: &S,
+        dist_to_start_of_lane: &S,
+        k: Cost,
+        j: usize,
+    ) -> Option<usize> {
+        for lane in 0..LANES {
+            let v = V(vp.as_array()[lane], vm.as_array()[lane]);
+            let min_in_lane =
+                dist_to_start_of_lane.as_array()[lane] as Cost + prefix_min(v.0, v.1).0 as Cost;
+            if min_in_lane <= k {
+                return Some(j + 4.max((k - min_in_lane) as usize));
+            }
+        }
+        None
+    }
+
     fn search_positions_bounded(&mut self, query: &[u8], text: &[u8], k: Cost) {
         let (profiler, query_profile) = P::encode_query(query);
 
@@ -147,19 +201,20 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
         // Length of each of the four chunks.
         let chunk_offset = blocks_per_chunk.saturating_sub(overlap_blocks);
 
-        // Clear matches
-        self.matches.clear();
+        // Update chunk offsets
+        for lane in 0..LANES {
+            self.lanes[lane].chunk_offset = lane * chunk_offset;
+        }
 
-        let mut text_profile: [P::B; LANES] = [profiler.alloc_out(); LANES];
-        let mut text_chunks: [[u8; 64]; LANES] = [[0; 64]; LANES];
+        // Clear matches in each lane
+        for lane in 0..LANES {
+            self.lanes[lane].matches.clear();
+        }
 
         // Up to where the previous column was computed.
         let mut prev_max_j = 0;
         // The max row where the right of the previous column was <=k
         let mut prev_end_last_below = 0;
-
-        // To track local minima
-        let mut decreasing: [bool; LANES] = [false; LANES];
 
         // SmallVec will now stack alloc 128 elements, and heap allocate beyond that.
         // Only little difference in practice, perhaps switch back to regular vecs
@@ -169,46 +224,27 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
         self.hm.resize(query.len(), S::splat(0));
 
         'text_chunk: for i in 0..blocks_per_chunk + max_overlap_blocks {
-            // The alignment can start anywhere, so start with deltas of 0.
             let mut vp = S::splat(0);
             let mut vm = S::splat(0);
 
-            // Collect the LANES slices of input text.
-            // Out-of-bounds characters are replaced by 'X', which doesn't match anything.
+            // Update text slices and profiles
             for lane in 0..LANES {
-                let start = lane * chunk_offset * 64 + 64 * i;
-                if start + 64 <= text.len() {
-                    text_chunks[lane] = text[start..start + 64].try_into().unwrap();
-                } else {
-                    text_chunks[lane] = [b'X'; 64];
-                    if start <= text.len() {
-                        let slice = &text[start..];
-                        text_chunks[lane][..slice.len()].copy_from_slice(slice);
-                    }
-                }
-                profiler.encode_ref(&text_chunks[lane], &mut text_profile[lane])
+                self.lanes[lane].update_and_encode(text, i, &profiler);
             }
 
             let mut dist_to_start_of_lane = S::splat(0);
             let mut dist_to_end_of_lane = S::splat(0);
-
             let mut cur_end_last_below = 0;
 
-            // Iterate over query chars.
+            // Iterate over query chars
             for j in 0..query.len() {
                 dist_to_start_of_lane += self.hp[j];
                 dist_to_start_of_lane -= self.hm[j];
 
                 let query_char = unsafe { query_profile.get_unchecked(j) };
-
-                let eq = unsafe {
-                    S::from([
-                        P::eq(query_char, text_profile.get_unchecked(0)),
-                        P::eq(query_char, text_profile.get_unchecked(1)),
-                        P::eq(query_char, text_profile.get_unchecked(2)),
-                        P::eq(query_char, text_profile.get_unchecked(3)),
-                    ])
-                };
+                let eq: std::simd::Simd<u64, 4> = S::from(std::array::from_fn(|lane| {
+                    P::eq(query_char, &self.lanes[lane].text_profile)
+                }));
 
                 compute_block_simd(&mut self.hp[j], &mut self.hm[j], &mut vp, &mut vm, eq);
 
@@ -223,19 +259,14 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
                     cur_end_last_below = if end_leq_k { j } else { cur_end_last_below };
 
                     if j > prev_end_last_below {
-                        // Check for each lane
-                        for lane in 0..LANES {
-                            let v = V(vp.as_array()[lane], vm.as_array()[lane]);
-                            let min_in_lane = dist_to_start_of_lane.as_array()[lane] as Cost
-                                + prefix_min(v.0, v.1).0 as Cost;
-                            if min_in_lane <= k {
-                                // Go to the post-processing below.
-                                // And avoid checking the next few rows.
-                                prev_end_last_below = j + 4.max((k - min_in_lane) as usize);
-                                break 'check;
-                            }
+                        if let Some(new_end) =
+                            self.check_lanes(&vp, &vm, &dist_to_start_of_lane, k, j)
+                        {
+                            prev_end_last_below = new_end;
+                            break 'check;
                         }
-                        // All lanes only have values > k. We set remaining horizontal deltas to +1.
+
+                        // No lanes had values <= k
                         for j2 in j + 1..=prev_max_j {
                             self.hp[j2] = S::splat(1);
                             self.hm[j2] = S::splat(0);
@@ -255,32 +286,15 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
 
             // Save positions with cost <= k directly after processing each row
             for lane in 0..LANES {
-                let (p, m) = <VV as VEncoding<Base>>::from(vp[lane], vm[lane]).pm();
+                let v = <VV as VEncoding<Base>>::from(vp[lane], vm[lane]);
 
-                // FIXME: would it be faster to 1) prefix min each lane and then run minima search
-                // or 2) just directly run minima search on each lane directly
-                let min_in_lane =
-                    dist_to_start_of_lane.as_array()[lane] as Cost + prefix_min(p, m).0 as Cost;
-
-                if min_in_lane > k {
-                    continue;
-                }
-
-                let base_pos = lane * chunk_offset * 64 + 64 * i;
+                let base_pos = self.lanes[lane].chunk_offset * 64 + 64 * i;
                 let cost = dist_to_start_of_lane.as_array()[lane] as Cost;
 
                 if ALL_MINIMA {
-                    self.find_all_minima(p, m, cost, k, text.len(), base_pos);
+                    self.find_all_minima(v, cost, k, text.len(), base_pos, lane);
                 } else {
-                    self.find_local_minima(
-                        p,
-                        m,
-                        cost,
-                        k,
-                        text.len(),
-                        &mut decreasing[lane],
-                        base_pos,
-                    );
+                    self.find_local_minima(v, cost, k, text.len(), base_pos, lane);
                 }
             }
 
@@ -296,14 +310,14 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
 
     pub fn find_local_minima(
         &mut self,
-        p: u64,
-        m: u64,
+        v: V<u64>,
         cur_cost: Cost,
         k: Cost,
         text_len: usize,
-        is_decreasing: &mut bool,
         base_pos: usize,
+        lane: usize,
     ) {
+        let (p, m) = v.pm();
         let changes = p | m;
         if changes == 0 {
             return;
@@ -325,35 +339,38 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
             cur_cost += delta;
 
             // Check for local minimum
-            let was_decreasing = *is_decreasing;
+            let was_decreasing = self.lanes[lane].decreasing;
             let is_increasing = cur_cost > prev_cost;
             let is_now_decreasing = cur_cost < prev_cost;
 
             // Add match if we were decreasing and now increasing (local minimum)
             if was_decreasing && is_increasing && prev_cost <= k {
-                self.matches.push((base_pos + pos, prev_cost));
+                self.lanes[lane].matches.push((base_pos + pos, prev_cost));
             }
 
-            *is_decreasing = is_now_decreasing || (was_decreasing && !is_increasing);
+            self.lanes[lane].decreasing = is_now_decreasing || (was_decreasing && !is_increasing);
             prev_cost = cur_cost;
             changes &= changes - 1;
         }
 
         // Check final position
-        if *is_decreasing && cur_cost <= k && base_pos + 64 >= text_len {
-            self.matches.push(((base_pos + 64).min(text_len), cur_cost));
+        if self.lanes[lane].decreasing && cur_cost <= k && base_pos + 64 >= text_len {
+            self.lanes[lane]
+                .matches
+                .push(((base_pos + 64).min(text_len), cur_cost));
         }
     }
 
     fn find_all_minima(
         &mut self,
-        p: u64,
-        m: u64,
+        v: V<u64>,
         cur_cost: Cost,
         k: Cost,
         text_len: usize,
         base_pos: usize,
+        lane: usize,
     ) {
+        let (p, m) = v.pm();
         let mut cost = cur_cost;
         // All <=k end points
         for bit in 0..64 {
@@ -364,7 +381,7 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
 
             // Check if this position is a match (cost <= k)
             if cost <= k {
-                self.matches.push((base_pos + pos, cost));
+                self.lanes[lane].matches.push((base_pos + pos, cost));
             }
 
             // Update cost based on the P/M bit patterns
@@ -376,29 +393,60 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
     }
 
     fn process_matches(&mut self, query: &[u8], text: &[u8], k: usize) -> Vec<Match> {
-        let mut traces = Vec::with_capacity(self.matches.len());
+        let mut traces = Vec::new();
         let fill_len = query.len() + k;
+        let mut last_processed_pos = 0;
+        let mut text_slices = [[].as_slice(); LANES];
+        let mut offsets = [0; LANES];
+        let mut num_slices = 0;
 
-        for matches in self.matches.chunks(LANES) {
-            let mut text_slices = [[].as_slice(); LANES];
-            let mut offsets = [0; LANES];
-            for i in 0..matches.len() {
-                let end_pos = matches[i].0;
+        // We "pull" matches from each lane (left>right). As soon as we collect LANES slices
+        // we use SIMD fill to compute the costs and traceback the path
+        for lane in 0..LANES {
+            for &(end_pos, _) in &self.lanes[lane].matches {
+                if end_pos <= last_processed_pos {
+                    continue;
+                }
+
                 let offset = end_pos.saturating_sub(fill_len);
-                offsets[i] = offset;
-                text_slices[i] = &text[offset..end_pos];
+                offsets[num_slices] = offset;
+                text_slices[num_slices] = &text[offset..end_pos];
+                num_slices += 1;
+
+                // Process when we have a full chunk
+                if num_slices == LANES {
+                    // Fill cost matrices for all lanes
+                    simd_fill::<P>(query, &text_slices[..num_slices], &mut self.cost_matrices);
+
+                    // Process matches
+                    for i in 0..num_slices {
+                        let m = get_trace::<P>(
+                            query,
+                            offsets[i],
+                            text_slices[i],
+                            &self.cost_matrices[i],
+                        );
+                        assert!(
+                            m.cost <= k as Cost,
+                            "Match has cost {} > {}: {m:?}",
+                            m.cost,
+                            k
+                        );
+                        traces.push(m);
+                        last_processed_pos = text_slices[i].len() + offsets[i];
+                    }
+                    num_slices = 0;
+                }
             }
-            let text_slices = &text_slices[..matches.len()];
+        }
 
-            simd_fill::<P>(query, text_slices, &mut self.cost_matrices);
-
-            for lane in 0..matches.len() {
-                let m = get_trace::<P>(
-                    query,
-                    offsets[lane],
-                    text_slices[lane],
-                    &self.cost_matrices[lane],
-                );
+        // If something is left, it's <LANES text slices, use non SIMD fill to avoid
+        // SIMD overhead with "empty" lanes
+        if num_slices > 0 {
+            for i in 0..num_slices {
+                let mut cost_matrix = CostMatrix::default();
+                fill::<P>(query, text_slices[i], &mut cost_matrix);
+                let m = get_trace::<P>(query, offsets[i], text_slices[i], &cost_matrix);
                 assert!(
                     m.cost <= k as Cost,
                     "Match has cost {} > {}: {m:?}",

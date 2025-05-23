@@ -59,7 +59,7 @@ impl Profile for Dna {
     }
 
     #[inline(always)]
-    fn alloc_out(&self) -> Self::B {
+    fn alloc_out() -> Self::B {
         [0; 4]
     }
 
