@@ -411,6 +411,8 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
         // we use SIMD fill to compute the costs and traceback the path
         for lane in 0..LANES {
             for &(end_pos, _) in &self.lanes[lane].matches {
+                // FIXME: We could be slightly more precise, and instead discard
+                // up to the true end col of the overlap.
                 if end_pos <= last_processed_pos {
                     continue;
                 }
