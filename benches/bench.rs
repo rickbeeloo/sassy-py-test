@@ -120,9 +120,9 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             BenchmarkId::new("dna_search_20_k3", size),
             &dna_seq,
             |b, seq| {
+                let mut searcher: Searcher<Dna, false, false> =
+                    Searcher::<Dna, false, false>::new();
                 b.iter(|| {
-                    let mut searcher: Searcher<Dna, false, false> =
-                        Searcher::<Dna, false, false>::new();
                     let matches = searcher.search(black_box(query), seq, 3);
                     black_box(&matches);
                 })
