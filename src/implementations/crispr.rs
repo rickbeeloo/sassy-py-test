@@ -194,25 +194,20 @@ pub fn crispr(args: CrisprArgs) {
 
                             let mut writer_guard = writer.lock().unwrap();
                             for m in matches {
-                                // Get match possitions
-                                let start = m.start.1 as usize;
-                                let end = m.end.1 as usize;
-
-                                // Get matching text slice to check N's
-                                let rev_seq: Vec<u8> = match m.strand {
-                                    Strand::Rc => text[text.len() - end..text.len() - start]
-                                        .iter()
-                                        .rev()
-                                        .copied()
-                                        .collect(),
-                                    Strand::Fwd => Vec::new(),
-                                };
                                 
-                                let slice = match m.strand {
-                                    Strand::Fwd => &text[start..end],
-                                    Strand::Rc => &rev_seq,
+                                // We have to adjust the start and end based on reverse complement
+                                // as we reverse the text these should be adjusted based on text length
+                                let (start, end) = if args.rc {
+                                    (
+                                        text.len() - m.end.1 as usize,
+                                        text.len() - m.start.1 as usize,
+                                    )
+                                } else {
+                                    (m.start.1 as usize, m.end.1 as usize)
                                 };
 
+                                let slice = &text[start..end];
+                                
                                 if pass(&m, edit_free, edit_free_value, max_n_frac, slice) {
                                     let cost = m.cost;
                                     let slice_str = String::from_utf8_lossy(slice);
