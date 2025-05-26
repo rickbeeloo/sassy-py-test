@@ -1,5 +1,6 @@
 #![feature(portable_simd, array_chunks)]
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
+use rand::Rng;
 use sassy::minima::find_below_threshold;
 use sassy::profiles::*;
 use sassy::search::{Deltas, Searcher};
@@ -281,9 +282,72 @@ fn benchmark_iupac_reverse_complement(c: &mut Criterion) {
     group.finish();
 }
 
+fn benchmark_prefix_min(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Prefix min");
+    group.warm_up_time(Duration::from_secs(1));
+    group.measurement_time(Duration::from_secs(1));
+    group.sample_size(10);
+
+    use pa_types::Cost;
+    use sassy::minima::prefix_min;
+    use sassy::minima::prefix_min_k;
+    use sassy::minima::prefix_min_k_simd;
+
+    // Generate 100 random test pairs where p and m have no overlapping bits
+    let mut rng = rand::thread_rng();
+    let mut test_pairs = Vec::with_capacity(100);
+    for _ in 0..200_000 {
+        let p: u64 = rng.random::<u64>();
+        let m: u64 = rng.random::<u64>() & !p; // Ensure no overlapping bits
+        let start_cost: Cost = rng.gen_range(0..20);
+        test_pairs.push((p, m, start_cost));
+    }
+    let k: i32 = 1;
+
+    group.bench_function("prefix_min", |b| {
+        b.iter(|| {
+            for &(p, m, _) in &test_pairs {
+                let result = prefix_min(black_box(p), black_box(m));
+                black_box(result);
+            }
+        })
+    });
+
+    group.bench_function("prefix_min_k", |b| {
+        b.iter(|| {
+            for &(p, m, start_cost) in &test_pairs {
+                let result = prefix_min_k(
+                    black_box(start_cost),
+                    black_box(p),
+                    black_box(m),
+                    black_box(k),
+                );
+                black_box(result);
+            }
+        })
+    });
+
+    group.bench_function("prefix_min_k_simd", |b| {
+        b.iter(|| {
+            for &(p, m, start_cost) in &test_pairs {
+                let result = prefix_min_k_simd(
+                    black_box(start_cost),
+                    black_box(p),
+                    black_box(m),
+                    black_box(k),
+                );
+                black_box(result);
+            }
+        })
+    });
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     benchmark_base_lookup,
-    benchmark_iupac_reverse_complement
+    benchmark_iupac_reverse_complement,
+    benchmark_prefix_min
 );
 criterion_main!(benches);

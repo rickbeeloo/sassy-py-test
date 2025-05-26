@@ -13,7 +13,7 @@ filtered = df[
     (df["profile"] == profile)
     & (df["alphabet"] == "Dna")
     & (df["k"] == k)
-    & (df["match_fraction"] == 1)
+    & (df["match_fraction"] == 2)
 ].copy()
 
 # print(filtered)

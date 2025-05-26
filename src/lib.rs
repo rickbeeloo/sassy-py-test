@@ -3,6 +3,7 @@
 use std::simd::Simd;
 mod bitpacking;
 mod delta_encoding;
+
 pub mod profiles {
     mod ascii;
     mod dna;

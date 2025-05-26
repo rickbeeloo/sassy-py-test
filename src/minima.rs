@@ -5,9 +5,10 @@ use crate::{
 use pa_types::Cost;
 use std::{
     arch::x86_64::_pext_u64,
+    cmp::min,
     simd::{
         Mask, Simd,
-        cmp::SimdOrd,
+        cmp::{SimdOrd, SimdPartialEq},
         num::{SimdInt, SimdUint},
     },
 };
@@ -263,57 +264,48 @@ const TABLE_END: [Cost; 256] = {
     a
 };
 
+// Precompute for each m pattern whether it can reach <= k
+const M_PATTERN_CAN_REACH_K: [bool; 256] = {
+    let mut table = [false; 256];
+    let mut pattern = 0;
+    while pattern < 256 {
+        // For k=1, we only care if the number of set bits is <= 1
+        // This is because each set bit contributes -1 to the cost
+        table[pattern] = (pattern as u8).count_ones() <= 1;
+        pattern += 1;
+    }
+    table
+};
+
 #[inline(always)]
 pub fn prefix_min_k(start_cost: Cost, p: u64, m: u64, k: i32) -> (Cost, i8) {
-    // We can use the best case scenario for the number of m-bits idea here.
-    // after having a certain sum the "best" minima we can reach is always
-    // current cost - remaining m-bits.
-    // So we can abort early if this is already greater than k.
     let delta = p | m;
     let num_p = p.count_ones() as i8;
     let num_m = m.count_ones() as i8;
-
-    // compress m-bits down into the delta‐positions
     let compressed_m = unsafe { _pext_u64(m, delta) };
-
-    let lanes = Simd::from_array([
-        (compressed_m) as u8,
-        (compressed_m >> 8) as u8,
-        (compressed_m >> 16) as u8,
-        (compressed_m >> 24) as u8,
-        (compressed_m >> 32) as u8,
-        (compressed_m >> 40) as u8,
-        (compressed_m >> 48) as u8,
-        (compressed_m >> 56) as u8,
-    ]);
-
-    // count_ones on each lane in parallel
-    let mut byte_pop: Simd<u8, 8> = lanes.count_ones();
-    let counts = *byte_pop.as_array();
-    byte_pop = Simd::from_array(counts);
-
-    // Build a small suffix-sum table, pass as mut?
-    let mut rem_pop = [0u8; 9];
-    for i in (0..8).rev() {
-        rem_pop[i] = rem_pop[i + 1] + byte_pop[i];
-    }
 
     let mut min_cost = start_cost;
     let mut cur_cost = start_cost;
+    let mut remaining_m = num_m as i32;
 
     for i in 0..8 {
         let byte = (compressed_m >> (i * 8)) as u8 as usize;
+
+        // Quick check if this m pattern can ever reach <= k
+        if !M_PATTERN_CAN_REACH_K[byte] {
+            remaining_m -= (byte as u8).count_ones() as i32;
+            if min_cost > k && cur_cost - remaining_m > k {
+                break;
+            }
+            continue;
+        }
+
         let (tbl_min, tbl_end) = TABLE[byte];
-        min_cost = min_cost.min(cur_cost + tbl_min as Cost);
+        min_cost = min(min_cost, cur_cost + tbl_min as Cost);
         cur_cost += tbl_end as Cost;
+        remaining_m -= (byte as u8).count_ones() as i32;
 
-        let remaining_m = rem_pop[i + 1] as i32;
-
-        let min_i = min_cost;
-        let best_possible = cur_cost - remaining_m;
-
-        if min_i > k && best_possible > k {
-            //  println!("Aborted at byte: {}, best_possible: {}", i, best_possible);
+        if min_cost > k && cur_cost - remaining_m > k {
             break;
         }
     }
@@ -362,7 +354,7 @@ pub fn prefix_min_k_simd(start_cost: Cost, p: u64, m: u64, k: i32) -> (Cost, i8)
         let tbl_min = mins_arr[i];
         let tbl_end = ends_arr[i];
 
-        min_cost = min_cost.min(cur_cost + tbl_min);
+        min_cost = min(min_cost, cur_cost + tbl_min);
         cur_cost += tbl_end;
 
         let best_possible = cur_cost - rem_pop[i + 1];
