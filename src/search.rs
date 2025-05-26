@@ -10,7 +10,6 @@ use crate::{
 };
 use pa_types::{Cigar, Cost, Pos};
 use std::borrow::Cow;
-use std::ops::Range;
 use std::simd::cmp::SimdPartialOrd;
 
 pub type Deltas = Vec<(Cost, V<u64>)>;

@@ -78,7 +78,7 @@ pub fn search(args: SearchArgs) {
 
                         // We have to adjust the start and end based on reverse complement
                         // as we reverse the text these should be adjusted based on text length
-                        let (start, end) = if args.rc {
+                        let (start, end) = if m.strand == Strand::Rc {
                             (
                                 text.len() - m.end.1 as usize,
                                 text.len() - m.start.1 as usize,
@@ -87,24 +87,14 @@ pub fn search(args: SearchArgs) {
                             (m.start.1 as usize, m.end.1 as usize)
                         };
 
-                        let slice = match m.strand {
-                            Strand::Fwd => String::from_utf8_lossy(&text[start..end]).to_string(),
-                            Strand::Rc => String::from_utf8_lossy(
-                                text[text.len() - end..text.len() - start]
-                                    .iter()
-                                    .rev()
-                                    .copied()
-                                    .collect::<Vec<_>>()
-                                    .as_slice(),
-                            )
-                            .to_string(),
-                        };
+                        let slice = &text[start..end];
+                        let slice_str = String::from_utf8_lossy(slice);
                         let cigar = m.cigar.to_string();
                         let strand = match m.strand {
                             Strand::Fwd => "+",
                             Strand::Rc => "-",
                         };
-                        println!("{id}\t{cost}\t{strand}\t{start}\t{end}\t{slice}\t{cigar}");
+                        println!("{id}\t{cost}\t{strand}\t{start}\t{end}\t{slice_str}\t{cigar}");
                     }
                 }
             });

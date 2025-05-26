@@ -1,5 +1,6 @@
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -198,10 +199,11 @@ impl Tool for Swofinder {
         threads: usize,
     ) -> Result<Duration, String> {
         // Use the directory containing the Java classes as the working directory
-        let working_dir = self.exec_path.clone();
+        let working_dir = std::path::PathBuf::from(self.exec_path.clone());
 
-        // Copy the guide file to sgRNAs.txt
-        std::fs::copy(guide_file_path, "sgRNAs.txt")
+        // Copy the guide file to sgRNAs.txt in the working directory
+        let dest_path = working_dir.join("sgRNAs.txt");
+        std::fs::copy(guide_file_path, &dest_path)
             .map_err(|e| format!("Failed to copy guide file: {}", e))?;
 
         let args = vec![
