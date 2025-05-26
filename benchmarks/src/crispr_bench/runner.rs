@@ -124,12 +124,7 @@ fn run_other_tool(tool: &dyn Tool, cfg: &Config) -> Option<BenchmarkResult> {
         cfg.dists[0],
         cfg.guides_file.as_str(),
         cfg.target_file.as_str(),
-        &format!(
-            "{}/{}_{}.txt",
-            cfg.out_dir,
-            cfg.guides_file,
-            tool.name().to_lowercase()
-        ),
+        &format!("{}/{}.txt", cfg.out_dir, tool.name().to_lowercase()),
         cfg.threads,
     ) {
         Ok(dur) => Some(BenchmarkResult {

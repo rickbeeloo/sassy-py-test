@@ -157,6 +157,7 @@ pub fn crispr(args: CrisprArgs) {
 
     if !guide_sequences.is_empty() {
         // Read the first record from the FASTA file for benchmarking
+        println!("Creating output file with path: {}", args.output.display());
         let file = File::create(&args.output).expect("Failed to create output file");
         let writer = Mutex::new(BufWriter::new(file));
         let reader = Mutex::new(needletail::parse_fastx_file(args.target.clone()).unwrap());
