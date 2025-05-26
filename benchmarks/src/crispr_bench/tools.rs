@@ -226,11 +226,31 @@ impl Tool for Swofinder {
         let start = Instant::now();
         let mut child = Command::new("java")
             .args(&args)
-            .current_dir(working_dir) // Set working directory for the Java process
-            .stdout(Stdio::null()) // Don't stream output to minimize overhead
-            .stderr(Stdio::null()) // Don't stream errors to minimize overhead
+            .current_dir(working_dir)
+            .stdout(Stdio::piped()) // Changed from null to piped
+            .stderr(Stdio::piped()) // Changed from null to piped
             .spawn()
             .map_err(|e| format!("Failed to spawn Swofinder process: {}", e))?;
+
+        // Stream stdout
+        if let Some(stdout) = child.stdout.take() {
+            let reader = BufReader::new(stdout);
+            for line in reader.lines() {
+                if let Ok(line) = line {
+                    println!("Swofinder stdout: {}", line);
+                }
+            }
+        }
+
+        // Stream stderr
+        if let Some(stderr) = child.stderr.take() {
+            let reader = BufReader::new(stderr);
+            for line in reader.lines() {
+                if let Ok(line) = line {
+                    eprintln!("Swofinder stderr: {}", line);
+                }
+            }
+        }
 
         let status = child
             .wait()
@@ -303,10 +323,30 @@ impl Chopoff {
         let start = Instant::now();
         let mut child = Command::new(&self.exec_path)
             .args(&args)
-            .stdout(Stdio::null()) // Don't stream output to minimize overhead
-            .stderr(Stdio::null()) // Don't stream errors to minimize overhead
+            .stdout(Stdio::piped()) // Changed from null to piped
+            .stderr(Stdio::piped()) // Changed from null to piped
             .spawn()
             .map_err(|e| format!("Failed to spawn Chopoff build process: {}", e))?;
+
+        // Stream stdout
+        if let Some(stdout) = child.stdout.take() {
+            let reader = BufReader::new(stdout);
+            for line in reader.lines() {
+                if let Ok(line) = line {
+                    println!("Chopoff build stdout: {}", line);
+                }
+            }
+        }
+
+        // Stream stderr
+        if let Some(stderr) = child.stderr.take() {
+            let reader = BufReader::new(stderr);
+            for line in reader.lines() {
+                if let Ok(line) = line {
+                    eprintln!("Chopoff build stderr: {}", line);
+                }
+            }
+        }
 
         let status = child
             .wait()
