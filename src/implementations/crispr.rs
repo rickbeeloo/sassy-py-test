@@ -193,11 +193,11 @@ pub fn crispr(args: CrisprArgs) {
                             total_found.fetch_add(matches.len(), Ordering::Relaxed);
 
                             let mut writer_guard = writer.lock().unwrap();
+
                             for m in matches {
-                                
                                 // We have to adjust the start and end based on reverse complement
                                 // as we reverse the text these should be adjusted based on text length
-                                let (start, end) = if args.rc {
+                                let (start, end) = if m.strand == Strand::Rc {
                                     (
                                         text.len() - m.end.1 as usize,
                                         text.len() - m.start.1 as usize,
@@ -207,7 +207,7 @@ pub fn crispr(args: CrisprArgs) {
                                 };
 
                                 let slice = &text[start..end];
-                                
+
                                 if pass(&m, edit_free, edit_free_value, max_n_frac, slice) {
                                     let cost = m.cost;
                                     let slice_str = String::from_utf8_lossy(slice);

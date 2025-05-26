@@ -26,7 +26,7 @@ pub struct Match {
     pub cigar: Cigar,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Strand {
     Fwd,
     Rc,
@@ -48,7 +48,7 @@ pub trait SearchAble {
     /// The forward text
     fn text(&self) -> &[u8];
     /// Produce the reverse‐complement (or reverse) when requested
-    fn rc_text(&self) -> Cow<[u8]>;
+    fn rev_text(&self) -> Cow<[u8]>;
 }
 
 impl<T> SearchAble for T
@@ -59,20 +59,20 @@ where
         self.as_ref()
     }
 
-    fn rc_text(&self) -> Cow<[u8]> {
+    fn rev_text(&self) -> Cow<[u8]> {
         Cow::Owned(self.as_ref().iter().rev().copied().collect())
     }
 }
 
 pub struct StaticText<'a> {
     pub text: &'a [u8],
-    pub rc: Vec<u8>,
+    pub rev: Vec<u8>,
 }
 
 impl<'a> StaticText<'a> {
     pub fn new(text: &'a [u8]) -> Self {
-        let rc = text.iter().rev().copied().collect();
-        StaticText { text, rc }
+        let rev = text.iter().rev().copied().collect();
+        StaticText { text, rev }
     }
 }
 
@@ -80,9 +80,9 @@ impl<'a> SearchAble for StaticText<'a> {
     fn text(&self) -> &[u8] {
         self.text
     }
-    fn rc_text(&self) -> Cow<[u8]> {
+    fn rev_text(&self) -> Cow<[u8]> {
         // borrow stored, is free
-        Cow::Borrowed(&self.rc)
+        Cow::Borrowed(&self.rev)
     }
 }
 
@@ -144,7 +144,7 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
     pub fn search<I: SearchAble>(&mut self, query: &[u8], input: &I, k: usize) -> Vec<Match> {
         let mut matches = self.search_internal(query, input.text(), k);
         if RC {
-            let rc_matches = self.search_internal(&P::complement(query), &input.rc_text(), k);
+            let rc_matches = self.search_internal(&P::complement(query), &input.rev_text(), k);
             matches.extend(rc_matches.into_iter().map(|mut m| {
                 m.strand = Strand::Rc;
                 m
