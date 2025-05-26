@@ -62,15 +62,12 @@ fn check_edit_free(m: &Match, target: isize) -> bool {
     to_check.op == CigarOp::Match && to_check.cnt >= target.abs() as i32
 }
 
-fn check_n_frac(m: &Match, max_n_frac: f32, target_text: &[u8]) -> bool {
-    let start = m.start.1 as usize;
-    let end = m.end.1 as usize;
-    let slice_len = end - start;
-    let n_count = target_text[start..end]
+fn check_n_frac(max_n_frac: f32, match_slice: &[u8]) -> bool {
+    let n_count = match_slice
         .iter()
         .filter(|c| (**c & 0xDF) == b'N') // Convert to uppercase check against N
         .count() as f32;
-    let n_frac = n_count / slice_len as f32;
+    let n_frac = n_count / match_slice.len() as f32;
     n_frac <= max_n_frac
 }
 
@@ -124,7 +121,7 @@ fn pass(
     edit_free: Option<isize>,
     edit_free_value: isize,
     max_n_frac: f32,
-    text: &[u8],
+    match_slice: &[u8],
 ) -> bool {
     let pam_ok = if edit_free.is_some() {
         check_edit_free(m, edit_free_value)
@@ -132,7 +129,7 @@ fn pass(
         true
     };
     let n_ok = if max_n_frac < 100.0 {
-        check_n_frac(m, max_n_frac, text)
+        check_n_frac(max_n_frac, match_slice)
     } else {
         true
     };
@@ -197,25 +194,28 @@ pub fn crispr(args: CrisprArgs) {
 
                             let mut writer_guard = writer.lock().unwrap();
                             for m in matches {
-                                if pass(&m, edit_free, edit_free_value, max_n_frac, text) {
-                                    let cost = m.cost;
-                                    let start = m.start.1 as usize;
-                                    let end = m.end.1 as usize;
+                                // Get match possitions
+                                let start = m.start.1 as usize;
+                                let end = m.end.1 as usize;
 
-                                    let slice = match m.strand {
-                                        Strand::Fwd => {
-                                            String::from_utf8_lossy(&text[start..end]).to_string()
-                                        }
-                                        Strand::Rc => String::from_utf8_lossy(
-                                            text[text.len() - end..text.len() - start]
-                                                .iter()
-                                                .rev()
-                                                .copied()
-                                                .collect::<Vec<_>>()
-                                                .as_slice(),
-                                        )
-                                        .to_string(),
-                                    };
+                                // Get matching text slice to check N's
+                                let rev_seq: Vec<u8> = match m.strand {
+                                    Strand::Rc => text[text.len() - end..text.len() - start]
+                                        .iter()
+                                        .rev()
+                                        .copied()
+                                        .collect(),
+                                    Strand::Fwd => Vec::new(),
+                                };
+                                
+                                let slice = match m.strand {
+                                    Strand::Fwd => &text[start..end],
+                                    Strand::Rc => &rev_seq,
+                                };
+
+                                if pass(&m, edit_free, edit_free_value, max_n_frac, slice) {
+                                    let cost = m.cost;
+                                    let slice_str = String::from_utf8_lossy(slice);
                                     let cigar = m.cigar.to_string();
                                     let strand = match m.strand {
                                         Strand::Fwd => "+",
@@ -223,7 +223,7 @@ pub fn crispr(args: CrisprArgs) {
                                     };
                                     writeln!(
                                         writer_guard,
-                                        "{id}\t{cost}\t{strand}\t{start}\t{end}\t{slice}\t{cigar}"
+                                        "{id}\t{cost}\t{strand}\t{start}\t{end}\t{slice_str}\t{cigar}"
                                     )
                                     .unwrap();
                                 } else {

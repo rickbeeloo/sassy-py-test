@@ -298,9 +298,7 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
                 let cost = dist_to_start_of_lane.as_array()[lane] as Cost;
 
                 if ALL_MINIMA {
-                    let matches_before = self.lanes[lane].matches.clone();
                     self.find_all_minima(v, cost, k, text.len(), base_pos, lane);
-                    let matches_after = self.lanes[lane].matches.clone();
                 } else {
                     self.find_local_minima(v, cost, k, text.len(), base_pos, lane);
                 }
