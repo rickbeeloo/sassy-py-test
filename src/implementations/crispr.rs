@@ -1,5 +1,7 @@
 use crate::search::Match;
-use crate::{profiles::Iupac, search::Searcher, search::StaticText, search::Strand};
+use crate::{
+    profiles::Iupac, profiles::Profile, search::Searcher, search::StaticText, search::Strand,
+};
 use pa_types::CigarOp;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -207,6 +209,19 @@ pub fn crispr(args: CrisprArgs) {
                                 };
 
                                 let slice = &text[start..end];
+
+                                // If reverse complement, also take reverse complmeent of the slice
+                                let rc_vec = if m.strand == Strand::Rc {
+                                    <Iupac as Profile>::reverse_complement(slice)
+                                } else {
+                                    Vec::new()
+                                };
+                                
+                                let slice = if m.strand == Strand::Rc {
+                                    &rc_vec
+                                } else {
+                                    slice
+                                };
 
                                 if pass(&m, edit_free, edit_free_value, max_n_frac, slice) {
                                     let cost = m.cost;
