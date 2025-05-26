@@ -96,7 +96,7 @@ fn run_chopoff_search(tool: &Chopoff, cfg: &Config) -> Option<BenchmarkResult> {
             cfg.dists[0], // For now we just do dist loop in main, but nicer here, fixme
             cfg.guides_file.as_str(),
             db_path,
-            &format!("{}/chopoff_{}.txt", cfg.out_dir, cfg.guides_file),
+            &format!("{}/chopoff.txt", cfg.out_dir),
             cfg.threads,
         ) {
             Ok(dur) => Some(BenchmarkResult {
