@@ -1,9 +1,9 @@
-sassy_path = "../sassy"
-swofinder_path = "../SWOffinder"
-chopoff_path = "../CHOPOFF"
-target_file = "../data/sub.fasta"
-out_dir = "results"
-dists = [1,2]
+sassy_path = "/home/rickb/sassy/sassy-server/target/release/sassy"
+swofinder_path = "/home/rickb/sassy/SWOFINDER/SWOffinder"
+chopoff_path = "/home/rickb/sassy/CHOPOFF/CHOPOFF.jl/build/bin/CHOPOFF"
+target_file = "/home/rickb/sassy/GCF_000001405.40_GRCh38.p14_genomic_sample.fa"
+out_dir = "bench_results"
+dists = [4]
 threads = 1
 chopoff_db_path = "db_path"
-guides_file = "../data/guides_subset.txt"
+guides_file = "/home/rickb/sassy/sassy-bench/benchmarks/src/crispr_bench/test_guide.txt"
