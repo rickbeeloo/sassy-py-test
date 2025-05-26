@@ -33,16 +33,16 @@ struct BenchmarkResult {
     guide_seq: String,
 }
 
-fn load_guide_sequences(path: &str) -> Result<Vec<String>, String> {
-    File::open(path)
-        .map_err(|e| format!("Unable to open {}: {}", path, e))
-        .and_then(|file| {
-            BufReader::new(file)
-                .lines()
-                .collect::<Result<_, _>>()
-                .map_err(|e| format!("Error reading guides: {}", e))
-        })
-}
+// fn load_guide_sequences(path: &str) -> Result<Vec<String>, String> {
+//     File::open(path)
+//         .map_err(|e| format!("Unable to open {}: {}", path, e))
+//         .and_then(|file| {
+//             BufReader::new(file)
+//                 .lines()
+//                 .collect::<Result<_, _>>()
+//                 .map_err(|e| format!("Error reading guides: {}", e))
+//         })
+// }
 
 fn ensure_directory_exists(path: &str) -> Result<(), String> {
     if !Path::new(path).exists() {
@@ -89,14 +89,14 @@ fn build_chopoff_db(tool: &Chopoff, cfg: &Config) -> Option<BenchmarkResult> {
     None
 }
 
-fn run_chopoff_search(tool: &Chopoff, seq: &str, cfg: &Config) -> Option<BenchmarkResult> {
+fn run_chopoff_search(tool: &Chopoff, cfg: &Config) -> Option<BenchmarkResult> {
     if let Some(ref db_path) = cfg.chopoff_db_path {
-        println!("Running Chopoff search for {}...", seq);
+        println!("Running Chopoff search for {}...", cfg.guides_file);
         match tool.run(
             cfg.dists[0], // For now we just do dist loop in main, but nicer here, fixme
-            seq,
+            cfg.guides_file.as_str(),
             db_path,
-            &format!("{}/chopoff_{}.txt", cfg.out_dir, seq),
+            &format!("{}/chopoff_{}.txt", cfg.out_dir, cfg.guides_file),
             cfg.threads,
         ) {
             Ok(dur) => Some(BenchmarkResult {
@@ -105,7 +105,7 @@ fn run_chopoff_search(tool: &Chopoff, seq: &str, cfg: &Config) -> Option<Benchma
                 duration: dur,
                 distance: cfg.dists[0],
                 threads: cfg.threads,
-                guide_seq: seq.into(),
+                guide_seq: cfg.guides_file.clone(),
             }),
             Err(e) => {
                 eprintln!("Chopoff error: {}", e);
@@ -118,13 +118,18 @@ fn run_chopoff_search(tool: &Chopoff, seq: &str, cfg: &Config) -> Option<Benchma
     }
 }
 
-fn run_other_tool(tool: &dyn Tool, seq: &str, cfg: &Config) -> Option<BenchmarkResult> {
-    println!("Running {} for {}...", tool.name(), seq);
+fn run_other_tool(tool: &dyn Tool, cfg: &Config) -> Option<BenchmarkResult> {
+    println!("Running {} for {}...", tool.name(), cfg.guides_file);
     match tool.run(
         cfg.dists[0],
-        seq,
+        cfg.guides_file.as_str(),
         cfg.target_file.as_str(),
-        &format!("{}/{}_{}.txt", cfg.out_dir, seq, tool.name().to_lowercase()),
+        &format!(
+            "{}/{}_{}.txt",
+            cfg.out_dir,
+            cfg.guides_file,
+            tool.name().to_lowercase()
+        ),
         cfg.threads,
     ) {
         Ok(dur) => Some(BenchmarkResult {
@@ -133,7 +138,7 @@ fn run_other_tool(tool: &dyn Tool, seq: &str, cfg: &Config) -> Option<BenchmarkR
             duration: dur,
             distance: cfg.dists[0],
             threads: cfg.threads,
-            guide_seq: seq.into(),
+            guide_seq: cfg.guides_file.clone(),
         }),
         Err(e) => {
             eprintln!("{} error: {}", tool.name(), e);
@@ -142,11 +147,7 @@ fn run_other_tool(tool: &dyn Tool, seq: &str, cfg: &Config) -> Option<BenchmarkR
     }
 }
 
-fn run_benchmark(
-    tools: &[ToolVariant],
-    guide_seqs: &[String],
-    cfg: &Config,
-) -> Vec<BenchmarkResult> {
+fn run_benchmark(tools: &[ToolVariant], cfg: &Config) -> Vec<BenchmarkResult> {
     ensure_directory_exists(&cfg.out_dir).expect("Can't create out dir");
     let mut results = Vec::new();
 
@@ -156,24 +157,22 @@ fn run_benchmark(
                 if let Some(r) = build_chopoff_db(chopoff, cfg) {
                     results.push(r);
                 }
-                for seq in guide_seqs {
-                    if let Some(r) = run_chopoff_search(chopoff, seq, cfg) {
-                        results.push(r);
-                    }
+                //for seq in guide_seqs {
+                if let Some(r) = run_chopoff_search(chopoff, cfg) {
+                    results.push(r);
                 }
+                //}
             }
+
             ToolVariant::Sassy(sassy) => {
-                for seq in guide_seqs {
-                    if let Some(r) = run_other_tool(sassy, seq, cfg) {
-                        results.push(r);
-                    }
+                if let Some(r) = run_other_tool(sassy, cfg) {
+                    results.push(r);
                 }
             }
+
             ToolVariant::Swo(swo) => {
-                for seq in guide_seqs {
-                    if let Some(r) = run_other_tool(swo, seq, cfg) {
-                        results.push(r);
-                    }
+                if let Some(r) = run_other_tool(swo, cfg) {
+                    results.push(r);
                 }
             }
         }
@@ -199,7 +198,6 @@ fn print_results(results: &[BenchmarkResult]) {
 
 pub fn run(config_path: &str) {
     let cfg = load_config(config_path);
-    let guides = load_guide_sequences(&cfg.guides_file).unwrap();
     let tools = vec![
         ToolVariant::Sassy(SassyTool::new(&cfg.sassy_path)),
         ToolVariant::Swo(Swofinder::new(&cfg.swofinder_path)),
@@ -224,7 +222,7 @@ pub fn run(config_path: &str) {
             chopoff_path: cfg.chopoff_path.clone(),
             guides_file: cfg.guides_file.clone(),
         };
-        let results = run_benchmark(&tools, &guides, &bench_cfg);
+        let results = run_benchmark(&tools, &bench_cfg);
         all_results.extend(results);
     }
     print_results(&all_results);

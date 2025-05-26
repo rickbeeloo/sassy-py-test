@@ -96,7 +96,7 @@ impl Tool for SassyTool {
     fn run(
         &self,
         dist: usize,
-        guide_seq: &str,
+        guide_file_path: &str,
         target_file_path: &str,
         out_path: &str,
         threads: usize,
@@ -104,7 +104,7 @@ impl Tool for SassyTool {
         let args = vec![
             "crispr".to_string(),
             "-g".to_string(),
-            guide_seq.to_string(),
+            guide_file_path.to_string(),
             "-k".to_string(),
             dist.to_string(),
             "-t".to_string(),
@@ -192,7 +192,7 @@ impl Tool for Swofinder {
     fn run(
         &self,
         dist: usize,
-        guide_seq: &str,
+        guide_file_path: &str,
         target_file_path: &str,
         out_path: &str,
         threads: usize,
@@ -200,19 +200,16 @@ impl Tool for Swofinder {
         // Use the directory containing the Java classes as the working directory
         let working_dir = self.exec_path.clone();
 
-        // Create temporary guides file
-        let tmp_sgrnas_path = "sgRNAs.txt";
-        let mut file = File::create(tmp_sgrnas_path)
-            .map_err(|e| format!("Failed to create guide file: {}", e))?;
-        file.write_all(guide_seq.as_bytes())
-            .map_err(|e| format!("Failed to write guide sequence: {}", e))?;
+        // Copy the guide file to sgRNAs.txt
+        std::fs::copy(guide_file_path, "sgRNAs.txt")
+            .map_err(|e| format!("Failed to copy guide file: {}", e))?;
 
         let args = vec![
             "-cp".to_string(),
             "bin".to_string(),
             "SmithWatermanOffTarget.SmithWatermanOffTargetSearchAlign".to_string(),
             target_file_path.to_string(),
-            tmp_sgrnas_path.to_string(),
+            "sgRNAs.txt".to_string(),
             out_path.to_string(),
             dist.to_string(),
             dist.to_string(),
@@ -241,11 +238,8 @@ impl Tool for Swofinder {
         let duration = start.elapsed();
 
         // Clean up temporary file
-        if let Err(e) = std::fs::remove_file(tmp_sgrnas_path) {
-            eprintln!(
-                "Warning: Failed to remove temporary file {}: {}",
-                tmp_sgrnas_path, e
-            );
+        if let Err(e) = std::fs::remove_file("sgRNAs.txt") {
+            eprintln!("Warning: Failed to remove temporary file sgRNAs.txt: {}", e);
         }
 
         if status.success() {
@@ -338,19 +332,31 @@ impl Tool for Chopoff {
     fn run(
         &self,
         dist: usize,
-        guide_seq: &str,
+        guide_file_path: &str,
         target_file_path: &str,
         out_path: &str,
         threads: usize,
     ) -> Result<Duration, String> {
         // Create temporary guides file
         let tmp_guides_path = "tmp_guides.txt";
-        let mut file = File::create(tmp_guides_path)
+        let mut output_file = File::create(tmp_guides_path)
             .map_err(|e| format!("Failed to create guides file: {}", e))?;
 
-        // Strip the last 3 characters from the guide sequence before writing
-        file.write_all(&guide_seq.as_bytes()[..guide_seq.len() - 3])
-            .map_err(|e| format!("Failed to write to guides file: {}", e))?;
+        // Read the guide file line by line
+        let guide_file =
+            File::open(guide_file_path).map_err(|e| format!("Failed to open guide file: {}", e))?;
+        let reader = BufReader::new(guide_file);
+
+        // Process each line
+        for line in reader.lines() {
+            let line = line.map_err(|e| format!("Failed to read line: {}", e))?;
+            if line.len() >= 3 {
+                // Strip last 3 characters and write to output file
+                let stripped = &line[..line.len() - 3];
+                writeln!(output_file, "{}", stripped)
+                    .map_err(|e| format!("Failed to write to guides file: {}", e))?;
+            }
+        }
 
         // Set JULIA_NUM_THREADS environment variable
         unsafe { std::env::set_var("JULIA_NUM_THREADS", threads.to_string()) };
