@@ -10,6 +10,7 @@ use crate::{
 };
 use pa_types::{Cigar, Cost, Pos};
 use std::borrow::Cow;
+use std::ops::Range;
 use std::simd::cmp::SimdPartialOrd;
 
 pub type Deltas = Vec<(Cost, V<u64>)>;
@@ -297,7 +298,9 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
                 let cost = dist_to_start_of_lane.as_array()[lane] as Cost;
 
                 if ALL_MINIMA {
+                    let matches_before = self.lanes[lane].matches.clone();
                     self.find_all_minima(v, cost, k, text.len(), base_pos, lane);
+                    let matches_after = self.lanes[lane].matches.clone();
                 } else {
                     self.find_local_minima(v, cost, k, text.len(), base_pos, lane);
                 }
@@ -382,13 +385,12 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
         // All <=k end points
         for bit in 0..64 {
             let pos = base_pos + bit;
-            if base_pos + pos >= text_len {
+            if pos >= text_len {
                 break;
             }
-
             // Check if this position is a match (cost <= k)
             if cost <= k {
-                self.lanes[lane].matches.push((base_pos + pos, cost));
+                self.lanes[lane].matches.push((pos, cost));
             }
 
             // Update cost based on the P/M bit patterns
@@ -435,6 +437,7 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
                             text_slices[i],
                             &self.cost_matrices[i],
                         );
+
                         assert!(
                             m.cost <= k as Cost,
                             "Match has cost {} > {}: {m:?}",
@@ -442,38 +445,22 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
                             k
                         );
                         traces.push(m);
-                        last_processed_pos = text_slices[i].len() + offsets[i];
                     }
                     num_slices = 0;
                 }
+                last_processed_pos = end_pos;
             }
         }
 
         // We now have less < LANES text slices to process, we use SIMD fill if number of slices > 1
         // else we fall back to scalar fill to avoid SIMD overhead with "empty" lanes
         if num_slices > 0 {
-            for i in 0..num_slices {
-                if num_slices > 1 {
-                    simd_fill::<P>(query, &text_slices[..num_slices], &mut self.cost_matrices);
-                    for i in 0..num_slices {
-                        let m = get_trace::<P>(
-                            query,
-                            offsets[i],
-                            text_slices[i],
-                            &self.cost_matrices[i],
-                        );
-                        assert!(
-                            m.cost <= k as Cost,
-                            "Match has cost {} > {}: {m:?}",
-                            m.cost,
-                            k
-                        );
-                        traces.push(m);
-                    }
-                } else {
-                    let mut cost_matrix = CostMatrix::default();
-                    fill::<P>(query, text_slices[i], &mut cost_matrix);
-                    let m = get_trace::<P>(query, offsets[i], text_slices[i], &cost_matrix);
+            if num_slices > 1 {
+                println!("num_slices: {num_slices} left");
+                simd_fill::<P>(query, &text_slices[..num_slices], &mut self.cost_matrices);
+                for i in 0..num_slices {
+                    let m =
+                        get_trace::<P>(query, offsets[i], text_slices[i], &self.cost_matrices[i]);
                     assert!(
                         m.cost <= k as Cost,
                         "Match has cost {} > {}: {m:?}",
@@ -482,6 +469,17 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
                     );
                     traces.push(m);
                 }
+            } else {
+                let mut cost_matrix = CostMatrix::default();
+                fill::<P>(query, text_slices[0], &mut cost_matrix);
+                let m = get_trace::<P>(query, offsets[0], text_slices[0], &cost_matrix);
+                assert!(
+                    m.cost <= k as Cost,
+                    "Match has cost {} > {}: {m:?}",
+                    m.cost,
+                    k
+                );
+                traces.push(m);
             }
         }
         traces
@@ -622,7 +620,7 @@ mod tests {
                     continue;
                 }
 
-                let idx = random_range(0..=text.len() - p.len());
+                let idx = random_range(0..=text.len().saturating_sub(p.len()));
                 eprintln!("text len {}", text.len());
                 eprintln!("planted idx {idx}");
                 let expected_idx = (idx + p.len()).saturating_sub(q);
@@ -648,6 +646,39 @@ mod tests {
                     .find(|m| (m.start.1 as usize).abs_diff(expected_idx) <= edits);
                 assert!(m.is_some());
             }
+        }
+    }
+
+    #[test]
+    fn test_fixed_matches() {
+        let query = b"ATCGATCA";
+        let mut text = vec![b'G'; 1000]; // Create a text of 1000 G's
+
+        // Insert 5 matches at fixed positions
+        let positions = [50, 150, 250, 350, 450, 800];
+        let mut expected_matches = Vec::new();
+
+        for &pos in &positions {
+            // Insert the query at each position
+            text.splice(pos..pos + query.len(), query.iter().copied());
+
+            // Record expected match position
+            let expected_idx = (pos + query.len()).saturating_sub(query.len());
+            expected_matches.push(expected_idx);
+        }
+
+        // Test forward search
+        let mut searcher = Searcher::<Dna, false, true>::new();
+        let matches = searcher.search(query, &text, 1);
+
+        // Verify all matches are found
+        for expected_idx in expected_matches {
+            let found = matches.iter().any(|m| m.start.1 as usize == expected_idx);
+            assert!(found, "Expected match at {} not found", expected_idx);
+        }
+
+        for m in matches {
+            println!("match: {:?}", m);
         }
     }
 }
