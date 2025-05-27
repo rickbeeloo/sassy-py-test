@@ -202,8 +202,8 @@ impl Tool for Swofinder {
         let working_dir = std::path::PathBuf::from(self.exec_path.clone());
 
         // Copy the guide file to sgRNAs.txt in the working directory
-        let dest_path = working_dir.join("sgRNAs.txt");
-        std::fs::copy(guide_file_path, &dest_path)
+        let dest_sgRNAs_path = working_dir.join("sgRNAs.txt");
+        std::fs::copy(guide_file_path, &dest_sgRNAs_path)
             .map_err(|e| format!("Failed to copy guide file: {}", e))?;
 
         let args = vec![
@@ -260,7 +260,7 @@ impl Tool for Swofinder {
         let duration = start.elapsed();
 
         // Clean up temporary file
-        if let Err(e) = std::fs::remove_file("sgRNAs.txt") {
+        if let Err(e) = std::fs::remove_file(dest_sgRNAs_path) {
             eprintln!("Warning: Failed to remove temporary file sgRNAs.txt: {}", e);
         }
 
