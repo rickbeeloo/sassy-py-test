@@ -110,7 +110,7 @@ impl<P: Profile> LaneState<P> {
         if start + 64 <= text.len() {
             self.text_slice.copy_from_slice(&text[start..start + 64]);
         } else {
-            self.text_slice.fill(b'X');
+            self.text_slice.fill(b'N');
             if start <= text.len() {
                 let slice = &text[start..];
                 self.text_slice[..slice.len()].copy_from_slice(slice);
@@ -158,7 +158,7 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
     }
 
     fn find_matches(&mut self, query: &[u8], text: &[u8], k: usize) {
-        self.search_positions_bounded(query, text, k as Cost)
+        self.search_positions_bounded::<false>(query, text, k as Cost)
     }
 
     #[inline(always)]
@@ -183,7 +183,12 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
         None
     }
 
-    fn search_positions_bounded(&mut self, query: &[u8], text: &[u8], k: Cost) {
+    fn search_positions_bounded<const OVERLAP: bool>(
+        &mut self,
+        query: &[u8],
+        text: &[u8],
+        k: Cost,
+    ) {
         let (profiler, query_profile) = P::encode_query(query);
 
         // Terminology:
@@ -197,7 +202,12 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
         let overlap_blocks = 0;
 
         // Total number of blocks to be processed, including overlaps.
-        let text_blocks = text.len().div_ceil(64);
+        let text_blocks = if OVERLAP {
+            // When allowing overlaps, for simplicity we 'extend' the text a bit more with N.
+            (text.len() + query.len()).div_ceil(64)
+        } else {
+            text.len().div_ceil(64)
+        };
         let total_blocks = text_blocks + (LANES - 1) * overlap_blocks;
         let blocks_per_chunk = total_blocks.div_ceil(LANES);
         // Length of each of the four chunks.
@@ -224,6 +234,14 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
         self.hm.clear();
         self.hp.resize(query.len(), S::splat(1));
         self.hm.resize(query.len(), S::splat(0));
+
+        if OVERLAP {
+            for i in 0..query.len() {
+                // Alternate 0 and 1 costs at very left of the matrix.
+                // (Note: not at start of later chunks.)
+                self.hp[i].as_mut_array()[0] = i as u64 % 2;
+            }
+        }
 
         'text_chunk: for i in 0..blocks_per_chunk + max_overlap_blocks {
             let mut vp = S::splat(0);
@@ -289,6 +307,8 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
                 }
             }
 
+            // We reached the end of the query, at j=query.len()-1.
+
             // Save positions with cost <= k directly after processing each row
             for lane in 0..LANES {
                 let v = <VV as VEncoding<Base>>::from(vp[lane], vm[lane]);
@@ -296,10 +316,33 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
                 let base_pos = self.lanes[lane].chunk_offset * 64 + 64 * i;
                 let cost = dist_to_start_of_lane.as_array()[lane] as Cost;
 
-                if ALL_MINIMA {
-                    self.find_all_minima(v, cost, k, text.len(), base_pos, lane);
+                if base_pos + 64 <= text.len() {
+                    if ALL_MINIMA {
+                        self.find_all_minima(v, cost, k, text.len(), base_pos, lane);
+                    } else {
+                        self.find_local_minima(v, cost, k, text.len(), base_pos, lane);
+                    }
                 } else {
-                    self.find_local_minima(v, cost, k, text.len(), base_pos, lane);
+                    let mut cost = cost;
+                    for l in 1..=64 {
+                        let pos = base_pos + l;
+                        if pos > text.len() + query.len() {
+                            break;
+                        }
+                        cost += ((v.0 >> (l - 1)) & 1) as Cost - ((v.1 >> (l - 1)) & 1) as Cost;
+
+                        // TODO: Fractional cost?
+                        // TODO: Round up?
+                        let extend = pos.saturating_sub(text.len()) / 2;
+                        let total_cost = cost + extend as Cost;
+                        if ALL_MINIMA {
+                            if total_cost <= k {
+                                self.lanes[lane].matches.push((pos, total_cost));
+                            }
+                        } else {
+                            todo!() // Replicate find_local_minima inner logic
+                        }
+                    }
                 }
             }
 
