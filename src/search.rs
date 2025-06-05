@@ -105,12 +105,12 @@ impl<P: Profile> LaneState<P> {
         }
     }
 
-    fn update_and_encode(&mut self, text: &[u8], i: usize, profiler: &P) {
+    fn update_and_encode(&mut self, text: &[u8], i: usize, profiler: &P, overlap: bool) {
         let start = self.chunk_offset * 64 + 64 * i;
         if start + 64 <= text.len() {
             self.text_slice.copy_from_slice(&text[start..start + 64]);
         } else {
-            self.text_slice.fill(b'N');
+            self.text_slice.fill(if overlap { b'N' } else { b'X' });
             if start <= text.len() {
                 let slice = &text[start..];
                 self.text_slice[..slice.len()].copy_from_slice(slice);
@@ -249,7 +249,7 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
 
             // Update text slices and profiles
             for lane in 0..LANES {
-                self.lanes[lane].update_and_encode(text, i, &profiler);
+                self.lanes[lane].update_and_encode(text, i, &profiler, OVERLAP);
             }
 
             let mut dist_to_start_of_lane = S::splat(0);
@@ -316,7 +316,7 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
                 let base_pos = self.lanes[lane].chunk_offset * 64 + 64 * i;
                 let cost = dist_to_start_of_lane.as_array()[lane] as Cost;
 
-                if base_pos + 64 <= text.len() {
+                if !OVERLAP || base_pos + 64 <= text.len() {
                     if ALL_MINIMA {
                         self.find_all_minima(v, cost, k, text.len(), base_pos, lane);
                     } else {
@@ -535,8 +535,19 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Default for Searcher<P,
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::profiles::Dna;
+    use crate::profiles::{Dna, Iupac};
     use rand::random_range;
+
+    #[test]
+    fn overlap() {
+        let query = b"CCCTTTCCCGGG";
+        let text = b"AAAAAAAAACCCTTT";
+        let mut s = Searcher::<Iupac, false, true>::new();
+        s.search_positions_bounded::<true>(query, text, 10);
+        for l in s.lanes {
+            println!("Matches: {:?}", l.matches);
+        }
+    }
 
     #[test]
     fn test_case1() {
