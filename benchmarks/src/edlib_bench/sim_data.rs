@@ -1,4 +1,4 @@
-use rand::{Rng, rng};
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 
 #[derive(Copy, Clone, Debug, PartialEq, Deserialize, Serialize)]

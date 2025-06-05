@@ -1,5 +1,4 @@
 use crate::minima::prefix_min;
-use crate::minima::prefix_min_k;
 pub use crate::minima::{find_all_minima, find_local_minima};
 use crate::profiles::Profile;
 use crate::trace::{CostMatrix, fill, get_trace, simd_fill};
@@ -29,18 +28,6 @@ pub struct Match {
 pub enum Strand {
     Fwd,
     Rc,
-}
-
-#[derive(Clone, Copy)]
-pub enum SearchMode {
-    Local,
-    All,
-}
-
-#[derive(Clone, Copy)]
-pub enum RcMode {
-    No,
-    Yes,
 }
 
 pub trait SearchAble {
@@ -736,18 +723,18 @@ mod tests {
     }
 
     // Just for profiling
-    // use std::hint::black_box;
-    // #[test]
-    // fn random_big_search() {
-    //     let mut total_matches = 0;
-    //     for i in 0..1000 {
-    //         let query = random_dna_string(random_range(10..100));
-    //         let text = random_dna_string(1_000_000);
-    //         let matches = Search::<Dna, false, false>::new(&query, &text, 5).search();
-    //         total_matches += matches.len();
-    //     }
-    //     println!("total matches: {total_matches}");
-    // }
+    #[test]
+    #[ignore = "for profiling only"]
+    fn random_big_search() {
+        let mut total_matches = 0;
+        for _ in 0..1000 {
+            let query = random_dna_string(random_range(10..100));
+            let text = random_dna_string(1_000_000);
+            let matches = Searcher::<Dna, false, false>::new().search(&query, &text, 5);
+            total_matches += matches.len();
+        }
+        println!("total matches: {total_matches}");
+    }
 
     #[test]
     fn test_fwd_rc_search() {

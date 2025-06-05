@@ -33,7 +33,7 @@ pub struct ParamSet<'a> {
 
 impl GridConfig {
     /// Returns an iterator over all parameter combinations as tuples.
-    pub fn all_combinations<'a>(&'a self) -> impl Iterator<Item = ParamSet> + 'a {
+    pub fn all_combinations<'a>(&'a self) -> impl Iterator<Item = ParamSet<'a>> + 'a {
         self.query_lengths.iter().flat_map(move |&ql| {
             self.text_lengths.iter().flat_map(move |&tl| {
                 self.k.iter().flat_map(move |&k| {

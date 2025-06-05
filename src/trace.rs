@@ -2,7 +2,6 @@ use crate::bitpacking::compute_block;
 use crate::delta_encoding::V;
 use crate::delta_encoding::VEncoding;
 use crate::profiles::Profile;
-use crate::search::init_deltas_for_overshoot;
 use crate::search::init_deltas_for_overshoot_all_lanes;
 use crate::search::init_deltas_for_overshoot_scalar;
 use pa_types::Cigar;
@@ -17,7 +16,7 @@ use crate::search::{Match, Strand};
 use std::array::from_fn;
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct CostMatrix {
+pub struct CostMatrix {
     /// Query length.
     q: usize,
     deltas: Vec<V<u64>>,
@@ -232,6 +231,7 @@ pub fn get_trace<P: Profile>(
     }
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::profiles::Dna;

@@ -1,6 +1,6 @@
+#![allow(unused)]
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
-use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -15,7 +15,7 @@ pub enum Strand {
     Fwd,
     Rc,
 }
-struct Match {
+pub struct Match {
     start: usize,
     end: usize,
     strand: Strand,
@@ -164,7 +164,7 @@ impl Tool for SassyTool {
         }
     }
 
-    fn parse_output(&self, out_path: &str) -> Result<Vec<Match>, String> {
+    fn parse_output(&self, _out_path: &str) -> Result<Vec<Match>, String> {
         Ok(vec![])
     }
 }
@@ -202,8 +202,8 @@ impl Tool for Swofinder {
         let working_dir = std::path::PathBuf::from(self.exec_path.clone());
 
         // Copy the guide file to sgRNAs.txt in the working directory
-        let dest_sgRNAs_path = working_dir.join("sgRNAs.txt");
-        std::fs::copy(guide_file_path, &dest_sgRNAs_path)
+        let dest_sg_rnas_path = working_dir.join("sgRNAs.txt");
+        std::fs::copy(guide_file_path, &dest_sg_rnas_path)
             .map_err(|e| format!("Failed to copy guide file: {}", e))?;
 
         let args = vec![
@@ -260,7 +260,7 @@ impl Tool for Swofinder {
         let duration = start.elapsed();
 
         // Clean up temporary file
-        if let Err(e) = std::fs::remove_file(dest_sgRNAs_path) {
+        if let Err(e) = std::fs::remove_file(dest_sg_rnas_path) {
             eprintln!("Warning: Failed to remove temporary file sgRNAs.txt: {}", e);
         }
 

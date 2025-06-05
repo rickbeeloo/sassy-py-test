@@ -51,7 +51,7 @@ pub fn run(grid_config: &str) {
         let num_matches = param_set.match_fraction as usize;
 
         // Generating random data
-        let (q, t, locs) = generate_query_and_text_with_matches(
+        let (q, t, _locs) = generate_query_and_text_with_matches(
             param_set.query_length,
             param_set.text_length,
             num_matches,

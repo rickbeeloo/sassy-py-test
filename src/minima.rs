@@ -6,11 +6,7 @@ use pa_types::Cost;
 use std::{
     arch::x86_64::_pext_u64,
     cmp::min,
-    simd::{
-        Mask, Simd,
-        cmp::{SimdOrd, SimdPartialEq},
-        num::{SimdInt, SimdUint},
-    },
+    simd::{Simd, num::SimdUint},
 };
 
 // Note: also reports minima at the end of the range.
@@ -369,7 +365,6 @@ pub fn prefix_min_k_simd(start_cost: Cost, p: u64, m: u64, k: i32) -> (Cost, i8)
 #[cfg(test)]
 mod test {
     use super::*;
-    use rand::Rng;
 
     /// Create Vencoding from (position, delta) vec
     fn make_pattern(changes: &[(usize, i8)]) -> V<u64> {
@@ -386,91 +381,69 @@ mod test {
         V(p, m)
     }
 
-    fn random_pattern(len: usize) -> Vec<(usize, i8)> {
-        let mut rng = rand::rng();
-        let mut pattern = Vec::new();
-        for _ in 0..len {
-            let pos = rng.random_range(0..64);
-            let delta = if rng.random_bool(0.5) { -1 } else { 1 };
-            pattern.push((pos, delta));
-        }
-        pattern
+    #[test]
+    fn test_multiple_valleys() {
+        let v1 = make_pattern(&[
+            (0, -1),
+            (1, -1),
+            (2, 1),
+            (3, 1),
+            (4, -1),
+            (5, -1),
+            (6, 1),
+            (7, 1),
+        ]);
+        let mut deltas = vec![(0, v1)];
+        let minima = find_local_minima(b"ATG", &mut deltas, 100, 64);
+        println!("Minima: {:?}", minima);
+        assert_eq!(minima, vec![(2, 1), (6, 1)]);
     }
 
-    fn random_query() -> Vec<u8> {
-        let mut rng = rand::rng();
-        let len = rng.random_range(1..20); // Random query length between 1 and 20
-        let mut query = Vec::with_capacity(len);
-        for _ in 0..len {
-            query.push(rng.random_range(b'A'..b'Z')); // Random uppercase letters
-        }
-        query
+    #[test]
+    fn test_valley_with_plateau() {
+        let v1 = make_pattern(&[(10, -1), (11, -1), (15, 1), (16, 1)]);
+        let v2 = V(0, 0);
+        let v3 = V(0, 0);
+        let mut deltas = vec![(0, v1), (0, v2), (0, v3)];
+        let minima = find_local_minima(b"ATG", &mut deltas, 100, 64 * 3);
+        assert_eq!(minima, vec![(15, 1)]); // valley at end of plateau
+    }
+
+    #[test]
+    fn test_long_cross_word_valley() {
+        let v1 = make_pattern(&[(62, -1), (63, -1)]);
+        let v2 = V(0, 0);
+        let v3 = make_pattern(&[(0, 1), (1, 1)]);
+        let mut deltas = vec![(0, v1), (-2, v2), (0, v3)];
+        let minima = find_local_minima(b"ATG", &mut deltas, 100, 64 * 3);
+        assert_eq!(minima, vec![(64 * 2, 1)]); // valley at end of second word
+    }
+
+    #[test]
+    fn test_cost_calculation_simple() {
+        let v1 = make_pattern(&[(0, -1), (1, -1), (2, 1)]);
+        let v2 = V(0, 0);
+        let v3 = V(0, 0);
+        let mut deltas = vec![(0, v1), (-1, v2), (-1, v3)];
+        let minima = find_local_minima(b"ATG", &mut deltas, 100, 64 * 3);
+        assert_eq!(minima, vec![(2, 1)]); // valley at position 1 with cost 8
+    }
+
+    #[test]
+    fn test_cost_calculation_complex() {
+        let v1 = make_pattern(&[(62, -1), (63, -1)]);
+        let v2 = V(0, 0);
+        let v3 = make_pattern(&[(0, 1), (1, 1)]);
+        let mut deltas = vec![(0, v1), (-2, v2), (-2, v3)];
+        let minima = find_local_minima(&[b'A'; 20], &mut deltas, 100, 64 * 3);
+        assert_eq!(minima, vec![(64 * 2, 18)]); // valley at end of second word with cost 18
+    }
+
+    #[test]
+    fn test_at_right_end() {
+        let v1 = make_pattern(&[(0, -1), (1, -1)]);
+        let mut deltas = vec![(0, v1)];
+        let minima = find_local_minima(b"ATG", &mut deltas, 100, 64);
+        assert_eq!(minima, vec![(64, 1)]); // We end with  a valley, right end true, so still report
     }
 }
-
-//     #[test]
-//     fn test_multiple_valleys() {
-//         let v1 = make_pattern(&[
-//             (0, -1),
-//             (1, -1),
-//             (2, 1),
-//             (3, 1),
-//             (4, -1),
-//             (5, -1),
-//             (6, 1),
-//             (7, 1),
-//         ]);
-//         let mut deltas = vec![v1];
-//         let minima = find_local_minima(b"ATG", &mut deltas, 100, 64);
-//         println!("Minima: {:?}", minima);
-//         assert_eq!(minima, vec![(2, 1), (6, 1)]);
-//     }
-
-//     #[test]
-//     fn test_valley_with_plateau() {
-//         let v1 = make_pattern(&[(10, -1), (11, -1), (15, 1), (16, 1)]);
-//         let v2 = V(0, 0);
-//         let v3 = V(0, 0);
-//         let mut deltas = vec![v1, v2, v3];
-//         let minima = find_local_minima(b"ATG", &mut deltas, 100, 64 * 3);
-//         assert_eq!(minima, vec![(15, 1)]); // valley at end of plateau
-//     }
-
-//     #[test]
-//     fn test_long_cross_word_valley() {
-//         let v1 = make_pattern(&[(62, -1), (63, -1)]);
-//         let v2 = V(0, 0);
-//         let v3 = make_pattern(&[(0, 1), (1, 1)]);
-//         let mut deltas = vec![v1, v2, v3];
-//         let minima = find_local_minima(b"ATG", &mut deltas, 100, 64 * 3);
-//         assert_eq!(minima, vec![(64 * 2, 1)]); // valley at end of second word
-//     }
-
-//     #[test]
-//     fn test_cost_calculation_simple() {
-//         let v1 = make_pattern(&[(0, -1), (1, -1), (2, 1)]);
-//         let v2 = V(0, 0);
-//         let v3 = V(0, 0);
-//         let mut deltas = vec![v1, v2, v3];
-//         let minima = find_local_minima(b"ATG", &mut deltas, 100, 64 * 3);
-//         assert_eq!(minima, vec![(2, 1)]); // valley at position 1 with cost 8
-//     }
-
-//     #[test]
-//     fn test_cost_calculation_complex() {
-//         let v1 = make_pattern(&[(62, -1), (63, -1)]);
-//         let v2 = V(0, 0);
-//         let v3 = make_pattern(&[(0, 1), (1, 1)]);
-//         let mut deltas = vec![v1, v2, v3];
-//         let minima = find_local_minima(&[b'A'; 20], &mut deltas, 100, 64 * 3);
-//         assert_eq!(minima, vec![(64 * 2, 18)]); // valley at end of second word with cost 18
-//     }
-
-//     #[test]
-//     fn test_at_right_end() {
-//         let v1 = make_pattern(&[(0, -1), (1, -1)]);
-//         let mut deltas = vec![v1];
-//         let minima = find_local_minima(b"ATG", &mut deltas, 100, 64);
-//         assert_eq!(minima, vec![(64, 1)]); // We end with  a valley, right end true, so still report
-//     }
-// }
