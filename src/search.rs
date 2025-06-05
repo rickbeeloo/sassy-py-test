@@ -440,21 +440,21 @@ impl<P: Profile> Searcher<P> {
         let (p, m) = v.pm();
         let mut cost = cur_cost;
         // All <=k end points
-        for bit in 0..64 {
+        for bit in 1..=64 {
             let pos = base_pos + bit;
-            if pos >= text_len {
+            if pos > text_len {
                 break;
             }
-            // Check if this position is a match (cost <= k)
-            if cost <= k {
-                self.lanes[lane].matches.push((pos, cost));
-            }
-
             // Update cost based on the P/M bit patterns
             let p_bit = ((p >> bit) & 1) as Cost;
             let m_bit = ((m >> bit) & 1) as Cost;
             cost += p_bit;
             cost -= m_bit;
+
+            // Check if this position is a match (cost <= k)
+            if cost <= k {
+                self.lanes[lane].matches.push((pos, cost));
+            }
         }
     }
 
