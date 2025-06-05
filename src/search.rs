@@ -105,12 +105,13 @@ impl<P: Profile> LaneState<P> {
         }
     }
 
-    fn update_and_encode(&mut self, text: &[u8], i: usize, profiler: &P, overlap: bool) {
+    fn update_and_encode(&mut self, text: &[u8], i: usize, profiler: &P) {
         let start = self.chunk_offset * 64 + 64 * i;
         if start + 64 <= text.len() {
             self.text_slice.copy_from_slice(&text[start..start + 64]);
         } else {
-            self.text_slice.fill(if overlap { b'N' } else { b'X' });
+            // Pad with N, so that costs at the end are diagonally preserved.
+            self.text_slice.fill(b'N');
             if start <= text.len() {
                 let slice = &text[start..];
                 self.text_slice[..slice.len()].copy_from_slice(slice);
@@ -127,6 +128,10 @@ pub struct Searcher<P: Profile, const RC: bool, const ALL_MINIMA: bool> {
     hp: Vec<S>,
     hm: Vec<S>,
     lanes: [LaneState<P>; LANES],
+    // overshoot/skip/extend cost.
+    // (TODO name)
+    // If set, must satisfy `0.0 <= alpha <= 1.0`
+    alpha: Option<f32>,
 }
 
 impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MINIMA> {
@@ -137,6 +142,8 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
             hp: Vec::new(),
             hm: Vec::new(),
             lanes: std::array::from_fn(|_| LaneState::new(P::alloc_out(), 0)),
+            // FIXME: Add to API.
+            alpha: Some(0.5),
         }
     }
 
@@ -158,7 +165,7 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
     }
 
     fn find_matches(&mut self, query: &[u8], text: &[u8], k: usize) {
-        self.search_positions_bounded::<false>(query, text, k as Cost)
+        self.search_positions_bounded(query, text, k as Cost)
     }
 
     #[inline(always)]
@@ -183,12 +190,7 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
         None
     }
 
-    fn search_positions_bounded<const OVERLAP: bool>(
-        &mut self,
-        query: &[u8],
-        text: &[u8],
-        k: Cost,
-    ) {
+    fn search_positions_bounded(&mut self, query: &[u8], text: &[u8], k: Cost) {
         let (profiler, query_profile) = P::encode_query(query);
 
         // Terminology:
@@ -202,7 +204,7 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
         let overlap_blocks = 0;
 
         // Total number of blocks to be processed, including overlaps.
-        let text_blocks = if OVERLAP {
+        let text_blocks = if self.alpha.is_some() {
             // When allowing overlaps, for simplicity we 'extend' the text a bit more with N.
             (text.len() + query.len()).div_ceil(64)
         } else {
@@ -235,11 +237,13 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
         self.hp.resize(query.len(), S::splat(1));
         self.hm.resize(query.len(), S::splat(0));
 
-        if OVERLAP {
+        if let Some(alpha) = self.alpha {
             for i in 0..query.len() {
                 // Alternate 0 and 1 costs at very left of the matrix.
                 // (Note: not at start of later chunks.)
-                self.hp[i].as_mut_array()[0] = i as u64 % 2;
+                // FIXME: floor, round, or ceil?
+                self.hp[i].as_mut_array()[0] =
+                    (((i + 1) as f32) * alpha).floor() as u64 - ((i as f32) * alpha).floor() as u64;
             }
         }
 
@@ -249,7 +253,7 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
 
             // Update text slices and profiles
             for lane in 0..LANES {
-                self.lanes[lane].update_and_encode(text, i, &profiler, OVERLAP);
+                self.lanes[lane].update_and_encode(text, i, &profiler);
             }
 
             let mut dist_to_start_of_lane = S::splat(0);
@@ -316,7 +320,7 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
                 let base_pos = self.lanes[lane].chunk_offset * 64 + 64 * i;
                 let cost = dist_to_start_of_lane.as_array()[lane] as Cost;
 
-                if !OVERLAP || base_pos + 64 <= text.len() {
+                if base_pos + 64 <= text.len() || self.alpha.is_none() {
                     if ALL_MINIMA {
                         self.find_all_minima(v, cost, k, text.len(), base_pos, lane);
                     } else {
@@ -333,8 +337,10 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
 
                         // TODO: Fractional cost?
                         // TODO: Round up?
-                        let extend = pos.saturating_sub(text.len()) / 2;
-                        let total_cost = cost + extend as Cost;
+                        let overshoot = pos.saturating_sub(text.len());
+                        let overshoot_cost =
+                            (overshoot as f32 * self.alpha.unwrap()).floor() as Cost;
+                        let total_cost = cost + overshoot_cost;
                         if ALL_MINIMA {
                             if total_cost <= k {
                                 self.lanes[lane].matches.push((pos, total_cost));
