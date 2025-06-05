@@ -2,6 +2,9 @@ use crate::bitpacking::compute_block;
 use crate::delta_encoding::V;
 use crate::delta_encoding::VEncoding;
 use crate::profiles::Profile;
+use crate::search::init_deltas_for_overshoot;
+use crate::search::init_deltas_for_overshoot_all_lanes;
+use crate::search::init_deltas_for_overshoot_scalar;
 use pa_types::Cigar;
 use pa_types::Cost;
 use pa_types::I;
@@ -14,17 +17,22 @@ use crate::search::{Match, Strand};
 use std::array::from_fn;
 
 #[derive(Debug, Clone, Default)]
-pub struct CostMatrix {
-    /// Query lenght.
+pub(crate) struct CostMatrix {
+    /// Query length.
     q: usize,
     deltas: Vec<V<u64>>,
+    pub(crate) alpha: Option<f32>,
 }
 
 impl CostMatrix {
     /// i: text idx
     /// j: query idx
     pub fn get(&self, i: usize, j: usize) -> Cost {
-        let mut s = j as Cost;
+        let mut s = if let Some(alpha) = self.alpha {
+            (j as f32 * alpha).floor() as Cost
+        } else {
+            j as Cost
+        };
         for idx in (j..j + i / 64 * (self.q + 1)).step_by(self.q + 1) {
             s += self.deltas[idx].value();
         }
@@ -38,18 +46,20 @@ impl CostMatrix {
 /// Compute the full n*m matrix corresponding to the query * text alignment.
 /// TODO: SIMD variant that takes 1 query, and LANES text slices of the same length.
 #[allow(unused)] // FIXME
-pub fn fill<P: Profile>(query: &[u8], text: &[u8], m: &mut CostMatrix) {
+pub fn fill<P: Profile>(query: &[u8], text: &[u8], m: &mut CostMatrix, alpha: Option<f32>) {
     m.q = query.len();
     m.deltas.clear();
     m.deltas.reserve((m.q + 1) * text.len().div_ceil(64));
     let (profiler, query_profile) = P::encode_query(query);
     let mut h = vec![(1, 0); query.len()];
 
+    init_deltas_for_overshoot_scalar(&mut h, alpha);
+
     let mut text_profile = P::alloc_out();
 
     // Process chunks of 64 chars, that end exactly at the end of the text.
     for (i, block) in text.chunks(64).enumerate() {
-        let mut slice: [u8; 64] = [b'X'; 64];
+        let mut slice: [u8; 64] = [b'N'; 64];
         slice[..block.len()].copy_from_slice(block);
         profiler.encode_ref(&slice, &mut text_profile);
 
@@ -63,7 +73,12 @@ pub fn fill<P: Profile>(query: &[u8], text: &[u8], m: &mut CostMatrix) {
     }
 }
 
-pub fn simd_fill<P: Profile>(query: &[u8], texts: &[&[u8]], m: &mut [CostMatrix; LANES]) {
+pub fn simd_fill<P: Profile>(
+    query: &[u8],
+    texts: &[&[u8]],
+    m: &mut [CostMatrix; LANES],
+    alpha: Option<f32>,
+) {
     assert!(texts.len() <= LANES);
     let lanes = texts.len();
 
@@ -84,6 +99,11 @@ pub fn simd_fill<P: Profile>(query: &[u8], texts: &[&[u8]], m: &mut [CostMatrix;
     let mut hm: Vec<S> = Vec::with_capacity(query.len());
     hp.resize(query.len(), S::splat(1));
     hm.resize(query.len(), S::splat(0));
+
+    // NOTE: It's OK to always fill the left with 010101, even if it's not
+    // actually the left of the text, because in that case the left column can't
+    // be included in the alignment anyway. (The text has length q+k in that case.)
+    init_deltas_for_overshoot_all_lanes(&mut hp, alpha);
 
     let mut text_profile: [_; LANES] = from_fn(|_| P::alloc_out());
 
@@ -133,7 +153,7 @@ pub fn get_trace<P: Profile>(
 
     // remaining dist to (i,j)
     let mut g = cost(j, i);
-    let total_cost = g;
+    let mut total_cost = g;
 
     let mut cigar = Cigar::default();
 
@@ -142,7 +162,7 @@ pub fn get_trace<P: Profile>(
         let overshoot = i - text.len();
         let overshoot_cost = (overshoot as f32 * alpha.unwrap()).floor() as Cost;
 
-        g -= overshoot_cost;
+        total_cost += overshoot_cost;
         i -= overshoot;
         j -= overshoot;
     }
@@ -159,7 +179,8 @@ pub fn get_trace<P: Profile>(
             && let Some(alpha) = alpha
         {
             // Overshoot at start.
-            g -= (i as f32 * alpha).floor() as Cost;
+            let overshoot_cost = (j as f32 * alpha).floor() as Cost;
+            g -= overshoot_cost;
             break;
         }
 
@@ -221,7 +242,7 @@ mod tests {
         let text2: &[u8] = b"ATTTTGGGGATTTT".as_slice();
 
         let mut cost_matrix = Default::default();
-        fill::<Dna>(query, text2, &mut cost_matrix);
+        fill::<Dna>(query, text2, &mut cost_matrix, None);
 
         let trace = get_trace::<Dna>(query, 0, text2.len(), text2, &cost_matrix, None);
         println!("Trace: {:?}", trace);
@@ -236,7 +257,12 @@ mod tests {
         let text4 = b"TTTTTTTTTTATTTTGGGGATTTT".as_slice();
 
         let mut cost_matrix = Default::default();
-        simd_fill::<Dna>(&query, &[&text1, &text2, &text3, &text4], &mut cost_matrix);
+        simd_fill::<Dna>(
+            &query,
+            &[&text1, &text2, &text3, &text4],
+            &mut cost_matrix,
+            None,
+        );
         let _trace = get_trace::<Dna>(query, 0, text1.len(), text1, &cost_matrix[0], None);
         let _trace = get_trace::<Dna>(query, 0, text2.len(), text2, &cost_matrix[1], None);
         let _trace = get_trace::<Dna>(query, 0, text3.len(), text3, &cost_matrix[2], None);

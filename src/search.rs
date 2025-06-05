@@ -241,15 +241,7 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
         self.hp.resize(query.len(), S::splat(1));
         self.hm.resize(query.len(), S::splat(0));
 
-        if let Some(alpha) = self.alpha {
-            for i in 0..query.len() {
-                // Alternate 0 and 1 costs at very left of the matrix.
-                // (Note: not at start of later chunks.)
-                // FIXME: floor, round, or ceil?
-                self.hp[i].as_mut_array()[0] =
-                    (((i + 1) as f32) * alpha).floor() as u64 - ((i as f32) * alpha).floor() as u64;
-            }
-        }
+        init_deltas_for_overshoot(&mut self.hp, self.alpha);
 
         'text_chunk: for i in 0..blocks_per_chunk + max_overlap_blocks {
             let mut vp = S::splat(0);
@@ -460,6 +452,10 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
         let mut ends = [0; LANES];
         let mut num_slices = 0;
 
+        for m in &mut self.cost_matrices {
+            m.alpha = self.alpha;
+        }
+
         // We "pull" matches from each lane (left>right). As soon as we collect LANES slices
         // we use SIMD fill to compute the costs and traceback the path
         for lane in 0..LANES {
@@ -479,7 +475,12 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
                 // Process when we have a full chunk
                 if num_slices == LANES {
                     // Fill cost matrices for all lanes
-                    simd_fill::<P>(query, &text_slices[..num_slices], &mut self.cost_matrices);
+                    simd_fill::<P>(
+                        query,
+                        &text_slices[..num_slices],
+                        &mut self.cost_matrices,
+                        self.alpha,
+                    );
 
                     // Process matches
                     for i in 0..num_slices {
@@ -511,7 +512,12 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
         if num_slices > 0 {
             if num_slices > 1 {
                 println!("num_slices: {num_slices} left");
-                simd_fill::<P>(query, &text_slices[..num_slices], &mut self.cost_matrices);
+                simd_fill::<P>(
+                    query,
+                    &text_slices[..num_slices],
+                    &mut self.cost_matrices,
+                    self.alpha,
+                );
                 for i in 0..num_slices {
                     let m = get_trace::<P>(
                         query,
@@ -531,7 +537,7 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
                 }
             } else {
                 let mut cost_matrix = CostMatrix::default();
-                fill::<P>(query, text_slices[0], &mut cost_matrix);
+                fill::<P>(query, text_slices[0], &mut cost_matrix, self.alpha);
                 let m = get_trace::<P>(
                     query,
                     offsets[0],
@@ -556,6 +562,49 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
 impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Default for Searcher<P, RC, ALL_MINIMA> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Assumes hp and hm are already the right size, hm=0 and hp=1.
+/// Then sets hp according to the given alpha, if needed.
+pub(crate) fn init_deltas_for_overshoot_scalar(h: &mut [(u64, u64)], alpha: Option<f32>) {
+    if let Some(alpha) = alpha {
+        for i in 0..h.len() {
+            // Alternate 0 and 1 costs at very left of the matrix.
+            // (Note: not at start of later chunks.)
+            // FIXME: floor, round, or ceil?
+            h[i].0 =
+                (((i + 1) as f32) * alpha).floor() as u64 - ((i as f32) * alpha).floor() as u64;
+        }
+    }
+}
+
+/// Assumes hp and hm are already the right size, hm=0 and hp=1.
+/// Then sets hp according to the given alpha, if needed.
+pub(crate) fn init_deltas_for_overshoot(hp: &mut [S], alpha: Option<f32>) {
+    if let Some(alpha) = alpha {
+        for i in 0..hp.len() {
+            // Alternate 0 and 1 costs at very left of the matrix.
+            // (Note: not at start of later chunks.)
+            // FIXME: floor, round, or ceil?
+            hp[i].as_mut_array()[0] =
+                (((i + 1) as f32) * alpha).floor() as u64 - ((i as f32) * alpha).floor() as u64;
+        }
+    }
+}
+
+/// Assumes hp and hm are already the right size, hm=0 and hp=1.
+/// Then sets hp according to the given alpha, if needed.
+pub(crate) fn init_deltas_for_overshoot_all_lanes(hp: &mut [S], alpha: Option<f32>) {
+    if let Some(alpha) = alpha {
+        for i in 0..hp.len() {
+            // Alternate 0 and 1 costs at very left of the matrix.
+            // (Note: not at start of later chunks.)
+            // FIXME: floor, round, or ceil?
+            let bit =
+                (((i + 1) as f32) * alpha).floor() as u64 - ((i as f32) * alpha).floor() as u64;
+            hp[i].as_mut_array().fill(bit);
+        }
     }
 }
 
