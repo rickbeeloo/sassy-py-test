@@ -1,6 +1,8 @@
-#![feature(let_chains)]
+mod crispr;
+mod search;
+
 use clap::Parser;
-use sassy::implementations::{
+use {
     crispr::{CrisprArgs, crispr},
     search::{SearchArgs, search},
 };

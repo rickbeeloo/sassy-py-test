@@ -16,11 +16,6 @@ pub mod profiles {
     pub use profile::Profile;
 }
 
-pub mod implementations {
-    pub mod crispr;
-    pub mod search;
-}
-
 mod minima;
 pub mod search;
 mod trace;

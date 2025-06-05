@@ -6,7 +6,12 @@ edition = "2024"
 [profile.release]
 incremental = true
 opt-level = 3
-debug = true  
+debug = true
+
+[[bin]]
+name = 'sassy'
+path = 'bin/main.rs'
+
 
 [dependencies]
 arrayvec = "0.7.6"

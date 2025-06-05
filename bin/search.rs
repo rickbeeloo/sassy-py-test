@@ -1,4 +1,4 @@
-use crate::{
+use sassy::{
     profiles::{Ascii, Dna, Iupac},
     search::{Searcher, Strand},
 };

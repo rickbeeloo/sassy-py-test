@@ -1,5 +1,5 @@
-use crate::search::Match;
-use crate::{
+use sassy::search::Match;
+use sassy::{
     profiles::Iupac, profiles::Profile, search::Searcher, search::StaticText, search::Strand,
 };
 use pa_types::CigarOp;
