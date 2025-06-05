@@ -493,6 +493,7 @@ impl<P: Profile> Searcher<P> {
                     simd_fill::<P>(
                         query,
                         &text_slices[..num_slices],
+                        fill_len,
                         &mut self.cost_matrices,
                         self.alpha,
                     );
@@ -530,6 +531,7 @@ impl<P: Profile> Searcher<P> {
                 simd_fill::<P>(
                     query,
                     &text_slices[..num_slices],
+                    fill_len,
                     &mut self.cost_matrices,
                     self.alpha,
                 );
@@ -554,6 +556,7 @@ impl<P: Profile> Searcher<P> {
                 fill::<P>(
                     query,
                     text_slices[0],
+                    fill_len,
                     &mut self.cost_matrices[0],
                     self.alpha,
                 );

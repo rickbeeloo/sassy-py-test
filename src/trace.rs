@@ -45,10 +45,16 @@ impl CostMatrix {
 /// Compute the full n*m matrix corresponding to the query * text alignment.
 /// TODO: SIMD variant that takes 1 query, and LANES text slices of the same length.
 #[allow(unused)] // FIXME
-pub fn fill<P: Profile>(query: &[u8], text: &[u8], m: &mut CostMatrix, alpha: Option<f32>) {
+pub fn fill<P: Profile>(
+    query: &[u8],
+    text: &[u8],
+    len: usize,
+    m: &mut CostMatrix,
+    alpha: Option<f32>,
+) {
     m.q = query.len();
     m.deltas.clear();
-    m.deltas.reserve((m.q + 1) * text.len().div_ceil(64));
+    m.deltas.reserve((m.q + 1) * len.div_ceil(64));
     let (profiler, query_profile) = P::encode_query(query);
     let mut h = vec![(1, 0); query.len()];
 
@@ -56,9 +62,13 @@ pub fn fill<P: Profile>(query: &[u8], text: &[u8], m: &mut CostMatrix, alpha: Op
 
     let mut text_profile = P::alloc_out();
 
+    let num_chunks = len.div_ceil(64);
+
     // Process chunks of 64 chars, that end exactly at the end of the text.
-    for (i, block) in text.chunks(64).enumerate() {
+    for i in 0..num_chunks {
         let mut slice: [u8; 64] = [b'N'; 64];
+        let block = text.get(64 * i..).unwrap_or_default();
+        let block = block.get(..64).unwrap_or(block);
         slice[..block.len()].copy_from_slice(block);
         profiler.encode_ref(&slice, &mut text_profile);
 
@@ -75,6 +85,7 @@ pub fn fill<P: Profile>(query: &[u8], text: &[u8], m: &mut CostMatrix, alpha: Op
 pub fn simd_fill<P: Profile>(
     query: &[u8],
     texts: &[&[u8]],
+    max_len: usize,
     m: &mut [CostMatrix; LANES],
     alpha: Option<f32>,
 ) {
@@ -82,7 +93,6 @@ pub fn simd_fill<P: Profile>(
     let lanes = texts.len();
 
     let (profiler, query_profile) = P::encode_query(query);
-    let max_len = texts.iter().map(|t| t.len()).max().unwrap();
     let num_chunks = max_len.div_ceil(64);
 
     for m in &mut *m {
@@ -242,7 +252,7 @@ mod tests {
         let text2: &[u8] = b"ATTTTGGGGATTTT".as_slice();
 
         let mut cost_matrix = Default::default();
-        fill::<Dna>(query, text2, &mut cost_matrix, None);
+        fill::<Dna>(query, text2, text2.len(), &mut cost_matrix, None);
 
         let trace = get_trace::<Dna>(query, 0, text2.len(), text2, &cost_matrix, None);
         println!("Trace: {:?}", trace);
@@ -260,6 +270,7 @@ mod tests {
         simd_fill::<Dna>(
             &query,
             &[&text1, &text2, &text3, &text4],
+            text4.len(),
             &mut cost_matrix,
             None,
         );
