@@ -93,7 +93,7 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             BenchmarkId::new("ascii_search_20", size),
             &ascii_seq,
             |b, seq| {
-                let mut searcher = Searcher::<Ascii, false, false>::new();
+                let mut searcher = Searcher::<Ascii, false>::new_fwd();
                 b.iter(|| {
                     let res = searcher.search(black_box(query), seq, 20);
                     black_box(&res);
@@ -106,8 +106,7 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             BenchmarkId::new("dna_search_20", size),
             &dna_seq,
             |b, seq| {
-                let mut searcher: Searcher<Dna, false, false> =
-                    Searcher::<Dna, false, false>::new();
+                let mut searcher: Searcher<Dna, false> = Searcher::<Dna, false>::new_fwd();
                 b.iter(|| {
                     let res = searcher.search(black_box(query), seq, 20);
                     black_box(&res);
@@ -120,8 +119,7 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             BenchmarkId::new("dna_search_20_k3", size),
             &dna_seq,
             |b, seq| {
-                let mut searcher: Searcher<Dna, false, false> =
-                    Searcher::<Dna, false, false>::new();
+                let mut searcher: Searcher<Dna, false> = Searcher::<Dna, false>::new_fwd();
                 b.iter(|| {
                     let matches = searcher.search(black_box(query), seq, 3);
                     black_box(&matches);
@@ -129,7 +127,7 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             },
         );
 
-        let mut searcher: Searcher<Dna, false, false> = Searcher::<Dna, false, false>::new();
+        let mut searcher: Searcher<Dna, false> = Searcher::<Dna, false>::new_fwd();
 
         let matches = searcher.search(black_box(&inserted_query), &dna_seq, 1);
 
@@ -150,8 +148,7 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             BenchmarkId::new("dna_search_20_k1", size),
             &dna_seq,
             |b, seq| {
-                let mut searcher: Searcher<Dna, false, false> =
-                    Searcher::<Dna, false, false>::new();
+                let mut searcher: Searcher<Dna, false> = Searcher::<Dna, false>::new_fwd();
                 b.iter(|| {
                     let matches = searcher.search(black_box(query), seq, 1);
                     black_box(&matches);
@@ -164,8 +161,7 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             BenchmarkId::new("iupac_search_20", size),
             &dna_seq,
             |b, seq| {
-                let mut searcher: Searcher<Iupac, false, false> =
-                    Searcher::<Iupac, false, false>::new();
+                let mut searcher: Searcher<Iupac, false> = Searcher::<Iupac, false>::new_fwd();
                 b.iter(|| {
                     let res = searcher.search(black_box(query), seq, 20);
                     black_box(&res);
@@ -178,8 +174,7 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             BenchmarkId::new("iupac_search_20_N", size),
             &dna_seq,
             |b, seq| {
-                let mut searcher: Searcher<Iupac, false, false> =
-                    Searcher::<Iupac, false, false>::new();
+                let mut searcher: Searcher<Iupac, false> = Searcher::<Iupac, false>::new_fwd();
                 b.iter(|| {
                     let res = searcher.search(black_box(query), seq, 20);
                     black_box(&res);
@@ -192,8 +187,7 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             BenchmarkId::new("iupac_search_32", size),
             &dna_seq,
             |b, seq| {
-                let mut searcher: Searcher<Iupac, false, false> =
-                    Searcher::<Iupac, false, false>::new();
+                let mut searcher: Searcher<Iupac, false> = Searcher::<Iupac, false>::new_fwd();
                 b.iter(|| {
                     let res = searcher.search(black_box(query), seq, 32);
                     black_box(&res);
@@ -206,8 +200,7 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             BenchmarkId::new("iupac_search_32_NRY", size),
             &dna_seq,
             |b, seq| {
-                let mut searcher: Searcher<Iupac, false, false> =
-                    Searcher::<Iupac, false, false>::new();
+                let mut searcher: Searcher<Iupac, false> = Searcher::<Iupac, false>::new_fwd();
                 b.iter(|| {
                     let res = searcher.search(black_box(query), seq, 32);
                     black_box(&res);
@@ -222,7 +215,7 @@ fn benchmark_base_lookup(c: &mut Criterion) {
         //     |b, seq| {
         //         let mut positions = vec![];
         //         b.iter(|| {
-        //             Searcher::<Iupac, false, false>::new().search(black_box(query), seq, 32);
+        //             Searcher::<Iupac, false>::new().search(black_box(query), seq, 32);
         //             positions.clear();
         //             let mut costs = vec![];
         //             sassy::private::find_below_threshold(

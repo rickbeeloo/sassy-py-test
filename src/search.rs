@@ -111,21 +111,32 @@ impl<P: Profile> LaneState<P> {
 }
 
 #[derive(Clone)]
-pub struct Searcher<P: Profile, const RC: bool, const ALL_MINIMA: bool> {
-    _phantom: std::marker::PhantomData<P>,
+pub struct Searcher<P: Profile, const ALL_MINIMA: bool> {
+    // Config
+    rc: bool,
+    /// overhang cost
+    /// If set, must satisfy `0.0 <= alpha <= 1.0`
+    alpha: Option<f32>,
+
+    // Internal caches
     cost_matrices: [CostMatrix; LANES],
     hp: Vec<S>,
     hm: Vec<S>,
     lanes: [LaneState<P>; LANES],
-    // overshoot/skip/extend cost.
-    // (TODO name)
-    // If set, must satisfy `0.0 <= alpha <= 1.0`
-    alpha: Option<f32>,
+
+    _phantom: std::marker::PhantomData<P>,
 }
 
-impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MINIMA> {
-    pub fn new() -> Self {
+impl<P: Profile, const ALL_MINIMA: bool> Searcher<P, ALL_MINIMA> {
+    pub fn new_fwd() -> Self {
+        Self::new(false)
+    }
+    pub fn new_rc() -> Self {
+        Self::new(true)
+    }
+    pub fn new(rc: bool) -> Self {
         Self {
+            rc,
             _phantom: std::marker::PhantomData,
             cost_matrices: std::array::from_fn(|_| CostMatrix::default()),
             hp: Vec::new(),
@@ -138,7 +149,7 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
 
     pub fn search<I: SearchAble>(&mut self, query: &[u8], input: &I, k: usize) -> Vec<Match> {
         let mut matches = self.search_internal(query, input.text(), k);
-        if RC {
+        if self.rc {
             let rc_matches = self.search_internal(&P::complement(query), &input.rev_text(), k);
             matches.extend(rc_matches.into_iter().map(|mut m| {
                 m.strand = Strand::Rc;
@@ -544,12 +555,6 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
     }
 }
 
-impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Default for Searcher<P, RC, ALL_MINIMA> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 /// Assumes hp and hm are already the right size, hm=0 and hp=1.
 /// Then sets hp according to the given alpha, if needed.
 pub(crate) fn init_deltas_for_overshoot_scalar(h: &mut [(u64, u64)], alpha: Option<f32>) {
@@ -603,7 +608,7 @@ mod tests {
     fn overshoot() {
         let query = b"CCCTTTCCCGGG";
         let text = b"AAAAAAAAACCCTTT";
-        let mut s = Searcher::<Iupac, false, true>::new();
+        let mut s = Searcher::<Iupac, true>::new_fwd();
         s.alpha = Some(0.5);
         s.search_positions_bounded(query, text, 10);
         for l in s.lanes {
@@ -615,7 +620,7 @@ mod tests {
     fn overshoot_test_prefix_trace() {
         let query = b"CCCTTTCCCGGG";
         let text = b"AAAAAAAAACCCTTT";
-        let mut s = Searcher::<Iupac, false, true>::new();
+        let mut s = Searcher::<Iupac, true>::new_fwd();
         s.alpha = Some(0.5);
         s.search(query, text, 10);
         // First not error
@@ -632,7 +637,7 @@ mod tests {
         */
         let prefix = "AAAAGGGG";
         let text = "GGGGTTTTTTTTTTTTTTTT";
-        let mut s = Searcher::<Iupac, false, true>::new();
+        let mut s = Searcher::<Iupac, true>::new_fwd();
         s.alpha = Some(0.5);
         s.search_positions_bounded(prefix.as_bytes(), text.as_bytes(), 2);
         let expected_idx = 3;
@@ -655,7 +660,7 @@ mod tests {
         */
         let prefix = "GGGGAAAA";
         let text = "TTTTTTTTTTTTTTTTGGGG";
-        let mut s = Searcher::<Iupac, false, true>::new();
+        let mut s = Searcher::<Iupac, true>::new_fwd();
         s.alpha = Some(0.5);
         s.search_positions_bounded(prefix.as_bytes(), text.as_bytes(), 2);
         let expected_idx = 23;
@@ -678,7 +683,7 @@ mod tests {
         */
         let contained = "AAAAGGGG";
         let text = "GGGGGAAAAA";
-        let mut s = Searcher::<Iupac, false, true>::new();
+        let mut s = Searcher::<Iupac, true>::new_fwd();
         s.alpha = Some(0.5);
         s.search_positions_bounded(contained.as_bytes(), text.as_bytes(), 2);
         let expected_indices = [3, 13];
@@ -699,7 +704,7 @@ mod tests {
     fn test_case1() {
         let query = b"AGATGTGTCC";
         let text = b"GAGAGATAACCGTGCGCTCACTGTTACAGTTTATGTGTCGAATTCTTTTAGGGCTGGTCACTGCCCATGCGTAGGAATGAATAGCGGTTGCGGATAACTAAGCAGTGCTTGTCGCTATTAAAGTTAGACCCCGCTCCCACCTTGCCACTCCTAGATGTCGACGAGATTCTCACCGCCAAGGGATCAGGCATATCATAGTAGCTGGCGCAGCCCGTCGTTTAAGGAGGCCCATATACTAATTCAAACGATGGGGTGGGCACATCCCCTAGAAGCACTTGTCCCTTGAGTCACGACTGATGCGTGGTCTCTCGCTAAATGTTCCGGCCTCTCGGACATTTAAAGGGTGGCATGTGACCATGGAGGATTAGTGAATGAGAGGTGTCCGCCTTTGTTCGCCAGAACTCTTATAGCGTAGGGGAGTGTACTCACCGCGAACCCGTATCAGCAATCTTGTCAGTGGCTCCTGACTCAAACATCGATGCGCTGCACATGGCCTTAGAATGAAGCAGCCCCTTTCTATTGTGGCCGGGCTGATTCTTTGTTTTGTTGAATGGTCGGGCCTGTCTGCCTTTTCCTAGTGTTGAAACTCCGAACCGCATGAACTGCGTTGCTAGCGAGCTATCACTGGACTGGCCGGGGGACGAAAGTTCGCGGGACCCACTACCCGCGCCCAGAAGACCACACTAGGGAGAAGGATTCTATCGGCATAGCCGTC";
-        let matches = Searcher::<Dna, true, false>::new().search(query, &text, 2);
+        let matches = Searcher::<Dna, false>::new_rc().search(query, &text, 2);
         println!("Matches: {:?}", matches);
     }
 
@@ -709,7 +714,7 @@ mod tests {
         let expected_idx = 277;
         let query = b"TAAGCAGAAGGGAGGTATAAAGTCTGTCAGCGGTGCTTAAG";
         let text = b"ACCGTAACCGCTTGGTACCATCCGGCCAGTCGCTCGTTGCGCCCCACTATCGGGATCGACGCGCAGTAATTAAACACCACCCACGCCACGAGGTAGAACGAGAGCGGGGGGCTAGCAAATAATAGTGAGAGTGCGTTCAAAGGGTCTTTCGTAACCTCAGCGGGCGGGTACGGGGGAAATATCGCACCAATTTTGGAGATGCGATTAGCTCAGCGTAACGCGAATTCCCTATAACTTGCCTAGTGTGTGTGAATGGACAATTCGTTTTACAGTTTCAAGGTAGCAGAAGGGCAGGATAAGTCTGTCGCGGTGCTTAAGGCTTTCCATCCATGTTGCCCCCTACATGAATCGGATCGCCAGCCAGAATATCACATGGTTCCAAAAGTTGCAAGCTTCCCCGTACCGCTACTTCACCTCACGCCAGAGGCCTATCGCCGCTCGGCCGTTCCGTTTTGGGGAAGAATCTGCCTGTTCTCGTCACAAGCTTCTTAGTCCTTCCACCATGGTGCTGTTACTCATGCCATCAAATATTCGAGCTCTTGCCTAGGGGGGTTATACCTGTGCGATAGATACACCCCCTATGACCGTAGGTAGAGAGCCTATTTTCAACGTGTCGATCGTTTAATGACACCAACTCCCGGTGTCGAGGTCCCCAAGTTTCGTAGATCTACTGAGCGGGGGAATATTTGACGGTAAGGCATCGCTTGTAGGATCGTATCGCGACGGTAGATACCCATAAGCGTTGCTAACCTGCCAATAACTGTCTCGCGATCCCAATTTAGCACAAGTCGGTGGCCTTGATAAGGCTAACCAGTTTCGCACCGCTTCCGTTCCATTTTACGATCTACCGCTCGGATGGATCCGAAATACCGAGGTAGTAATATCAACACGTACCCAATGTCC";
-        let matches = Searcher::<Dna, false, false>::new().search(query, &text, edits);
+        let matches = Searcher::<Dna, false>::new_fwd().search(query, &text, edits);
         let m = matches
             .iter()
             .find(|m| (m.start.1 as usize).abs_diff(expected_idx) <= edits);
@@ -728,7 +733,7 @@ mod tests {
         for _ in 0..1000 {
             let query = random_dna_string(random_range(10..100));
             let text = random_dna_string(1_000_000);
-            let matches = Searcher::<Dna, false, false>::new().search(&query, &text, 5);
+            let matches = Searcher::<Dna, false>::new_fwd().search(&query, &text, 5);
             total_matches += matches.len();
         }
         println!("total matches: {total_matches}");
@@ -739,12 +744,12 @@ mod tests {
         let query = b"ATCGATCA";
         let rc = Dna::reverse_complement(query);
         let text = [b"GGGGGGGG".as_ref(), &rc, b"GGGGGGGG"].concat();
-        let matches = Searcher::<Dna, true, false>::new().search(query, &text, 0);
+        let matches = Searcher::<Dna, false>::new_rc().search(query, &text, 0);
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].start.1, 8);
         assert_eq!(matches[0].end.1, 8 + query.len() as i32);
         // Now disableing rc search should yield no matches
-        let matches = Searcher::<Dna, false, false>::new().search(query, &text, 0);
+        let matches = Searcher::<Dna, false>::new_fwd().search(query, &text, 0);
         assert_eq!(matches.len(), 0);
     }
 
@@ -768,8 +773,8 @@ mod tests {
         text_lens.sort();
 
         // Create single searcher for all tests to check proper resetting of internal states
-        let mut searcher = Searcher::<Dna, false, false>::new();
-        let mut rc_searcher = Searcher::<Dna, true, false>::new();
+        let mut searcher = Searcher::<Dna, false>::new_fwd();
+        let mut rc_searcher = Searcher::<Dna, false>::new_rc();
 
         for q in query_lens {
             for t in text_lens.clone() {
@@ -865,7 +870,7 @@ mod tests {
         }
 
         // Test forward search
-        let mut searcher = Searcher::<Dna, false, true>::new();
+        let mut searcher = Searcher::<Dna, true>::new_fwd();
         let matches = searcher.search(query, &text, 1);
 
         // Verify all matches are found

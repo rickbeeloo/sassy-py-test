@@ -126,31 +126,31 @@ fn get_search_fn(param_set: &ParamSet) -> SearchFn {
     match (param_set.profile, param_set.rc, &param_set.alphabet) {
         // IUPAC profile
         ("iupac", "withrc", _) => {
-            let mut searcher = Searcher::<sassy::profiles::Iupac, true, false>::new();
+            let mut searcher = Searcher::<sassy::profiles::Iupac, false>::new_rc();
             Box::new(move |q, t, k| searcher.search(&q, &t, k))
         }
         ("iupac", "withoutrc", _) => {
-            let mut searcher = Searcher::<sassy::profiles::Iupac, false, false>::new();
+            let mut searcher = Searcher::<sassy::profiles::Iupac, false>::new_fwd();
             Box::new(move |q, t, k| searcher.search(&q, &t, k))
         }
 
         // DNA profile
         ("dna", "withrc", _) => {
-            let mut searcher = Searcher::<sassy::profiles::Dna, true, false>::new();
+            let mut searcher = Searcher::<sassy::profiles::Dna, false>::new_rc();
             Box::new(move |q, t, k| searcher.search(&q, &t, k))
         }
         ("dna", "withoutrc", _) => {
-            let mut searcher = Searcher::<sassy::profiles::Dna, false, false>::new();
+            let mut searcher = Searcher::<sassy::profiles::Dna, false>::new_fwd();
             Box::new(move |q, t, k| searcher.search(&q, &t, k))
         }
 
         // ASCII profile
         ("ascii", "withrc", _) => {
-            let mut searcher = Searcher::<sassy::profiles::Ascii, true, false>::new();
+            let mut searcher = Searcher::<sassy::profiles::Ascii, false>::new_rc();
             Box::new(move |q, t, k| searcher.search(&q, &t, k))
         }
         ("ascii", "withoutrc", _) => {
-            let mut searcher = Searcher::<sassy::profiles::Ascii, false, false>::new();
+            let mut searcher = Searcher::<sassy::profiles::Ascii, false>::new_fwd();
             Box::new(move |q, t, k| searcher.search(&q, &t, k))
         }
 
