@@ -89,7 +89,7 @@ pub fn simd_fill<P: Profile>(query: &[u8], texts: &[&[u8]], m: &mut [CostMatrix;
 
     for i in 0..num_chunks {
         for lane in 0..lanes {
-            let mut slice = [b'X'; 64];
+            let mut slice = [b'N'; 64];
             let block = texts[lane].get(64 * i..).unwrap_or_default();
             let block = block.get(..64).unwrap_or(block);
             slice[..block.len()].copy_from_slice(block);
@@ -120,60 +120,80 @@ pub fn simd_fill<P: Profile>(query: &[u8], texts: &[&[u8]], m: &mut [CostMatrix;
 pub fn get_trace<P: Profile>(
     query: &[u8],
     text_offset: usize,
+    end_pos: usize,
     text: &[u8],
     m: &CostMatrix,
+    alpha: Option<f32>,
 ) -> Match {
     let mut trace = Vec::new();
-    let mut i = query.len();
-    let mut j = text.len();
+    let mut j = query.len();
+    let mut i = end_pos - text_offset;
 
-    let cost = |i: usize, j: usize| -> Cost { m.get(j, i) };
+    let cost = |j: usize, i: usize| -> Cost { m.get(i, j) };
 
     // remaining dist to (i,j)
-    let mut g = cost(i, j);
+    let mut g = cost(j, i);
     let total_cost = g;
 
     let mut cigar = Cigar::default();
 
+    // Overshoot at end.
+    if i > text.len() {
+        let overshoot = i - text.len();
+        let overshoot_cost = (overshoot as f32 * alpha.unwrap()).floor() as Cost;
+
+        g -= overshoot_cost;
+        i -= overshoot;
+        j -= overshoot;
+    }
+
     loop {
         // eprintln!("({i}, {j}) {g}");
-        trace.push((i, text_offset + j));
+        trace.push((j, text_offset + i));
 
-        if i == 0 {
+        if j == 0 {
+            break;
+        }
+
+        if i == 0
+            && let Some(alpha) = alpha
+        {
+            // Overshoot at start.
+            g -= (i as f32 * alpha).floor() as Cost;
             break;
         }
 
         // Match
-        if j > 0 && cost(i - 1, j - 1) == g && P::is_match(query[i - 1], text[j - 1]) {
+        if i > 0 && cost(j - 1, i - 1) == g && P::is_match(query[j - 1], text[i - 1]) {
             cigar.push(pa_types::CigarOp::Match);
-            i -= 1;
             j -= 1;
+            i -= 1;
             continue;
         }
         // We make some kind of mutation.
         g -= 1;
 
         // Insert text char.
-        if j > 0 && cost(i, j - 1) == g {
+        if i > 0 && cost(j, i - 1) == g {
             cigar.push(pa_types::CigarOp::Ins);
-            j -= 1;
+            i -= 1;
             continue;
         }
         // Mismatch.
-        if j > 0 && cost(i - 1, j - 1) == g {
+        if i > 0 && cost(j - 1, i - 1) == g {
             cigar.push(pa_types::CigarOp::Sub);
-            i -= 1;
             j -= 1;
+            i -= 1;
             continue;
         }
         // Delete query char.
-        if cost(i - 1, j) == g {
+        if cost(j - 1, i) == g {
             cigar.push(pa_types::CigarOp::Del);
-            i -= 1;
+            j -= 1;
             continue;
         }
         panic!(
-            "Trace failed! No ancestor found of {i} {j} at distance {}",
+            "Trace failed! No ancestor found of {j} {i} at distance {}",
             g + 1
         );
     }
@@ -184,7 +204,7 @@ pub fn get_trace<P: Profile>(
 
     Match {
         cost: total_cost,
-        start: Pos(0, (text_offset + j) as I),
+        start: Pos(0, (text_offset + i) as I),
         end: Pos(query.len() as I, (text_offset + text.len()) as I),
         strand: Strand::Fwd,
         cigar,
@@ -203,7 +223,7 @@ mod tests {
         let mut cost_matrix = Default::default();
         fill::<Dna>(query, text2, &mut cost_matrix);
 
-        let trace = get_trace::<Dna>(query, 0, text2, &cost_matrix);
+        let trace = get_trace::<Dna>(query, 0, text2.len(), text2, &cost_matrix, None);
         println!("Trace: {:?}", trace);
     }
 
@@ -217,10 +237,10 @@ mod tests {
 
         let mut cost_matrix = Default::default();
         simd_fill::<Dna>(&query, &[&text1, &text2, &text3, &text4], &mut cost_matrix);
-        let _trace = get_trace::<Dna>(query, 0, text1, &cost_matrix[0]);
-        let _trace = get_trace::<Dna>(query, 0, text2, &cost_matrix[1]);
-        let _trace = get_trace::<Dna>(query, 0, text3, &cost_matrix[2]);
-        let trace = get_trace::<Dna>(query, 0, text4, &cost_matrix[3]);
+        let _trace = get_trace::<Dna>(query, 0, text1.len(), text1, &cost_matrix[0], None);
+        let _trace = get_trace::<Dna>(query, 0, text2.len(), text2, &cost_matrix[1], None);
+        let _trace = get_trace::<Dna>(query, 0, text3.len(), text3, &cost_matrix[2], None);
+        let trace = get_trace::<Dna>(query, 0, text4.len(), text4, &cost_matrix[3], None);
         println!("Trace: {:?}", trace);
     }
 }

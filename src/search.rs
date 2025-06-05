@@ -143,7 +143,7 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
             hm: Vec::new(),
             lanes: std::array::from_fn(|_| LaneState::new(P::alloc_out(), 0)),
             // FIXME: Add to API.
-            alpha: Some(0.5),
+            alpha: None,
         }
     }
 
@@ -453,6 +453,7 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
         let mut last_processed_pos = 0;
         let mut text_slices = [[].as_slice(); LANES];
         let mut offsets = [0; LANES];
+        let mut ends = [0; LANES];
         let mut num_slices = 0;
 
         // We "pull" matches from each lane (left>right). As soon as we collect LANES slices
@@ -465,9 +466,10 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
                     continue;
                 }
 
+                ends[num_slices] = end_pos;
                 let offset = end_pos.saturating_sub(fill_len);
                 offsets[num_slices] = offset;
-                text_slices[num_slices] = &text[offset..end_pos];
+                text_slices[num_slices] = &text[offset..end_pos.min(text.len())];
                 num_slices += 1;
 
                 // Process when we have a full chunk
@@ -480,8 +482,10 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
                         let m = get_trace::<P>(
                             query,
                             offsets[i],
+                            ends[i],
                             text_slices[i],
                             &self.cost_matrices[i],
+                            self.alpha,
                         );
 
                         assert!(
@@ -505,8 +509,14 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
                 println!("num_slices: {num_slices} left");
                 simd_fill::<P>(query, &text_slices[..num_slices], &mut self.cost_matrices);
                 for i in 0..num_slices {
-                    let m =
-                        get_trace::<P>(query, offsets[i], text_slices[i], &self.cost_matrices[i]);
+                    let m = get_trace::<P>(
+                        query,
+                        offsets[i],
+                        ends[i],
+                        text_slices[i],
+                        &self.cost_matrices[i],
+                        self.alpha,
+                    );
                     assert!(
                         m.cost <= k as Cost,
                         "Match has cost {} > {}: {m:?}",
@@ -518,7 +528,14 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
             } else {
                 let mut cost_matrix = CostMatrix::default();
                 fill::<P>(query, text_slices[0], &mut cost_matrix);
-                let m = get_trace::<P>(query, offsets[0], text_slices[0], &cost_matrix);
+                let m = get_trace::<P>(
+                    query,
+                    offsets[0],
+                    ends[0],
+                    text_slices[0],
+                    &cost_matrix,
+                    self.alpha,
+                );
                 assert!(
                     m.cost <= k as Cost,
                     "Match has cost {} > {}: {m:?}",
@@ -549,7 +566,8 @@ mod tests {
         let query = b"CCCTTTCCCGGG";
         let text = b"AAAAAAAAACCCTTT";
         let mut s = Searcher::<Iupac, false, true>::new();
-        s.search_positions_bounded::<true>(query, text, 10);
+        s.alpha = Some(0.5);
+        s.search_positions_bounded(query, text, 10);
         for l in s.lanes {
             println!("Matches: {:?}", l.matches);
         }
