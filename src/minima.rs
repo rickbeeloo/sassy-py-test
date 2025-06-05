@@ -126,7 +126,9 @@ pub fn find_local_minima(
     all_valleys
 }
 
-pub fn find_below_threshold(
+/// Baseline implementation.
+#[allow(unused)]
+fn find_below_threshold(
     query: &[u8],
     threshold: Cost,
     deltas: &Deltas,

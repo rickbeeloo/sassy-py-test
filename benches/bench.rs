@@ -222,10 +222,16 @@ fn benchmark_base_lookup(c: &mut Criterion) {
         //     |b, seq| {
         //         let mut positions = vec![];
         //         b.iter(|| {
-        //             Search::<Iupac, false, false>::new(black_box(query), seq, 32).search();
+        //             Searcher::<Iupac, false, false>::new().search(black_box(query), seq, 32);
         //             positions.clear();
         //             let mut costs = vec![];
-        //             find_below_threshold(black_box(query), 8, &deltas, &mut positions, &mut costs);
+        //             sassy::private::find_below_threshold(
+        //                 black_box(query),
+        //                 8,
+        //                 &deltas,
+        //                 &mut positions,
+        //                 &mut costs,
+        //             );
         //             black_box(&positions);
         //         })
         //     },
