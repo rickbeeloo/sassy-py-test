@@ -909,4 +909,98 @@ mod tests {
             println!("match: {:?}", m);
         }
     }
+
+    #[test]
+    fn overhang_trace_fuzz() {
+        use rand::rngs::StdRng;
+        use rand::{Rng, SeedableRng};
+        use std::iter::repeat_with;
+
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut searcher = Searcher::<Iupac>::new_fwd();
+        searcher.alpha = Some(0.5);
+
+        fn rand_dna_w_seed(len: usize, rng: &mut StdRng) -> Vec<u8> {
+            repeat_with(|| {
+                let n = rng.random_range(0..4);
+                match n {
+                    0 => b'A',
+                    1 => b'C',
+                    2 => b'G',
+                    _ => b'T',
+                }
+            })
+            .take(len)
+            .collect()
+        }
+
+        let mut skipped = 0;
+        let iter = 1000;
+
+        for _ in 0..iter {
+            // Random query (short for testing)
+            let query_len = rng.random_range(1..=100);
+            let query = rand_dna_w_seed(query_len, &mut rng);
+
+            // Random text (short for testing)
+            let text_len = rng.random_range(1..=1000);
+            let mut text = rand_dna_w_seed(text_len, &mut rng);
+
+            // generate overlap at the prefix and suffix of the text
+            let prefix_overlap = rng.random_range(1..=query_len.min(text_len));
+            let suffix_overlap = rng.random_range(1..=query_len.min(text_len));
+
+            // Ensure there's at least one character spacing between prefix and suffix
+            if prefix_overlap + suffix_overlap >= text_len {
+                skipped += 1;
+                continue;
+            }
+
+            text.splice(
+                0..prefix_overlap,
+                query[query_len - prefix_overlap..].iter().copied(),
+            );
+
+            let expected_prefix_cost = ((query.len() as f32 - prefix_overlap as f32) * 0.5).floor();
+            let expected_prefix_end_pos = prefix_overlap;
+
+            // suffix overlap means we insert "suffix_overlap" start of the query at the end of the text
+            text.splice(
+                text_len - suffix_overlap..text_len,
+                query[..suffix_overlap].iter().copied(),
+            );
+            let expected_suffix_cost = ((query.len() as f32 - suffix_overlap as f32) * 0.5).floor();
+            let expected_suffix_end_pos = text_len;
+
+            println!("Q: {}", String::from_utf8_lossy(&query));
+            println!("T: {}", String::from_utf8_lossy(&text));
+            println!("Query len {query_len}");
+            println!("Text len {text_len}");
+            println!("[prefix] overlap {prefix_overlap}");
+            println!("[suffix] overlap {suffix_overlap}");
+            println!("[prefix] expected_cost {expected_prefix_cost}");
+            println!("[prefix] expected_end_pos {expected_prefix_end_pos}");
+            println!("[suffix] expected_cost {expected_suffix_cost}");
+            println!("[suffix] expected_end_pos {expected_suffix_end_pos}");
+            println!("--------------------------------");
+
+            // Allow all k for now but later should be k
+            let matches = searcher.search_all(&query, &text, query_len);
+            // Check if matches are found with expected cost at expected positions
+            let mut found = [false, false];
+            let expected_locs = [expected_prefix_end_pos, expected_suffix_end_pos];
+            let expected_costs = [expected_prefix_cost, expected_suffix_cost];
+            for m in matches {
+                println!("m: {:?} {:?} {}", m.start, m.end, m.cost);
+                for i in 0..expected_locs.len() {
+                    if m.end.1 == expected_locs[i] as i32 && m.cost == expected_costs[i] as Cost {
+                        found[i] = true;
+                    }
+                }
+            }
+            assert!(found[0], "Expected prefix overlap not found");
+            assert!(found[1], "Expected suffix overlap not found");
+        }
+        println!("Passed: {} (skipped: {})", iter - skipped, skipped);
+    }
 }
