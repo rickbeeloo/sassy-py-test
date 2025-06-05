@@ -117,6 +117,10 @@ impl<P: Profile> LaneState<P> {
                 self.text_slice[..slice.len()].copy_from_slice(slice);
             }
         }
+        println!(
+            "Text slice: {:?}",
+            String::from_utf8_lossy(&self.text_slice)
+        );
         profiler.encode_ref(&self.text_slice, &mut self.text_profile);
     }
 }
@@ -562,7 +566,7 @@ mod tests {
     use rand::random_range;
 
     #[test]
-    fn overlap() {
+    fn overshoot() {
         let query = b"CCCTTTCCCGGG";
         let text = b"AAAAAAAAACCCTTT";
         let mut s = Searcher::<Iupac, false, true>::new();
@@ -571,6 +575,90 @@ mod tests {
         for l in s.lanes {
             println!("Matches: {:?}", l.matches);
         }
+    }
+
+    #[test]
+    fn overshoot_test_prefix_trace() {
+        let query = b"CCCTTTCCCGGG";
+        let text = b"AAAAAAAAACCCTTT";
+        let mut s = Searcher::<Iupac, false, true>::new();
+        s.alpha = Some(0.5);
+        s.search(query, text, 10);
+        // First not error
+    }
+
+    #[test]
+    fn overshoot_simple_prefix() {
+        /*
+        AAAAGGGG
+            ||||
+            GGGGTTTTTTTTTTTTTTTTNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN
+        01234567---
+            0123---
+        */
+        let prefix = "AAAAGGGG";
+        let text = "GGGGTTTTTTTTTTTTTTTT";
+        let mut s = Searcher::<Iupac, false, true>::new();
+        s.alpha = Some(0.5);
+        s.search_positions_bounded(prefix.as_bytes(), text.as_bytes(), 2);
+        let expected_idx = 3;
+        let expected_edits = 2 as Cost;
+        let m = s.lanes[0]
+            .matches
+            .iter()
+            .find(|m| m.0 == expected_idx && m.1 <= expected_edits);
+        assert!(m.is_some());
+    }
+
+    #[test]
+    fn overshoot_simple_suffix() {
+        /*
+                            GGGGAAAA
+                            ||||
+            TTTTTTTTTTTTTTTTGGGGNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN
+            0123456789-123456789-12345
+                                   ^23,24,25, etc
+        */
+        let prefix = "GGGGAAAA";
+        let text = "TTTTTTTTTTTTTTTTGGGG";
+        let mut s = Searcher::<Iupac, false, true>::new();
+        s.alpha = Some(0.5);
+        s.search_positions_bounded(prefix.as_bytes(), text.as_bytes(), 2);
+        let expected_idx = 23;
+        let expected_edits = 2 as Cost;
+        let m = s.lanes[0]
+            .matches
+            .iter()
+            .find(|m| m.0 == expected_idx && m.1 <= expected_edits);
+        assert!(m.is_some());
+    }
+
+    #[test]
+    fn overshoot_test_prefix_and_suffix() {
+        /*
+              AAAAGGGG                 AAAAGGGG
+                  ||||                 ||||
+                  GGGGGAAAAA     GGGGGAAAAANNNN
+                  0123456789     0123456789-123
+                     ^ 3                      ^ 13
+        */
+        let contained = "AAAAGGGG";
+        let text = "GGGGGAAAAA";
+        let mut s = Searcher::<Iupac, false, true>::new();
+        s.alpha = Some(0.5);
+        s.search_positions_bounded(contained.as_bytes(), text.as_bytes(), 2);
+        let expected_indices = [3, 13];
+        let expected_edits = [2, 2];
+        let mut found = [false, false];
+        for m in s.lanes[0].matches.iter() {
+            for j in 0..expected_indices.len() {
+                if m.0 == expected_indices[j] && m.1 == expected_edits[j] {
+                    found[j] = true;
+                }
+            }
+        }
+        assert!(found[0]);
+        assert!(found[1]);
     }
 
     #[test]
