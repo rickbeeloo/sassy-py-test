@@ -111,7 +111,7 @@ impl<P: Profile> LaneState<P> {
 }
 
 #[derive(Clone)]
-pub struct Searcher<P: Profile, const ALL_MINIMA: bool> {
+pub struct Searcher<P: Profile> {
     // Config
     rc: bool,
     /// overhang cost
@@ -127,7 +127,7 @@ pub struct Searcher<P: Profile, const ALL_MINIMA: bool> {
     _phantom: std::marker::PhantomData<P>,
 }
 
-impl<P: Profile, const ALL_MINIMA: bool> Searcher<P, ALL_MINIMA> {
+impl<P: Profile> Searcher<P> {
     pub fn new_fwd() -> Self {
         Self::new(false)
     }
@@ -147,10 +147,27 @@ impl<P: Profile, const ALL_MINIMA: bool> Searcher<P, ALL_MINIMA> {
         }
     }
 
+    /// Returns matches for *only local minima* end positions with score <=k.
     pub fn search<I: SearchAble>(&mut self, query: &[u8], input: &I, k: usize) -> Vec<Match> {
-        let mut matches = self.search_internal(query, input.text(), k);
+        self.search_handle_rc(query, input, k, false)
+    }
+
+    /// Returns matches for *all* end positions with score <=k.
+    pub fn search_all<I: SearchAble>(&mut self, query: &[u8], input: &I, k: usize) -> Vec<Match> {
+        self.search_handle_rc(query, input, k, true)
+    }
+
+    fn search_handle_rc<I: SearchAble>(
+        &mut self,
+        query: &[u8],
+        input: &I,
+        k: usize,
+        all_minima: bool,
+    ) -> Vec<Match> {
+        let mut matches = self.search_one_strand(query, input.text(), k, all_minima);
         if self.rc {
-            let rc_matches = self.search_internal(&P::complement(query), &input.rev_text(), k);
+            let rc_matches =
+                self.search_one_strand(&P::complement(query), &input.rev_text(), k, all_minima);
             matches.extend(rc_matches.into_iter().map(|mut m| {
                 m.strand = Strand::Rc;
                 m
@@ -159,13 +176,15 @@ impl<P: Profile, const ALL_MINIMA: bool> Searcher<P, ALL_MINIMA> {
         matches
     }
 
-    fn search_internal(&mut self, query: &[u8], text: &[u8], k: usize) -> Vec<Match> {
-        self.find_matches(query, text, k);
+    fn search_one_strand(
+        &mut self,
+        query: &[u8],
+        text: &[u8],
+        k: usize,
+        all_minima: bool,
+    ) -> Vec<Match> {
+        self.search_positions_bounded(query, text, k as Cost, all_minima);
         self.process_matches(query, text, k)
-    }
-
-    fn find_matches(&mut self, query: &[u8], text: &[u8], k: usize) {
-        self.search_positions_bounded(query, text, k as Cost)
     }
 
     #[inline(always)]
@@ -190,7 +209,7 @@ impl<P: Profile, const ALL_MINIMA: bool> Searcher<P, ALL_MINIMA> {
         None
     }
 
-    fn search_positions_bounded(&mut self, query: &[u8], text: &[u8], k: Cost) {
+    fn search_positions_bounded(&mut self, query: &[u8], text: &[u8], k: Cost, all_minima: bool) {
         let (profiler, query_profile) = P::encode_query(query);
 
         // Terminology:
@@ -313,7 +332,7 @@ impl<P: Profile, const ALL_MINIMA: bool> Searcher<P, ALL_MINIMA> {
                 let cost = dist_to_start_of_lane.as_array()[lane] as Cost;
 
                 if base_pos + 64 <= text.len() || self.alpha.is_none() {
-                    if ALL_MINIMA {
+                    if all_minima {
                         self.find_all_minima(v, cost, k, text.len(), base_pos, lane);
                     } else {
                         self.find_local_minima(v, cost, k, text.len(), base_pos, lane);
@@ -333,7 +352,7 @@ impl<P: Profile, const ALL_MINIMA: bool> Searcher<P, ALL_MINIMA> {
                         let overshoot_cost =
                             (overshoot as f32 * self.alpha.unwrap()).floor() as Cost;
                         let total_cost = cost + overshoot_cost;
-                        if ALL_MINIMA {
+                        if all_minima {
                             if total_cost <= k {
                                 self.lanes[lane].matches.push((pos, total_cost));
                             }
@@ -612,9 +631,9 @@ mod tests {
     fn overshoot() {
         let query = b"CCCTTTCCCGGG";
         let text = b"AAAAAAAAACCCTTT";
-        let mut s = Searcher::<Iupac, true>::new_fwd();
+        let mut s = Searcher::<Iupac>::new_fwd();
         s.alpha = Some(0.5);
-        s.search_positions_bounded(query, text, 10);
+        s.search_positions_bounded(query, text, 10, true);
         for l in s.lanes {
             println!("Matches: {:?}", l.matches);
         }
@@ -624,9 +643,9 @@ mod tests {
     fn overshoot_test_prefix_trace() {
         let query = b"CCCTTTCCCGGG";
         let text = b"AAAAAAAAACCCTTT";
-        let mut s = Searcher::<Iupac, true>::new_fwd();
+        let mut s = Searcher::<Iupac>::new_fwd();
         s.alpha = Some(0.5);
-        s.search(query, text, 10);
+        s.search_all(query, text, 10);
         // First not error
     }
 
@@ -641,9 +660,9 @@ mod tests {
         */
         let prefix = "AAAAGGGG";
         let text = "GGGGTTTTTTTTTTTTTTTT";
-        let mut s = Searcher::<Iupac, true>::new_fwd();
+        let mut s = Searcher::<Iupac>::new_fwd();
         s.alpha = Some(0.5);
-        s.search_positions_bounded(prefix.as_bytes(), text.as_bytes(), 2);
+        s.search_positions_bounded(prefix.as_bytes(), text.as_bytes(), 2, true);
         let expected_idx = 3;
         let expected_edits = 2 as Cost;
         let m = s.lanes[0]
@@ -664,9 +683,9 @@ mod tests {
         */
         let prefix = "GGGGAAAA";
         let text = "TTTTTTTTTTTTTTTTGGGG";
-        let mut s = Searcher::<Iupac, true>::new_fwd();
+        let mut s = Searcher::<Iupac>::new_fwd();
         s.alpha = Some(0.5);
-        s.search_positions_bounded(prefix.as_bytes(), text.as_bytes(), 2);
+        s.search_positions_bounded(prefix.as_bytes(), text.as_bytes(), 2, true);
         let expected_idx = 23;
         let expected_edits = 2 as Cost;
         let m = s.lanes[0]
@@ -687,9 +706,9 @@ mod tests {
         */
         let contained = "AAAAGGGG";
         let text = "GGGGGAAAAA";
-        let mut s = Searcher::<Iupac, true>::new_fwd();
+        let mut s = Searcher::<Iupac>::new_fwd();
         s.alpha = Some(0.5);
-        s.search_positions_bounded(contained.as_bytes(), text.as_bytes(), 2);
+        s.search_positions_bounded(contained.as_bytes(), text.as_bytes(), 2, true);
         let expected_indices = [3, 13];
         let expected_edits = [2, 2];
         let mut found = [false, false];
@@ -708,7 +727,7 @@ mod tests {
     fn test_case1() {
         let query = b"AGATGTGTCC";
         let text = b"GAGAGATAACCGTGCGCTCACTGTTACAGTTTATGTGTCGAATTCTTTTAGGGCTGGTCACTGCCCATGCGTAGGAATGAATAGCGGTTGCGGATAACTAAGCAGTGCTTGTCGCTATTAAAGTTAGACCCCGCTCCCACCTTGCCACTCCTAGATGTCGACGAGATTCTCACCGCCAAGGGATCAGGCATATCATAGTAGCTGGCGCAGCCCGTCGTTTAAGGAGGCCCATATACTAATTCAAACGATGGGGTGGGCACATCCCCTAGAAGCACTTGTCCCTTGAGTCACGACTGATGCGTGGTCTCTCGCTAAATGTTCCGGCCTCTCGGACATTTAAAGGGTGGCATGTGACCATGGAGGATTAGTGAATGAGAGGTGTCCGCCTTTGTTCGCCAGAACTCTTATAGCGTAGGGGAGTGTACTCACCGCGAACCCGTATCAGCAATCTTGTCAGTGGCTCCTGACTCAAACATCGATGCGCTGCACATGGCCTTAGAATGAAGCAGCCCCTTTCTATTGTGGCCGGGCTGATTCTTTGTTTTGTTGAATGGTCGGGCCTGTCTGCCTTTTCCTAGTGTTGAAACTCCGAACCGCATGAACTGCGTTGCTAGCGAGCTATCACTGGACTGGCCGGGGGACGAAAGTTCGCGGGACCCACTACCCGCGCCCAGAAGACCACACTAGGGAGAAGGATTCTATCGGCATAGCCGTC";
-        let matches = Searcher::<Dna, false>::new_rc().search(query, &text, 2);
+        let matches = Searcher::<Dna>::new_rc().search(query, &text, 2);
         println!("Matches: {:?}", matches);
     }
 
@@ -718,7 +737,7 @@ mod tests {
         let expected_idx = 277;
         let query = b"TAAGCAGAAGGGAGGTATAAAGTCTGTCAGCGGTGCTTAAG";
         let text = b"ACCGTAACCGCTTGGTACCATCCGGCCAGTCGCTCGTTGCGCCCCACTATCGGGATCGACGCGCAGTAATTAAACACCACCCACGCCACGAGGTAGAACGAGAGCGGGGGGCTAGCAAATAATAGTGAGAGTGCGTTCAAAGGGTCTTTCGTAACCTCAGCGGGCGGGTACGGGGGAAATATCGCACCAATTTTGGAGATGCGATTAGCTCAGCGTAACGCGAATTCCCTATAACTTGCCTAGTGTGTGTGAATGGACAATTCGTTTTACAGTTTCAAGGTAGCAGAAGGGCAGGATAAGTCTGTCGCGGTGCTTAAGGCTTTCCATCCATGTTGCCCCCTACATGAATCGGATCGCCAGCCAGAATATCACATGGTTCCAAAAGTTGCAAGCTTCCCCGTACCGCTACTTCACCTCACGCCAGAGGCCTATCGCCGCTCGGCCGTTCCGTTTTGGGGAAGAATCTGCCTGTTCTCGTCACAAGCTTCTTAGTCCTTCCACCATGGTGCTGTTACTCATGCCATCAAATATTCGAGCTCTTGCCTAGGGGGGTTATACCTGTGCGATAGATACACCCCCTATGACCGTAGGTAGAGAGCCTATTTTCAACGTGTCGATCGTTTAATGACACCAACTCCCGGTGTCGAGGTCCCCAAGTTTCGTAGATCTACTGAGCGGGGGAATATTTGACGGTAAGGCATCGCTTGTAGGATCGTATCGCGACGGTAGATACCCATAAGCGTTGCTAACCTGCCAATAACTGTCTCGCGATCCCAATTTAGCACAAGTCGGTGGCCTTGATAAGGCTAACCAGTTTCGCACCGCTTCCGTTCCATTTTACGATCTACCGCTCGGATGGATCCGAAATACCGAGGTAGTAATATCAACACGTACCCAATGTCC";
-        let matches = Searcher::<Dna, false>::new_fwd().search(query, &text, edits);
+        let matches = Searcher::<Dna>::new_fwd().search(query, &text, edits);
         let m = matches
             .iter()
             .find(|m| (m.start.1 as usize).abs_diff(expected_idx) <= edits);
@@ -737,7 +756,7 @@ mod tests {
         for _ in 0..1000 {
             let query = random_dna_string(random_range(10..100));
             let text = random_dna_string(1_000_000);
-            let matches = Searcher::<Dna, false>::new_fwd().search(&query, &text, 5);
+            let matches = Searcher::<Dna>::new_fwd().search(&query, &text, 5);
             total_matches += matches.len();
         }
         println!("total matches: {total_matches}");
@@ -748,12 +767,12 @@ mod tests {
         let query = b"ATCGATCA";
         let rc = Dna::reverse_complement(query);
         let text = [b"GGGGGGGG".as_ref(), &rc, b"GGGGGGGG"].concat();
-        let matches = Searcher::<Dna, false>::new_rc().search(query, &text, 0);
+        let matches = Searcher::<Dna>::new_rc().search(query, &text, 0);
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].start.1, 8);
         assert_eq!(matches[0].end.1, 8 + query.len() as i32);
         // Now disableing rc search should yield no matches
-        let matches = Searcher::<Dna, false>::new_fwd().search(query, &text, 0);
+        let matches = Searcher::<Dna>::new_fwd().search(query, &text, 0);
         assert_eq!(matches.len(), 0);
     }
 
@@ -777,8 +796,8 @@ mod tests {
         text_lens.sort();
 
         // Create single searcher for all tests to check proper resetting of internal states
-        let mut searcher = Searcher::<Dna, false>::new_fwd();
-        let mut rc_searcher = Searcher::<Dna, false>::new_rc();
+        let mut searcher = Searcher::<Dna>::new_fwd();
+        let mut rc_searcher = Searcher::<Dna>::new_rc();
 
         for q in query_lens {
             for t in text_lens.clone() {
@@ -874,8 +893,8 @@ mod tests {
         }
 
         // Test forward search
-        let mut searcher = Searcher::<Dna, true>::new_fwd();
-        let matches = searcher.search(query, &text, 1);
+        let mut searcher = Searcher::<Dna>::new_fwd();
+        let matches = searcher.search_all(query, &text, 1);
 
         // Verify all matches are found
         for expected_idx in expected_matches {

@@ -186,11 +186,11 @@ pub fn crispr(args: CrisprArgs) {
                         let static_text = StaticText::new(text);
 
                         // Searcher, IUPAC and always reverse complement
-                        let mut searcher = Searcher::<Iupac, true>::new_rc();
+                        let mut searcher = Searcher::<Iupac>::new_rc();
 
                         // Search for each guide sequence
                         guide_sequences.iter().for_each(|guide_sequence| {
-                            let matches = searcher.search(guide_sequence, &static_text, args.k);
+                            let matches = searcher.search_all(guide_sequence, &static_text, args.k);
 
                             total_found.fetch_add(matches.len(), Ordering::Relaxed);
 
