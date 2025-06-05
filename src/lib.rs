@@ -21,9 +21,14 @@ pub mod implementations {
     pub mod search;
 }
 
-pub mod minima;
+mod minima;
 pub mod search;
-pub mod trace;
+mod trace;
+
+#[doc(hidden)]
+pub mod private {
+    pub use crate::minima::{prefix_min, prefix_min_k, prefix_min_k_simd};
+}
 
 #[cfg(feature = "avx512")]
 const LANES: usize = 8;

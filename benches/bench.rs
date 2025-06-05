@@ -288,9 +288,9 @@ fn benchmark_prefix_min(c: &mut Criterion) {
     group.sample_size(10);
 
     use pa_types::Cost;
-    use sassy::minima::prefix_min;
-    use sassy::minima::prefix_min_k;
-    use sassy::minima::prefix_min_k_simd;
+    use sassy::private::prefix_min;
+    use sassy::private::prefix_min_k;
+    use sassy::private::prefix_min_k_simd;
 
     // Generate 100 random test pairs where p and m have no overlapping bits
     let mut rng = rand::rng();

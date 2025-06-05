@@ -15,17 +15,7 @@ impl Profile for Dna {
 
     fn encode_query(a: &[u8]) -> (Self, Vec<Self::A>) {
         let bases = vec![b'A', b'C', b'T', b'G'];
-        let query_profile = a
-            .iter()
-            // .map(|c| match c {
-            //     b'A' => 0,
-            //     b'C' => 1,
-            //     b'T' => 2,
-            //     b'G' => 3,
-            //     _ => 0,
-            // })
-            .map(|c| (c >> 1) & 3)
-            .collect();
+        let query_profile = a.iter().map(|c| (c >> 1) & 3).collect();
         (Dna { bases }, query_profile)
     }
 

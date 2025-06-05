@@ -34,7 +34,7 @@ impl Profile for Iupac {
         unsafe {
             let zero = u8x32::splat(0);
             let mask4 = u8x32::splat(0x0F);
-            let tbl256 = u8x32::from_array(transmute([PACKED_NIBBLES.0, PACKED_NIBBLES.0]));
+            let tbl256 = u8x32::from_array(transmute([PACKED_NIBBLES, PACKED_NIBBLES]));
 
             let chunk0 = u8x32::from_array(b[0..32].try_into().unwrap());
             let chunk1 = u8x32::from_array(b[32..64].try_into().unwrap());
@@ -116,8 +116,8 @@ impl Profile for Iupac {
         unsafe {
             let mask4 = V::splat(0x0F);
             let tbl256 = V::from_array(transmute([
-                PACKED_NIBBLES_INDICATOR.0,
-                PACKED_NIBBLES_INDICATOR.0,
+                PACKED_NIBBLES_INDICATOR,
+                PACKED_NIBBLES_INDICATOR,
             ]));
             while i + LANES <= len {
                 let chunk = V::from_slice(&seq[i..i + LANES]);
@@ -259,10 +259,7 @@ pub fn get_encoded(c: u8) -> u8 {
     IUPAC_CODE[(c & 0x1F) as usize]
 }
 
-#[repr(align(16))]
-pub struct AlignedPacked([u8; 16]);
-
-const PACKED_NIBBLES: AlignedPacked = AlignedPacked({
+const PACKED_NIBBLES: [u8; 16] = {
     let mut p = [0u8; 16];
     let mut i = 0;
     while i < 16 {
@@ -273,10 +270,10 @@ const PACKED_NIBBLES: AlignedPacked = AlignedPacked({
         i += 1;
     }
     p
-});
+};
 
 /// Nibbles are 1111 for IUPAC chars, and 0000 for non-IUPAC chars.
-const PACKED_NIBBLES_INDICATOR: AlignedPacked = AlignedPacked({
+const PACKED_NIBBLES_INDICATOR: [u8; 16] = {
     let mut p = [0u8; 16];
     let mut i = 0;
     while i < 16 {
@@ -287,7 +284,7 @@ const PACKED_NIBBLES_INDICATOR: AlignedPacked = AlignedPacked({
         i += 1;
     }
     p
-});
+};
 
 #[cfg(test)]
 mod test {

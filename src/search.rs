@@ -12,8 +12,6 @@ use std::borrow::Cow;
 use std::simd::cmp::SimdPartialOrd;
 
 pub type Deltas = Vec<(Cost, V<u64>)>;
-type Base = u64;
-type VV = V<Base>;
 
 #[derive(Debug, Clone)]
 pub struct Match {
@@ -298,7 +296,7 @@ impl<P: Profile, const RC: bool, const ALL_MINIMA: bool> Searcher<P, RC, ALL_MIN
 
             // Save positions with cost <= k directly after processing each row
             for lane in 0..LANES {
-                let v = <VV as VEncoding<Base>>::from(vp[lane], vm[lane]);
+                let v = <V<u64> as VEncoding<u64>>::from(vp[lane], vm[lane]);
 
                 let base_pos = self.lanes[lane].chunk_offset * 64 + 64 * i;
                 let cost = dist_to_start_of_lane.as_array()[lane] as Cost;
