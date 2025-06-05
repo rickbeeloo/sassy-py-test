@@ -532,14 +532,18 @@ impl<P: Profile, const ALL_MINIMA: bool> Searcher<P, ALL_MINIMA> {
                     traces.push(m);
                 }
             } else {
-                let mut cost_matrix = CostMatrix::default();
-                fill::<P>(query, text_slices[0], &mut cost_matrix, self.alpha);
+                fill::<P>(
+                    query,
+                    text_slices[0],
+                    &mut self.cost_matrices[0],
+                    self.alpha,
+                );
                 let m = get_trace::<P>(
                     query,
                     offsets[0],
                     ends[0],
                     text_slices[0],
-                    &cost_matrix,
+                    &self.cost_matrices[0],
                     self.alpha,
                 );
                 assert!(
