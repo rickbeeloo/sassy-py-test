@@ -65,18 +65,8 @@ pub fn search(args: SearchArgs) {
                     let _write_lock = write_lock.lock().unwrap();
                     for m in matches {
                         let cost = m.cost;
-
-                        // We have to adjust the start and end based on reverse complement
-                        // as we reverse the text these should be adjusted based on text length
-                        let (start, end) = if m.strand == Strand::Rc {
-                            (
-                                text.len() - m.end.1 as usize,
-                                text.len() - m.start.1 as usize,
-                            )
-                        } else {
-                            (m.start.1 as usize, m.end.1 as usize)
-                        };
-
+                        let start = m.start.1 as usize;
+                        let end = m.end.1 as usize;
                         let slice = &text[start..end];
                         let slice_str = String::from_utf8_lossy(slice);
                         let cigar = m.cigar.to_string();
@@ -90,4 +80,59 @@ pub fn search(args: SearchArgs) {
             });
         }
     });
+}
+
+mod test {
+
+    use super::*;
+    use rand::Rng;
+    use std::io::Write;
+
+    fn random_dna_string(len: usize) -> Vec<u8> {
+        let mut rng = rand::rng();
+        (0..len).map(|_| b"ACGT"[rng.random_range(0..4)]).collect()
+    }
+
+    fn rc(dna: &[u8]) -> Vec<u8> {
+        dna.iter()
+            .rev()
+            .map(|c| match c {
+                b'A' => b'T',
+                b'C' => b'G',
+                b'G' => b'C',
+                b'T' => b'A',
+                _ => panic!("Invalid DNA character"),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn end_to_end_search() {
+        eprintln!("WARNING: Run this test with -- --nocapture to see the output");
+        // Create file at data/test.fasta, with two fwd, one reverse complement match
+        // insert at 10, 50, and 100
+        let dna = random_dna_string(1000);
+        let mut text = dna.clone();
+        let query = b"TAGCTAGAC";
+        text.splice(10..10, query.iter().copied());
+        text.splice(50..50, query.iter().copied());
+        text.splice(100..100, rc(query).iter().copied());
+        // Write to file
+        let mut file = std::fs::File::create("data/test.fasta").unwrap();
+        writeln!(file, ">test").unwrap();
+        writeln!(file, "{}", String::from_utf8_lossy(&text)).unwrap();
+
+        let args: SearchArgs = SearchArgs {
+            query: String::from_utf8(query.to_vec()).unwrap(),
+            k: 0,
+            path: PathBuf::from("data/test.fasta"),
+            alphabet: Alphabet::Dna,
+            rc: true,
+            threads: Some(1),
+        };
+
+        // FIXME: capture output and assert or write to file for easy check
+        // anyway for now run with -- --nocapture and check for 10,50,100
+        search(args);
+    }
 }

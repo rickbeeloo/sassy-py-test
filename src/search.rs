@@ -196,10 +196,13 @@ impl<P: Profile> Searcher<P> {
                 &filter_fn,
                 Strand::Rc,
             );
-            // FIXME: maybe we should adjust start and end positions here instead of the binary?
-            // probably makes sense to return position based on original text orientation instead of reverse
             matches.extend(rc_matches.into_iter().map(|mut m| {
                 m.strand = Strand::Rc;
+                // Also adjust start and end positions to original text orientation
+                let org_start = m.start.1;
+                let org_end = m.end.1;
+                m.start.1 = input.text().len() as i32 - org_end;
+                m.end.1 = input.text().len() as i32 - org_start;
                 m
             }));
         }
@@ -891,8 +894,7 @@ mod tests {
             Searcher::<Dna>::new_rc().search_with_fn(query_fwd, &text, 0, false, end_filter);
         assert_eq!(matches.len(), 2); // Both matches should be found
         assert_eq!(matches[0].start.1, 10);
-        assert_eq!(matches[1].start.1, 50 + query_fwd.len() as i32); // FIXME: to get 50 we need to adjust based on text len
-        assert_eq!(text.len() as i32 - matches[1].end.1, 50); // FIXME: to get 50 we need to adjust based on text len
+        assert_eq!(matches[1].start.1, 50);
     }
 
     #[test]
