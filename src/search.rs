@@ -441,15 +441,14 @@ impl<P: Profile> Searcher<P> {
         let mut cost = cur_cost;
         // All <=k end points
         for bit in 1..=64 {
+            // Update cost based on the P/M bit patterns
+            cost += ((p >> (bit - 1)) & 1) as Cost;
+            cost -= ((m >> (bit - 1)) & 1) as Cost;
+
             let pos = base_pos + bit;
             if pos > text_len {
                 break;
             }
-            // Update cost based on the P/M bit patterns
-            let p_bit = ((p >> bit) & 1) as Cost;
-            let m_bit = ((m >> bit) & 1) as Cost;
-            cost += p_bit;
-            cost -= m_bit;
 
             // Check if this position is a match (cost <= k)
             if cost <= k {
