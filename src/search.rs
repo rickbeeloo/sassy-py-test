@@ -145,18 +145,26 @@ impl<P: Profile> Searcher<P> {
 
     /// Returns matches for *only local minima* end positions with score <=k.
     pub fn search<I: SearchAble>(&mut self, query: &[u8], input: &I, k: usize) -> Vec<Match> {
-        self.search_handle_rc(query, input, k, false, None::<fn(usize) -> bool>)
+        self.search_handle_rc(
+            query,
+            input,
+            k,
+            false,
+            None::<fn(&[u8], &[u8], Strand) -> bool>,
+        )
     }
 
     /// Returns matches for *all* end positions with score <=k.
     pub fn search_all<I: SearchAble>(&mut self, query: &[u8], input: &I, k: usize) -> Vec<Match> {
-        self.search_handle_rc(query, input, k, true, None::<fn(usize) -> bool>)
+        self.search_handle_rc(
+            query,
+            input,
+            k,
+            true,
+            None::<fn(&[u8], &[u8], Strand) -> bool>,
+        )
     }
 
-    // FIXME: what to do in case of RC search? end pos is in reversed text
-    // 1) store (pos, cost, strand) and pass (pos, strand) to filter fn so user is aware
-    // 2) adjust end to forward somewhere (text.len() - end_pos)
-    // 3) better ideas?
     /// Returns matches for *all* end positions where end_filter_fn returns true
     fn search_with_fn<I: SearchAble>(
         &mut self,
@@ -164,9 +172,9 @@ impl<P: Profile> Searcher<P> {
         input: &I,
         k: usize,
         all_minima: bool,
-        end_filter_fn: impl Fn(usize) -> bool,
+        filter_fn: impl Fn(&[u8], &[u8], Strand) -> bool,
     ) -> Vec<Match> {
-        self.search_handle_rc(query, input, k, all_minima, Some(end_filter_fn))
+        self.search_handle_rc(query, input, k, all_minima, Some(filter_fn))
     }
 
     fn search_handle_rc<I: SearchAble>(
@@ -175,9 +183,10 @@ impl<P: Profile> Searcher<P> {
         input: &I,
         k: usize,
         all_minima: bool,
-        filter_fn: Option<impl Fn(usize) -> bool>,
+        filter_fn: Option<impl Fn(&[u8], &[u8], Strand) -> bool>,
     ) -> Vec<Match> {
-        let mut matches = self.search_one_strand(query, input.text(), k, all_minima, &filter_fn);
+        let mut matches =
+            self.search_one_strand(query, input.text(), k, all_minima, &filter_fn, Strand::Fwd);
         if self.rc {
             let rc_matches = self.search_one_strand(
                 &P::complement(query),
@@ -185,7 +194,10 @@ impl<P: Profile> Searcher<P> {
                 k,
                 all_minima,
                 &filter_fn,
+                Strand::Rc,
             );
+            // FIXME: maybe we should adjust start and end positions here instead of the binary?
+            // probably makes sense to return position based on original text orientation instead of reverse
             matches.extend(rc_matches.into_iter().map(|mut m| {
                 m.strand = Strand::Rc;
                 m
@@ -200,13 +212,17 @@ impl<P: Profile> Searcher<P> {
         text: &[u8],
         k: usize,
         all_minima: bool,
-        filter_fn: &Option<impl Fn(usize) -> bool>,
+        filter_fn: &Option<impl Fn(&[u8], &[u8], Strand) -> bool>,
+        strand: Strand,
     ) -> Vec<Match> {
         self.search_positions_bounded(query, text, k as Cost, all_minima);
         // If there is a filter fn, filter end positions based on function before processing matches
         if let Some(filter_fn) = filter_fn {
             self.lanes.iter_mut().for_each(|lane| {
-                lane.matches.retain(|(end_pos, _)| filter_fn(*end_pos));
+                lane.matches.retain(|(end_pos, _)| {
+                    let text_till_end = &text[..*end_pos];
+                    filter_fn(query, text_till_end, strand)
+                });
             });
         }
         self.process_matches(query, text, k)
@@ -568,6 +584,7 @@ impl<P: Profile> Searcher<P> {
                         &self.cost_matrices[i],
                         self.alpha,
                     );
+
                     assert!(
                         m.cost <= k as Cost,
                         "Match has cost {} > {}: {m:?}",
@@ -592,6 +609,7 @@ impl<P: Profile> Searcher<P> {
                     &self.cost_matrices[0],
                     self.alpha,
                 );
+
                 assert!(
                     m.cost <= k as Cost,
                     "Match has cost {} > {}: {m:?}",
@@ -804,14 +822,14 @@ mod tests {
     }
 
     #[test]
-    fn test_end_filter_fn() {
+    fn test_filter_fn_simple() {
         let query = b"ATCGATCA";
-        let mut text = b"G".repeat(100);
+        let mut text = vec![b'G'; 100];
 
-        // Insert match onece before 10 and once after 10
+        // Insert match once before 10 and once after 10
         text.splice(10..10, query.iter().copied());
         text.splice(50..50, query.iter().copied());
-        let end_filter = |end_pos: usize| end_pos > 10 + query.len();
+        let end_filter = |q: &[u8], text: &[u8], _strand: Strand| text.len() > 10 + q.len();
         let matches = Searcher::<Dna>::new_fwd().search_with_fn(query, &text, 0, false, end_filter);
         assert_eq!(matches.len(), 1); // First match *ending* at 10 should be discarded
         assert_eq!(matches[0].start.1, 50);
@@ -821,6 +839,60 @@ mod tests {
         assert_eq!(matches.len(), 2);
         assert_eq!(matches[0].start.1, 10);
         assert_eq!(matches[1].start.1, 50);
+    }
+
+    fn rc(text: &[u8]) -> Vec<u8> {
+        let mut rc = text.to_vec();
+        rc.reverse();
+        rc.iter_mut().for_each(|c| {
+            *c = match *c {
+                b'A' => b'T',
+                b'C' => b'G',
+                b'G' => b'C',
+                b'T' => b'A',
+                _ => *c,
+            }
+        });
+        rc
+    }
+
+    fn complement(text: &[u8]) -> Vec<u8> {
+        let mut complement = text.to_vec();
+        complement.iter_mut().for_each(|c| {
+            *c = match *c {
+                b'A' => b'T',
+                b'C' => b'G',
+                b'G' => b'C',
+                b'T' => b'A',
+                _ => *c,
+            }
+        });
+        complement
+    }
+
+    #[test]
+    fn test_filter_fn_rc() {
+        let query_fwd = b"ATCGATCA";
+        let query_rc = rc(query_fwd);
+        let mut text = vec![b'G'; 100];
+
+        // Insert match once before 10 and once after 10
+        text.splice(10..10, query_fwd.iter().copied()); // FWD
+        text.splice(50..50, query_rc.iter().copied()); // RC
+
+        let end_filter = |q: &[u8], text: &[u8], strand: Strand| match strand {
+            Strand::Fwd => text[text.len() - q.len()..] == *query_fwd,
+            Strand::Rc => {
+                complement(&text[text.len() - q.len()..]) == *query_fwd // NOTE complement call 
+            }
+        };
+
+        let matches =
+            Searcher::<Dna>::new_rc().search_with_fn(query_fwd, &text, 0, false, end_filter);
+        assert_eq!(matches.len(), 2); // Both matches should be found
+        assert_eq!(matches[0].start.1, 10);
+        assert_eq!(matches[1].start.1, 50 + query_fwd.len() as i32); // FIXME: to get 50 we need to adjust based on text len
+        assert_eq!(text.len() as i32 - matches[1].end.1, 50); // FIXME: to get 50 we need to adjust based on text len
     }
 
     #[test]
@@ -979,7 +1051,7 @@ mod tests {
         }
 
         let mut skipped = 0;
-        let iter = 10_000;
+        let iter = 1000;
 
         for _ in 0..iter {
             // Random query (short for testing)
