@@ -102,10 +102,6 @@ impl<P: Profile> LaneState<P> {
                 self.text_slice[..slice.len()].copy_from_slice(slice);
             }
         }
-        println!(
-            "Text slice: {:?}",
-            String::from_utf8_lossy(&self.text_slice)
-        );
         profiler.encode_ref(&self.text_slice, &mut self.text_profile);
     }
 }
@@ -149,12 +145,28 @@ impl<P: Profile> Searcher<P> {
 
     /// Returns matches for *only local minima* end positions with score <=k.
     pub fn search<I: SearchAble>(&mut self, query: &[u8], input: &I, k: usize) -> Vec<Match> {
-        self.search_handle_rc(query, input, k, false)
+        self.search_handle_rc(query, input, k, false, None::<fn(usize) -> bool>)
     }
 
     /// Returns matches for *all* end positions with score <=k.
     pub fn search_all<I: SearchAble>(&mut self, query: &[u8], input: &I, k: usize) -> Vec<Match> {
-        self.search_handle_rc(query, input, k, true)
+        self.search_handle_rc(query, input, k, true, None::<fn(usize) -> bool>)
+    }
+
+    // FIXME: what to do in case of RC search? end pos is in reversed text
+    // 1) store (pos, cost, strand) and pass (pos, strand) to filter fn so user is aware
+    // 2) adjust end to forward somewhere (text.len() - end_pos)
+    // 3) better ideas?
+    /// Returns matches for *all* end positions where end_filter_fn returns true
+    fn search_with_fn<I: SearchAble>(
+        &mut self,
+        query: &[u8],
+        input: &I,
+        k: usize,
+        all_minima: bool,
+        end_filter_fn: impl Fn(usize) -> bool,
+    ) -> Vec<Match> {
+        self.search_handle_rc(query, input, k, all_minima, Some(end_filter_fn))
     }
 
     fn search_handle_rc<I: SearchAble>(
@@ -163,11 +175,17 @@ impl<P: Profile> Searcher<P> {
         input: &I,
         k: usize,
         all_minima: bool,
+        filter_fn: Option<impl Fn(usize) -> bool>,
     ) -> Vec<Match> {
-        let mut matches = self.search_one_strand(query, input.text(), k, all_minima);
+        let mut matches = self.search_one_strand(query, input.text(), k, all_minima, &filter_fn);
         if self.rc {
-            let rc_matches =
-                self.search_one_strand(&P::complement(query), &input.rev_text(), k, all_minima);
+            let rc_matches = self.search_one_strand(
+                &P::complement(query),
+                &input.rev_text(),
+                k,
+                all_minima,
+                &filter_fn,
+            );
             matches.extend(rc_matches.into_iter().map(|mut m| {
                 m.strand = Strand::Rc;
                 m
@@ -182,8 +200,15 @@ impl<P: Profile> Searcher<P> {
         text: &[u8],
         k: usize,
         all_minima: bool,
+        filter_fn: &Option<impl Fn(usize) -> bool>,
     ) -> Vec<Match> {
         self.search_positions_bounded(query, text, k as Cost, all_minima);
+        // If there is a filter fn, filter end positions based on function before processing matches
+        if let Some(filter_fn) = filter_fn {
+            self.lanes.iter_mut().for_each(|lane| {
+                lane.matches.retain(|(end_pos, _)| filter_fn(*end_pos));
+            });
+        }
         self.process_matches(query, text, k)
     }
 
@@ -779,6 +804,26 @@ mod tests {
     }
 
     #[test]
+    fn test_end_filter_fn() {
+        let query = b"ATCGATCA";
+        let mut text = b"G".repeat(100);
+
+        // Insert match onece before 10 and once after 10
+        text.splice(10..10, query.iter().copied());
+        text.splice(50..50, query.iter().copied());
+        let end_filter = |end_pos: usize| end_pos > 10 + query.len();
+        let matches = Searcher::<Dna>::new_fwd().search_with_fn(query, &text, 0, false, end_filter);
+        assert_eq!(matches.len(), 1); // First match *ending* at 10 should be discarded
+        assert_eq!(matches[0].start.1, 50);
+
+        // Sanity check, run the same without filter
+        let matches = Searcher::<Dna>::new_fwd().search(query, &text, 0);
+        assert_eq!(matches.len(), 2);
+        assert_eq!(matches[0].start.1, 10);
+        assert_eq!(matches[1].start.1, 50);
+    }
+
+    #[test]
     fn search_fuzz() {
         let mut query_lens = (10..20)
             .chain((0..10).map(|_| random_range(10..100)))
@@ -934,7 +979,7 @@ mod tests {
         }
 
         let mut skipped = 0;
-        let iter = 1000;
+        let iter = 10_000;
 
         for _ in 0..iter {
             // Random query (short for testing)
@@ -971,17 +1016,17 @@ mod tests {
             let expected_suffix_cost = ((query.len() as f32 - suffix_overlap as f32) * 0.5).floor();
             let expected_suffix_end_pos = text_len;
 
-            println!("Q: {}", String::from_utf8_lossy(&query));
-            println!("T: {}", String::from_utf8_lossy(&text));
-            println!("Query len {query_len}");
-            println!("Text len {text_len}");
-            println!("[prefix] overlap {prefix_overlap}");
-            println!("[suffix] overlap {suffix_overlap}");
-            println!("[prefix] expected_cost {expected_prefix_cost}");
-            println!("[prefix] expected_end_pos {expected_prefix_end_pos}");
-            println!("[suffix] expected_cost {expected_suffix_cost}");
-            println!("[suffix] expected_end_pos {expected_suffix_end_pos}");
-            println!("--------------------------------");
+            eprintln!("Q: {}", String::from_utf8_lossy(&query));
+            eprintln!("T: {}", String::from_utf8_lossy(&text));
+            eprintln!("Query len {query_len}");
+            eprintln!("Text len {text_len}");
+            eprintln!("[prefix] overlap {prefix_overlap}");
+            eprintln!("[suffix] overlap {suffix_overlap}");
+            eprintln!("[prefix] expected_cost {expected_prefix_cost}");
+            eprintln!("[prefix] expected_end_pos {expected_prefix_end_pos}");
+            eprintln!("[suffix] expected_cost {expected_suffix_cost}");
+            eprintln!("[suffix] expected_end_pos {expected_suffix_end_pos}");
+            eprintln!("--------------------------------");
 
             // Allow all k for now but later should be k
             let matches = searcher.search_all(&query, &text, query_len);
@@ -1000,6 +1045,6 @@ mod tests {
             assert!(found[0], "Expected prefix overlap not found");
             assert!(found[1], "Expected suffix overlap not found");
         }
-        println!("Passed: {} (skipped: {})", iter - skipped, skipped);
+        eprintln!("Passed: {} (skipped: {})", iter - skipped, skipped);
     }
 }
