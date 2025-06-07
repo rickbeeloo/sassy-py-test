@@ -6,7 +6,7 @@ use std::{path::PathBuf, sync::Mutex};
 
 //FIXME: either adjust CLI to match cirispr (named arguments) or other way around
 
-#[derive(clap::Parser)]
+#[derive(clap::Parser, Clone)]
 pub struct SearchArgs {
     /// Pattern to search for.
     query: String,
@@ -19,9 +19,9 @@ pub struct SearchArgs {
     #[arg(long, value_enum)]
     alphabet: Alphabet,
 
-    /// Whether to include matches of the reverse-complement string.
+    /// Disable reverse complement search
     #[arg(long)]
-    rc: bool,
+    no_rc: bool,
 
     /// Number of threads to use. All CPUs by default.
     #[arg(short = 'j', long)]
@@ -56,9 +56,11 @@ pub fn search(args: SearchArgs) {
                         Alphabet::Ascii => {
                             Searcher::<Ascii>::new_fwd().search(query, &text, args.k)
                         }
-                        Alphabet::Dna => Searcher::<Dna>::new(args.rc).search(query, &text, args.k),
+                        Alphabet::Dna => {
+                            Searcher::<Dna>::new(!args.no_rc).search(query, &text, args.k)
+                        }
                         Alphabet::Iupac => {
-                            Searcher::<Iupac>::new(args.rc).search(query, &text, args.k)
+                            Searcher::<Iupac>::new(!args.no_rc).search(query, &text, args.k)
                         }
                     };
 
@@ -122,17 +124,22 @@ mod test {
         writeln!(file, ">test").unwrap();
         writeln!(file, "{}", String::from_utf8_lossy(&text)).unwrap();
 
-        let args: SearchArgs = SearchArgs {
+        let mut args: SearchArgs = SearchArgs {
             query: String::from_utf8(query.to_vec()).unwrap(),
             k: 0,
             path: PathBuf::from("data/test.fasta"),
             alphabet: Alphabet::Dna,
-            rc: true,
+            no_rc: true,
             threads: Some(1),
         };
 
         // FIXME: capture output and assert or write to file for easy check
         // anyway for now run with -- --nocapture and check for 10,50,100
+        println!("Search without RC");
+        search(args.clone());
+
+        println!("Search with RC");
+        args.no_rc = false;
         search(args);
     }
 }
