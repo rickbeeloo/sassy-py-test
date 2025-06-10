@@ -7,9 +7,7 @@ pub struct GridConfig {
     pub query_lengths: Vec<usize>,
     pub text_lengths: Vec<usize>,
     pub k: Vec<f32>,
-    pub k_as_absolute: bool,
-    pub match_fraction: Vec<f64>,
-    pub match_as_absolute: bool,
+    pub matches: Vec<f32>,
     pub bench_iter: Vec<usize>,
     pub alphabet: Vec<Alphabet>,
     pub profile: Vec<String>,
@@ -23,9 +21,7 @@ pub struct ParamSet<'a> {
     pub query_length: usize,
     pub text_length: usize,
     pub k: usize,
-    pub k_as_absolute: bool,
-    pub match_fraction: f64,
-    pub match_as_absolute: bool,
+    pub matches: usize,
     pub max_edits: usize,
     pub bench_iter: usize,
     pub alphabet: Alphabet,
@@ -38,8 +34,8 @@ pub struct ParamSet<'a> {
 impl GridConfig {
     pub fn output_file(&self) -> String {
         format!(
-            "results_match_frac_{}_k_{}_k_abs_{}_match_as_abs_{}.csv",
-            self.match_fraction
+            "results_match_frac_{}_k_{}.csv",
+            self.matches
                 .iter()
                 .map(|x| x.to_string())
                 .collect::<Vec<_>>()
@@ -48,9 +44,7 @@ impl GridConfig {
                 .iter()
                 .map(|x| x.to_string())
                 .collect::<Vec<_>>()
-                .join("_"),
-            self.k_as_absolute,
-            self.match_as_absolute
+                .join("_")
         )
     }
 
@@ -59,7 +53,7 @@ impl GridConfig {
         self.query_lengths.iter().flat_map(move |&ql| {
             self.text_lengths.iter().flat_map(move |&tl| {
                 self.k.iter().flat_map(move |&k| {
-                    self.match_fraction.iter().flat_map(move |&mf| {
+                    self.matches.iter().flat_map(move |&mf| {
                         self.bench_iter.iter().flat_map(move |&bi| {
                             self.alphabet.iter().flat_map(move |&a| {
                                 self.profile
@@ -70,14 +64,17 @@ impl GridConfig {
                                         } else {
                                             k as usize
                                         };
+                                        let matches = if mf < 1.0 {
+                                            (mf * tl as f32).round() as usize
+                                        } else {
+                                            mf as usize
+                                        };
                                         // Only allow matching profile/alphabet pairs
                                         self.rc.iter().map(move |rc| ParamSet {
                                             query_length: ql,
                                             text_length: tl,
                                             k,
-                                            match_fraction: mf,
-                                            match_as_absolute: self.match_as_absolute,
-                                            k_as_absolute: self.k_as_absolute,
+                                            matches,
                                             max_edits: k,
                                             bench_iter: bi,
                                             alphabet: a,

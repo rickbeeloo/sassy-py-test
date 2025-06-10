@@ -47,11 +47,7 @@ pub fn run(grid_config: &str) {
     for param_set in grid.all_combinations() {
         println!("Param set: {:?}", param_set);
 
-        let num_matches = if param_set.match_as_absolute {
-            param_set.match_fraction as usize
-        } else {
-            (param_set.text_length as f64 * param_set.match_fraction) as usize
-        };
+        let num_matches = param_set.matches;
 
         // Generating random data
         let (q, t, _locs) = generate_query_and_text_with_matches(
@@ -66,16 +62,9 @@ pub fn run(grid_config: &str) {
         // Number of  bench iterations;
         let bench_iter = param_set.bench_iter;
 
-        // K always at 10% of query length
-        let k = if param_set.k_as_absolute {
-            param_set.max_edits
-        } else {
-            (param_set.query_length as f64 * param_set.k as f64) as usize
-        };
-
         // Running Edlib
         let (edlib_matches, edlib_mean_ms) = if param_set.edlib {
-            let edlib_config = get_edlib_config(k as i32, &param_set.alphabet);
+            let edlib_config = get_edlib_config(param_set.k as i32, &param_set.alphabet);
             let (r, ms) = time_it!("edlib", run_edlib(&q, &t, &edlib_config), bench_iter);
             let edlib_matches = r.startLocations.unwrap_or(vec![]);
             (edlib_matches, ms)
@@ -87,7 +76,8 @@ pub fn run(grid_config: &str) {
         let mut search_fn = get_search_fn(&param_set);
 
         // Now time the search
-        let (sassy_matches, sassy_mean_ms) = time_it!("sassy", search_fn(&q, &t, k), bench_iter);
+        let (sassy_matches, sassy_mean_ms) =
+            time_it!("sassy", search_fn(&q, &t, param_set.k), bench_iter);
 
         if param_set.edlib {
             println!("Edlib matches: {:?}", edlib_matches.len());
@@ -112,7 +102,7 @@ pub fn run(grid_config: &str) {
             param_set.query_length,
             param_set.text_length,
             param_set.k,
-            param_set.match_fraction,
+            param_set.matches,
             param_set.max_edits,
             param_set.bench_iter,
             format!("{:?}", param_set.alphabet),
