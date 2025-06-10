@@ -47,9 +47,11 @@ pub fn run(grid_config: &str) {
     for param_set in grid.all_combinations() {
         println!("Param set: {:?}", param_set);
 
-        // Aboslute number of matches
-        // let num_matches = (param_set.match_fraction * param_set.text_length as f64) as usize;
-        let num_matches = param_set.match_fraction as usize;
+        let num_matches = if param_set.match_as_absolute {
+            param_set.match_fraction as usize
+        } else {
+            (param_set.text_length as f64 * param_set.match_fraction) as usize
+        };
 
         // Generating random data
         let (q, t, _locs) = generate_query_and_text_with_matches(
@@ -65,10 +67,10 @@ pub fn run(grid_config: &str) {
         let bench_iter = param_set.bench_iter;
 
         // K always at 10% of query length
-        let k = if param_set.match_as_absolute {
+        let k = if param_set.k_as_absolute {
             param_set.max_edits
         } else {
-            (param_set.query_length as f64 * param_set.match_fraction) as usize
+            (param_set.query_length as f64 * param_set.k as f64) as usize
         };
 
         // Running Edlib

@@ -1,7 +1,9 @@
 query_lengths   = [20, 40, 80, 100, 200, 500, 1000]
 text_lengths    = [1000, 2000, 5000, 10_000, 20_000, 50_000, 100_000, 200_000]
 k               = [1, 2, 3, 4, 5, 10, 15]
+k_as_absolute   = true # if false, percentage of query len
 match_fraction  = [0, 1]
+match_as_absolute = true # if false, percentage of text len
 bench_iter      = [200]
 alphabet        = ["dna"]
 profile         = ["dna"]
