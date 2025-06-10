@@ -28,7 +28,7 @@ pub struct SearchArgs {
     threads: Option<usize>,
 }
 
-#[derive(clap::ValueEnum, Default, Clone)]
+#[derive(clap::ValueEnum, Default, Clone, PartialEq)]
 pub enum Alphabet {
     Ascii,
     #[default]
@@ -36,10 +36,18 @@ pub enum Alphabet {
     Iupac,
 }
 
-pub fn search(args: SearchArgs) {
+pub fn search(args: &mut SearchArgs) {
     let query = args.query.as_bytes();
-    let reader = Mutex::new(needletail::parse_fastx_file(args.path).unwrap());
+    let reader = Mutex::new(needletail::parse_fastx_file(&args.path).unwrap());
     let write_lock = Mutex::new(());
+
+    // Auto-diable rc search for ASCII profile as it does not make sense, let the user know
+    if args.alphabet == Alphabet::Ascii && !args.no_rc {
+        eprintln!(
+            "WARNING: Reverse complement search is not supported for ASCII profile, disabling"
+        );
+        args.no_rc = true;
+    }
 
     let num_threads = args.threads.unwrap_or_else(num_cpus::get);
     std::thread::scope(|scope| {
@@ -136,10 +144,10 @@ mod test {
         // FIXME: capture output and assert or write to file for easy check
         // anyway for now run with -- --nocapture and check for 10,50,100
         println!("Search without RC");
-        search(args.clone());
+        search(&mut args.clone());
 
         println!("Search with RC");
         args.no_rc = false;
-        search(args);
+        search(&mut args);
     }
 }

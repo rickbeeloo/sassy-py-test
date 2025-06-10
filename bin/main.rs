@@ -21,7 +21,7 @@ fn main() {
     env_logger::init();
 
     match args {
-        Args::Search(search_args) => search(search_args),
+        Args::Search(search_args) => search(&mut search_args.clone()),
         Args::Crispr(crispr_args) => crispr(crispr_args),
     }
 }
