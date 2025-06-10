@@ -1,8 +1,6 @@
-use sassy::search::Match;
 use sassy::{
     profiles::Iupac, profiles::Profile, search::Searcher, search::StaticText, search::Strand,
 };
-use pa_types::CigarOp;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::sync::Arc;
@@ -28,17 +26,13 @@ pub struct CrisprArgs {
     #[arg(long, short = 't')]
     target: PathBuf,
 
-    /// Require the first N bases of the guide to be exact matches.
-    #[arg(long, short = 'p')]
-    exact_prefix: Option<usize>,
-
-    /// Require the last N bases of the guide to be exact matches.
-    #[arg(long, short = 's')]
-    exact_suffix: Option<usize>,
-
     /// Whether to include matches of the reverse-complement string.
     #[arg(long, short = 'r')]
     rc: bool,
+
+    /// Allow edits in PAM sequence 
+    #[arg(long, short = 'e')]
+    allow_pam_edits: bool,
 
     /// Number of threads to use. All CPUs by default.
     #[arg(short = 'j', long)]
@@ -53,17 +47,6 @@ pub struct CrisprArgs {
     output: PathBuf,
 }
 
-fn check_edit_free(m: &Match, target: isize) -> bool {
-    // We assume PAMs are always at the ends so we can either check if the first X are
-    // Match or the last X
-    let is_negative = target < 0;
-    let to_check: &pa_types::CigarElem = match is_negative {
-        true => m.cigar.ops.last().unwrap(),
-        false => m.cigar.ops.first().unwrap(),
-    };
-    to_check.op == CigarOp::Match && to_check.cnt >= target.abs() as i32
-}
-
 fn check_n_frac(max_n_frac: f32, match_slice: &[u8]) -> bool {
     let n_count = match_slice
         .iter()
@@ -73,70 +56,54 @@ fn check_n_frac(max_n_frac: f32, match_slice: &[u8]) -> bool {
     n_frac <= max_n_frac
 }
 
-fn print_and_check_params(args: &CrisprArgs, guide_sequence: &[u8]) -> (Option<isize>, f32) {
-    // Only allow one of prefix/suffix
-    if let (Some(_), Some(_)) = (args.exact_prefix, args.exact_suffix) {
-        eprintln!("[crispr] Error: cannot specify both exact prefix and suffix");
+
+
+fn print_and_check_params(args: &CrisprArgs, guide_sequences: &[Vec<u8>]) -> (String, f32) {
+    let max_n_frac = args.max_n_frac.unwrap_or(1.0); // Allow all to be N by default
+
+    // Check if n frac is within valid range
+    if !(0.0..=1.0).contains(&max_n_frac) {
+        eprintln!("[N-chars] Error: max_n_frac must be between 0 and 100");
         std::process::exit(1);
     }
 
-    let edit_free: Option<isize> = match (args.exact_prefix, args.exact_suffix) {
-        (Some(prefix), None) => Some(prefix as isize),
-        (None, Some(suffix)) => Some(-(suffix as isize)),
-        (None, None) => None,
-        _ => None,
+    // If no guide sequences throw error
+    if guide_sequences.is_empty() {
+        eprintln!("[PAM] Error: No guide sequences provided, please check your input file (one guide sequence per line)");
+        std::process::exit(1);
+    }
+
+    // We have at least one guide sequence, extract the PAM sequence
+    let pam = if !guide_sequences.is_empty() {
+        let guide = &guide_sequences[0];
+        let pam = &guide[guide.len() - 3..];
+        println!("[PAM] Sequence: [{}]", String::from_utf8_lossy(pam));
+        println!("[PAM] If the above PAM is incorrect, please make sure that the guide sequence ENDs with the PAM-sequence, i.e. XXXXXGGN (not it's reverse complement)");
+        pam
+    } else {
+        unreachable!("No guide sequences provided");
     };
 
-    let max_n_frac = args.max_n_frac.unwrap_or(100.0); // Allow all to be N by default
-
-    // Print info
-    if let Some(v) = edit_free {
-        let guide_str = String::from_utf8_lossy(guide_sequence);
-        if v < 0 {
-            let pam_start = guide_sequence.len() - (-v) as usize;
-            let prefix = &guide_str[..pam_start];
-            let pam = &guide_str[pam_start..];
-            println!("[PAM] Edit-free region in brackets: {}[{}]", prefix, pam);
-        } else {
-            let pam = &guide_str[..v as usize];
-            let suffix = &guide_str[v as usize..];
-            println!("[PAM] Edit-free region in brackets: [{}]{}", pam, suffix);
+    // If we have multiple guide sequences, ensure they have the same PAM sequence.
+    // not per se a requirement for the code to work but now we define that as a fixed PAM in the closure below
+    if guide_sequences.len() > 1 {
+        for guide_sequence in guide_sequences {
+            let guide_pam = &guide_sequence[guide_sequence.len() - 3..];
+            if pam != guide_pam {
+                eprintln!("[PAM] One of the guide sequences has a PAM different than the provided PAM");
+                eprintln!("[PAM] provided PAM {}, detected PAM {}", String::from_utf8_lossy(pam), String::from_utf8_lossy(guide_pam));
+                std::process::exit(1);
+            }
         }
-    } else {
-        println!("[PAM] Edits are allowed");
     }
 
-    if args.max_n_frac.is_some() {
-        println!(
-            "[N-chars] Allowing up to {}% N characters",
-            max_n_frac * 100.0
-        );
-    } else {
-        println!("[N-chars] No N-character filtering");
-    }
+    println!("[PAM] PAM used to filter: {}", String::from_utf8_lossy(pam));
+    println!("[PAM] Edits in PAM are allowed: {}", args.allow_pam_edits);
+    println!("[N-chars] Allowing up to {}% N characters", max_n_frac * 100.0);
 
-    (edit_free, max_n_frac)
+    (String::from_utf8_lossy(pam).into_owned(), max_n_frac)
 }
 
-fn pass(
-    m: &Match,
-    edit_free: Option<isize>,
-    edit_free_value: isize,
-    max_n_frac: f32,
-    match_slice: &[u8],
-) -> bool {
-    let pam_ok = if edit_free.is_some() {
-        check_edit_free(m, edit_free_value)
-    } else {
-        true
-    };
-    let n_ok = if max_n_frac < 100.0 {
-        check_n_frac(max_n_frac, match_slice)
-    } else {
-        true
-    };
-    pam_ok && n_ok
-}
 
 pub fn read_guide_sequences(path: &str) -> Vec<Vec<u8>> {
     let file = File::open(path).expect("Failed to open guide file");
@@ -150,6 +117,15 @@ pub fn read_guide_sequences(path: &str) -> Vec<Vec<u8>> {
         .collect()
 }
 
+pub fn matching_seq<P: Profile>(seq1: &[u8], seq2: &[u8]) -> bool {
+    for (c1, c2) in seq1.iter().zip(seq2.iter()) {
+        if !P::is_match(*c1, *c2) {
+            return false;
+        }
+    }
+    true
+}
+
 pub fn crispr(args: CrisprArgs) {
     let guide_sequences = read_guide_sequences(&args.guide);
     println!("[GUIDES] Found {} guides", guide_sequences.len());
@@ -161,14 +137,15 @@ pub fn crispr(args: CrisprArgs) {
         let writer = Mutex::new(BufWriter::new(file));
         let reader = Mutex::new(needletail::parse_fastx_file(args.target.clone()).unwrap());
 
-        let (edit_free, max_n_frac) = print_and_check_params(&args, &guide_sequences[0]);
-        let edit_free_value = edit_free.unwrap_or(0);
+        let (pam, max_n_frac) = print_and_check_params(&args, &guide_sequences);
+        let pam = pam.as_bytes();
+        let pam_compl = Iupac::complement(pam);
+        let pam_compl = pam_compl.as_slice();
 
         let total_found = Arc::new(AtomicUsize::new(0));
-        let edits_in_pam = Arc::new(AtomicUsize::new(0));
 
         let num_threads = args.threads.unwrap_or_else(num_cpus::get);
-        println!("[Threads] Using {} threads", num_threads);
+        println!("[Threads] Using {num_threads} threads");
 
         let start = Instant::now();
         std::thread::scope(|scope| {
@@ -188,57 +165,69 @@ pub fn crispr(args: CrisprArgs) {
                         // Searcher, IUPAC and always reverse complement
                         let mut searcher = Searcher::<Iupac>::new_rc();
 
+                        // Only used in loop if no edits are allowed, otherwise falls back to default report all search
+                        let filter_fn = 
+                        move |_q: &[u8], text_up_to_end: &[u8], strand: Strand| {
+                            let pam_slice = &text_up_to_end[text_up_to_end.len() - 3..];
+                            if strand == Strand::Fwd {
+                                matching_seq::<Iupac>(pam_slice, pam)
+                            } else {
+                                matching_seq::<Iupac>(pam_slice, pam_compl)
+                            }
+                        };
+                        
+
                         // Search for each guide sequence
                         guide_sequences.iter().for_each(|guide_sequence| {
-                            let matches = searcher.search_all(guide_sequence, &static_text, args.k);
+                        
+                            let matches = if !args.allow_pam_edits {
+                                searcher.search_with_fn(guide_sequence, &static_text, args.k, true, filter_fn)
+                            } else {
+                                searcher.search_all(guide_sequence, &static_text, args.k)
+                            };
 
                             total_found.fetch_add(matches.len(), Ordering::Relaxed);
 
                             let mut writer_guard = writer.lock().unwrap();
 
                             for m in matches {
-                                // We have to adjust the start and end based on reverse complement
-                                // as we reverse the text these should be adjusted based on text length
-                                let (start, end) = if m.strand == Strand::Rc {
-                                    (
-                                        text.len() - m.end.1 as usize,
-                                        text.len() - m.start.1 as usize,
-                                    )
-                                } else {
-                                    (m.start.1 as usize, m.end.1 as usize)
-                                };
-
+                                let start = m.start.1 as usize;
+                                let end = m.end.1 as usize;
                                 let slice = &text[start..end];
 
-                                // If reverse complement, also take reverse complmeent of the slice
-                                let rc_vec = if m.strand == Strand::Rc {
-                                    <Iupac as Profile>::reverse_complement(slice)
+                                // Check if satisfies user max N cut off
+                                let n_ok = if max_n_frac < 100.0 {
+                                    check_n_frac(max_n_frac, slice)
                                 } else {
-                                    Vec::new()
-                                };
-                                
-                                let slice = if m.strand == Strand::Rc {
-                                    &rc_vec
-                                } else {
-                                    slice
+                                    true
                                 };
 
-                                if pass(&m, edit_free, edit_free_value, max_n_frac, slice) {
-                                    let cost = m.cost;
-                                    let slice_str = String::from_utf8_lossy(slice);
-                                    let cigar = m.cigar.to_string();
-                                    let strand = match m.strand {
-                                        Strand::Fwd => "+",
-                                        Strand::Rc => "-",
-                                    };
-                                    writeln!(
-                                        writer_guard,
-                                        "{id}\t{cost}\t{strand}\t{start}\t{end}\t{slice_str}\t{cigar}"
-                                    )
-                                    .unwrap();
-                                } else {
-                                    edits_in_pam.fetch_add(1, Ordering::Relaxed);
+                                if !n_ok {
+                                    // println!("N-frac too high: {}", String::from_utf8_lossy(slice));
+                                    continue;
                                 }
+
+                                total_found.fetch_add(1, Ordering::Relaxed);
+
+                                // If the match we found is in reverse complement, we also rc the matched text
+                                // to make it easier to spot the PAM in the output file
+                                let matched_slice = if m.strand == Strand::Rc {
+                                    let rc = <Iupac as Profile>::reverse_complement(slice);
+                                    String::from_utf8_lossy(&rc).into_owned()
+                                } else {
+                                    String::from_utf8_lossy(slice).into_owned()
+                                };
+                                let cost = m.cost;
+                                let cigar = m.cigar.to_string();
+                                let strand = match m.strand {
+                                    Strand::Fwd => "+",
+                                    Strand::Rc => "-",
+                                };
+                                writeln!(
+                                    writer_guard,
+                                    "{id}\t{cost}\t{strand}\t{start}\t{end}\t{matched_slice}\t{cigar}"
+                                )
+                                .unwrap();
                             }
                         });
                     }
@@ -251,14 +240,8 @@ pub fn crispr(args: CrisprArgs) {
             "  Total targets found:   {}",
             total_found.load(Ordering::Relaxed)
         );
-        println!(
-            "  Discarded (edits + N's): {}",
-            edits_in_pam.load(Ordering::Relaxed)
-        );
-        println!(
-            "  Total targets passed:  {}",
-            total_found.load(Ordering::Relaxed) - edits_in_pam.load(Ordering::Relaxed)
-        );
         println!("  Time taken: {:?}", start.elapsed());
     }
 }
+
+

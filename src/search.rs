@@ -166,7 +166,7 @@ impl<P: Profile> Searcher<P> {
     }
 
     /// Returns matches for *all* end positions where end_filter_fn returns true
-    fn search_with_fn<I: SearchAble>(
+    pub fn search_with_fn<I: SearchAble>(
         &mut self,
         query: &[u8],
         input: &I,
@@ -570,7 +570,6 @@ impl<P: Profile> Searcher<P> {
         // else we fall back to scalar fill to avoid SIMD overhead with "empty" lanes
         if num_slices > 0 {
             if num_slices > 1 {
-                println!("num_slices: {num_slices} left");
                 simd_fill::<P>(
                     query,
                     &text_slices[..num_slices],

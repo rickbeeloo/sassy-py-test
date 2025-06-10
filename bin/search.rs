@@ -1,5 +1,5 @@
 use sassy::{
-    profiles::{Ascii, Dna, Iupac},
+    profiles::{Ascii, Dna, Iupac, Profile},
     search::{Searcher, Strand},
 };
 use std::{path::PathBuf, sync::Mutex};
@@ -78,7 +78,24 @@ pub fn search(args: &mut SearchArgs) {
                         let start = m.start.1 as usize;
                         let end = m.end.1 as usize;
                         let slice = &text[start..end];
-                        let slice_str = String::from_utf8_lossy(slice);
+
+                        // If we match reverse complement, reverse complement the slice to make it easier to read
+                        let slice_str = if m.strand == Strand::Rc {
+                            match args.alphabet {
+                                Alphabet::Dna => String::from_utf8_lossy(
+                                    &<Dna as Profile>::reverse_complement(slice),
+                                )
+                                .into_owned(),
+                                Alphabet::Iupac => String::from_utf8_lossy(
+                                    &<Iupac as Profile>::reverse_complement(slice),
+                                )
+                                .into_owned(),
+                                Alphabet::Ascii => unreachable!("no rc for ascii"), // Guarded against above
+                            }
+                        } else {
+                            String::from_utf8_lossy(slice).into_owned()
+                        };
+
                         let cigar = m.cigar.to_string();
                         let strand = match m.strand {
                             Strand::Fwd => "+",
@@ -92,6 +109,7 @@ pub fn search(args: &mut SearchArgs) {
     });
 }
 
+#[allow(unused)]
 mod test {
 
     use super::*;
