@@ -33,8 +33,8 @@ pub fn run(grid_config: &str) {
         .create(true)
         .write(true)
         .truncate(true)
-        .open("results.csv")
-        .expect("Unable to open results.csv");
+        .open(grid.output_file())
+        .expect(&format!("Unable to open {}", grid.output_file()));
     let mut writer = BufWriter::new(file);
 
     // Write header

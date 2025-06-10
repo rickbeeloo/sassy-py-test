@@ -36,6 +36,24 @@ pub struct ParamSet<'a> {
 }
 
 impl GridConfig {
+    pub fn output_file(&self) -> String {
+        format!(
+            "results_match_frac_{}_k_{}_k_abs_{}_match_as_abs_{}.csv",
+            self.match_fraction
+                .iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>()
+                .join("_"),
+            self.k
+                .iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>()
+                .join("_"),
+            self.k_as_absolute,
+            self.match_as_absolute
+        )
+    }
+
     /// Returns an iterator over all parameter combinations as tuples.
     pub fn all_combinations<'a>(&'a self) -> impl Iterator<Item = ParamSet<'a>> + 'a {
         self.query_lengths.iter().flat_map(move |&ql| {
