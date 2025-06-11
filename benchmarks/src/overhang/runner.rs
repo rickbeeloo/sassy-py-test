@@ -24,6 +24,7 @@ pub fn run(config: &str) {
 
     let query = generate_random_dna_sequence(20);
     let text = generate_random_dna_sequence(100);
+    let text_len = text.len();
 
     println!(
         "Query (len: {}): {:?}",
@@ -32,7 +33,7 @@ pub fn run(config: &str) {
     );
     println!(
         "Text (len: {}): {:?}",
-        text.len(),
+        text_len,
         String::from_utf8(text.clone()).unwrap()
     );
 
@@ -43,9 +44,24 @@ pub fn run(config: &str) {
     for alpha in config.alphas {
         let mut searcher = Searcher::<sassy::profiles::Iupac>::new_fwd_with_overhang(alpha);
         let matches = searcher.search_all(&query, &text, query.len() * 2);
+
+        // Track how many matches we've seen at each end position
+        let mut end_pos_counts = std::collections::HashMap::new();
+
         for m in matches {
-            // write alpha, end_pos, cost
-            writeln!(file, "{},{},{}", alpha, m.end.1, m.cost).unwrap();
+            let end_pos = m.end.1 as usize;
+            let count = end_pos_counts.entry(end_pos).or_insert(0);
+            *count += 1;
+
+            // For positions after text_len, increment by the number of times we've seen this position
+            let adjusted_end_pos = if end_pos >= text_len {
+                text_len + (*count - 1)
+            } else {
+                end_pos
+            };
+
+            // write alpha, adjusted_end_pos, cost
+            writeln!(file, "{},{},{}", alpha, adjusted_end_pos, m.cost).unwrap();
         }
     }
 }
