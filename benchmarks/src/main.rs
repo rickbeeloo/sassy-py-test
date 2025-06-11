@@ -6,6 +6,9 @@ use edlib_bench::runner as edlib_runner;
 mod crispr_bench;
 use crispr_bench::runner as crispr_runner;
 
+mod overhang;
+use overhang::runner as overhang_runner;
+
 #[derive(Parser)]
 #[command(author, version, about)]
 struct Args {
@@ -27,6 +30,13 @@ enum Commands {
         #[arg(long)]
         config: String,
     },
+
+    /// Run the overhang benchmark
+    Overhang {
+        /// Path to the overhang config TOML file
+        #[arg(long)]
+        config: String,
+    },
 }
 
 fn main() {
@@ -39,6 +49,10 @@ fn main() {
         Commands::Crispr { config } => {
             println!("Running CRISPR benchmark");
             crispr_runner::run(&config);
+        }
+        Commands::Overhang { config } => {
+            println!("Running overhang benchmark");
+            overhang_runner::run(&config);
         }
     }
 }

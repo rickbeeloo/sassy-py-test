@@ -168,6 +168,11 @@ impl Profile for Iupac {
     fn complement(seq: &[u8]) -> Vec<u8> {
         seq.iter().map(|&c| RC[c as usize]).collect()
     }
+
+    #[inline(always)]
+    fn supports_overhang() -> bool {
+        true
+    }
 }
 
 const RC: [u8; 256] = {

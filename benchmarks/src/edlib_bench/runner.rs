@@ -36,6 +36,7 @@ pub fn run(grid_config: &str) {
         .truncate(true)
         .open(grid.output_file())
         .expect(&format!("Unable to open {}", grid.output_file()));
+
     let mut writer = BufWriter::new(file);
 
     // Write header

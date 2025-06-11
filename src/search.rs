@@ -133,6 +133,12 @@ impl<P: Profile> Searcher<P> {
     }
 
     pub fn new_fwd_with_overhang(alpha: f32) -> Self {
+        if !P::supports_overhang() {
+            panic!(
+                "Overhang is not supported for {:?}",
+                std::any::type_name::<P>()
+            );
+        }
         Self::new(false, Some(alpha))
     }
 
@@ -682,6 +688,20 @@ mod tests {
     use super::*;
     use crate::profiles::{Dna, Iupac};
     use rand::random_range;
+
+    #[test]
+    fn overhang_test() {
+        let query = b"CTTAAGCACTACCGGCTAAT";
+        let text = b"AGTCGTCCTTTGCGAGCTCGGACATCTCCAGGCGAACCTGCAAGTTTTAATGTTCCCACAGTCCCTCATATGTTCTGAATTTCGTGATGTTTGTTTACCG";
+        let mut s = Searcher::<Iupac>::new_fwd_with_overhang(0.0);
+        let _matches = s.search_all(query, text, 100);
+    }
+
+    #[test]
+    #[should_panic()]
+    fn overhang_test_panic_for_dna() {
+        let mut searcher = Searcher::<Dna>::new_fwd_with_overhang(0.0);
+    }
 
     #[test]
     fn overshoot() {

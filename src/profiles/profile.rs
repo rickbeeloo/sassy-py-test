@@ -30,4 +30,7 @@ pub trait Profile: Clone + std::fmt::Debug {
             std::any::type_name::<Self>()
         );
     }
+    fn supports_overhang() -> bool {
+        unimplemented!("Profile does not support overhang");
+    }
 }
