@@ -62,13 +62,14 @@ pub fn search(args: &mut SearchArgs) {
 
                     let matches = match args.alphabet {
                         Alphabet::Ascii => {
-                            Searcher::<Ascii>::new_fwd().search(query, &text, args.k)
+                            // Rc is always false
+                            Searcher::<Ascii>::new(false, None).search(query, &text, args.k)
                         }
                         Alphabet::Dna => {
-                            Searcher::<Dna>::new(!args.no_rc).search(query, &text, args.k)
+                            Searcher::<Dna>::new(!args.no_rc, None).search(query, &text, args.k)
                         }
                         Alphabet::Iupac => {
-                            Searcher::<Iupac>::new(!args.no_rc).search(query, &text, args.k)
+                            Searcher::<Iupac>::new(!args.no_rc, None).search(query, &text, args.k)
                         }
                     };
 
