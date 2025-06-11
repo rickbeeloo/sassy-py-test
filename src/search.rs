@@ -43,7 +43,7 @@ where
         self.as_ref()
     }
 
-    fn rev_text(&self) -> Cow<[u8]> {
+    fn rev_text(&'_ self) -> Cow<'_, [u8]> {
         Cow::Owned(self.as_ref().iter().rev().copied().collect())
     }
 }
@@ -64,7 +64,7 @@ impl<'a> SearchAble for StaticText<'a> {
     fn text(&self) -> &[u8] {
         self.text
     }
-    fn rev_text(&self) -> Cow<[u8]> {
+    fn rev_text(&'_ self) -> Cow<'_, [u8]> {
         // borrow stored, is free
         Cow::Borrowed(&self.rev)
     }
@@ -125,12 +125,22 @@ pub struct Searcher<P: Profile> {
 
 impl<P: Profile> Searcher<P> {
     pub fn new_fwd() -> Self {
-        Self::new(false)
+        Self::new(false, None)
     }
+
     pub fn new_rc() -> Self {
-        Self::new(true)
+        Self::new(true, None)
     }
-    pub fn new(rc: bool) -> Self {
+
+    pub fn new_fwd_with_overhang(alpha: f32) -> Self {
+        Self::new(false, Some(alpha))
+    }
+
+    pub fn new_rc_with_overhang(alpha: f32) -> Self {
+        Self::new(true, Some(alpha))
+    }
+
+    pub fn new(rc: bool, alpha: Option<f32>) -> Self {
         Self {
             rc,
             _phantom: std::marker::PhantomData,
@@ -138,8 +148,7 @@ impl<P: Profile> Searcher<P> {
             hp: Vec::new(),
             hm: Vec::new(),
             lanes: std::array::from_fn(|_| LaneState::new(P::alloc_out(), 0)),
-            // FIXME: Add to API.
-            alpha: None,
+            alpha,
         }
     }
 

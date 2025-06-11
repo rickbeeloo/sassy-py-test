@@ -6,21 +6,22 @@ use std::fs::OpenOptions;
 use std::io::{BufWriter, Write};
 
 macro_rules! time_it {
-    ($label:expr, $expr:expr, $iters:expr) => {{
+    ($label:expr, $expr:expr, $iters:expr, $pairs:expr) => {{
         let label = $label;
         let mut times = Vec::with_capacity($iters);
-        let mut result = None;
-        for _ in 0..$iters {
+        let mut final_result = None;
+
+        for (q, t, _) in $pairs.iter() {
             let start = std::time::Instant::now();
-            // https://doc.rust-lang.org/std/hint/fn.black_box.html
-            let r = std::hint::black_box($expr);
+            let r = std::hint::black_box($expr(q, t));
             let elapsed = start.elapsed();
             times.push(elapsed.as_micros() as f64);
-            result = Some(r);
+            final_result = Some(r); // So just the last result, assuming on random data it's approximately the same across pairs
         }
+
         let mean = times.iter().sum::<f64>() / times.len() as f64;
         eprintln!("{label:>10} : {:.3}ms", mean / 1000.0);
-        (result.unwrap(), mean)
+        (final_result.unwrap(), mean)
     }};
 }
 
@@ -40,7 +41,7 @@ pub fn run(grid_config: &str) {
     // Write header
     writeln!(
         writer,
-        "query_length,text_length,k,match_fraction,max_edits,bench_iter,alphabet,profile,rc,edlib_ms,sassy_ms"
+        "query_length,text_length,k,edlib_matches,sassy_matches,max_edits,bench_iter,alphabet,profile,rc,edlib_ms,sassy_ms"
     ).unwrap();
 
     // Get combinations
@@ -48,24 +49,31 @@ pub fn run(grid_config: &str) {
         println!("Param set: {:?}", param_set);
 
         let num_matches = param_set.matches;
-
-        // Generating random data
-        let (q, t, _locs) = generate_query_and_text_with_matches(
-            param_set.query_length,
-            param_set.text_length,
-            num_matches,
-            param_set.max_edits,
-            param_set.max_edits,
-            &param_set.alphabet,
-        );
-
-        // Number of  bench iterations;
         let bench_iter = param_set.bench_iter;
+
+        // Generate all query-text pairs upfront
+        let pairs: Vec<_> = (0..bench_iter)
+            .map(|_| {
+                generate_query_and_text_with_matches(
+                    param_set.query_length,
+                    param_set.text_length,
+                    num_matches,
+                    param_set.max_edits,
+                    param_set.max_edits,
+                    &param_set.alphabet,
+                )
+            })
+            .collect();
 
         // Running Edlib
         let (edlib_matches, edlib_mean_ms) = if param_set.edlib {
             let edlib_config = get_edlib_config(param_set.k as i32, &param_set.alphabet);
-            let (r, ms) = time_it!("edlib", run_edlib(&q, &t, &edlib_config), bench_iter);
+            let (r, ms) = time_it!(
+                "edlib",
+                |q, t| run_edlib(q, t, &edlib_config),
+                bench_iter,
+                &pairs
+            );
             let edlib_matches = r.startLocations.unwrap_or(vec![]);
             (edlib_matches, ms)
         } else {
@@ -76,8 +84,12 @@ pub fn run(grid_config: &str) {
         let mut search_fn = get_search_fn(&param_set);
 
         // Now time the search
-        let (sassy_matches, sassy_mean_ms) =
-            time_it!("sassy", search_fn(&q, &t, param_set.k), bench_iter);
+        let (sassy_matches, sassy_mean_ms) = time_it!(
+            "sassy",
+            |q, t| search_fn(q, t, param_set.k),
+            bench_iter,
+            &pairs
+        );
 
         if param_set.edlib {
             println!("Edlib matches: {:?}", edlib_matches.len());
@@ -86,11 +98,11 @@ pub fn run(grid_config: &str) {
 
         if param_set.verbose {
             println!("Edlib matches");
-            for loc in edlib_matches {
+            for loc in edlib_matches.iter() {
                 println!("{}", loc);
             }
             println!("Sassy matches");
-            for loc in sassy_matches {
+            for loc in sassy_matches.iter() {
                 println!("{:?}", loc);
             }
         }
@@ -98,11 +110,12 @@ pub fn run(grid_config: &str) {
         // Write row to CSV
         writeln!(
             writer,
-            "{},{},{},{},{},{},{},{},{},{:.6},{:.6}",
+            "{},{},{},{},{},{},{},{},{},{},{:.6},{:.6}",
             param_set.query_length,
             param_set.text_length,
             param_set.k,
-            param_set.matches,
+            edlib_matches.len(),
+            sassy_matches.len(),
             param_set.max_edits,
             param_set.bench_iter,
             format!("{:?}", param_set.alphabet),
@@ -128,19 +141,19 @@ fn get_search_fn(param_set: &ParamSet) -> SearchFn {
     match param_set.profile {
         // IUPAC profile
         "iupac" => {
-            let mut searcher = Searcher::<sassy::profiles::Iupac>::new(rc);
+            let mut searcher = Searcher::<sassy::profiles::Iupac>::new(rc, None);
             Box::new(move |q, t, k| searcher.search(&q, &t, k))
         }
 
         // DNA profile
         "dna" => {
-            let mut searcher = Searcher::<sassy::profiles::Dna>::new(rc);
+            let mut searcher = Searcher::<sassy::profiles::Dna>::new(rc, None);
             Box::new(move |q, t, k| searcher.search(&q, &t, k))
         }
 
         // ASCII profile
         "ascii" => {
-            let mut searcher = Searcher::<sassy::profiles::Ascii>::new(rc);
+            let mut searcher = Searcher::<sassy::profiles::Ascii>::new(rc, None);
             Box::new(move |q, t, k| searcher.search(&q, &t, k))
         }
 
