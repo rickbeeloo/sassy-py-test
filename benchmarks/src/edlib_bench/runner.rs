@@ -8,20 +8,68 @@ use std::io::{BufWriter, Write};
 macro_rules! time_it {
     ($label:expr, $expr:expr, $iters:expr, $pairs:expr) => {{
         let label = $label;
+        const WARMUP_RUNS: usize = 5;
         let mut times = Vec::with_capacity($iters);
         let mut final_result = None;
 
-        for (q, t, _) in $pairs.iter() {
-            let start = std::time::Instant::now();
-            let r = std::hint::black_box($expr(q, t));
-            let elapsed = start.elapsed();
-            times.push(elapsed.as_micros() as f64);
-            final_result = Some(r); // So just the last result, assuming on random data it's approximately the same across pairs
+        // Warmup phase
+        for _ in 0..WARMUP_RUNS {
+            for (q, t, _) in $pairs.iter() {
+                std::hint::black_box($expr(q, t));
+            }
         }
 
-        let mean = times.iter().sum::<f64>() / times.len() as f64;
-        eprintln!("{label:>10} : {:.3}ms", mean / 1000.0);
-        (final_result.unwrap(), mean)
+        // Actual timing phase
+        for (q, t, _) in $pairs.iter() {
+            const SAMPLES_PER_PAIR: usize = 3;
+            let mut pair_times = Vec::with_capacity(SAMPLES_PER_PAIR);
+
+            for _ in 0..SAMPLES_PER_PAIR {
+                let start = std::time::Instant::now();
+                let r = std::hint::black_box($expr(q, t));
+                let elapsed = start.elapsed();
+                // Store in nanoseconds for maximum precision
+                pair_times.push(elapsed.as_nanos() as f64);
+                final_result = Some(r);
+            }
+
+            times.push(
+                pair_times
+                    .into_iter()
+                    .min_by(|a, b| a.partial_cmp(b).unwrap())
+                    .unwrap(),
+            );
+        }
+
+        // Sort times and remove outliers (top and bottom 10%)
+        times.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let trim_size = (times.len() as f64 * 0.1) as usize;
+        let trimmed_times = &times[trim_size..times.len() - trim_size];
+
+        // Calculate median of trimmed times
+        let median = if trimmed_times.len() % 2 == 0 {
+            (trimmed_times[trimmed_times.len() / 2 - 1] + trimmed_times[trimmed_times.len() / 2])
+                / 2.0
+        } else {
+            trimmed_times[trimmed_times.len() / 2]
+        };
+
+        // Calculate standard deviation
+        let mean = trimmed_times.iter().sum::<f64>() / trimmed_times.len() as f64;
+        let variance = trimmed_times
+            .iter()
+            .map(|&x| (x - mean).powi(2))
+            .sum::<f64>()
+            / trimmed_times.len() as f64;
+        let std_dev = variance.sqrt();
+
+        // Convert to ms for display but keep nanosecond precision in the data
+        eprintln!(
+            "{label:>10} : {:.3}ms ± {:.3}ms (median, std dev)",
+            median / 1_000_000.0,
+            std_dev / 1_000_000.0
+        );
+        (final_result.unwrap(), median)
     }};
 }
 
@@ -42,7 +90,7 @@ pub fn run(grid_config: &str) {
     // Write header
     writeln!(
         writer,
-        "query_length,text_length,k,edlib_matches,sassy_matches,max_edits,bench_iter,alphabet,profile,rc,edlib_ms,sassy_ms"
+        "query_length,text_length,k,edlib_matches,sassy_matches,max_edits,bench_iter,alphabet,profile,rc,edlib_ns,sassy_ns"
     ).unwrap();
 
     // Get combinations
@@ -111,7 +159,7 @@ pub fn run(grid_config: &str) {
         // Write row to CSV
         writeln!(
             writer,
-            "{},{},{},{},{},{},{},{},{},{},{:.6},{:.6}",
+            "{},{},{},{},{},{},{},{},{},{},{:.0},{:.0}", // Use .0 to avoid decimal places for ns
             param_set.query_length,
             param_set.text_length,
             param_set.k,
@@ -122,7 +170,7 @@ pub fn run(grid_config: &str) {
             format!("{:?}", param_set.alphabet),
             param_set.profile,
             param_set.rc,
-            edlib_mean_ms,
+            edlib_mean_ms, // These are now in nanoseconds
             sassy_mean_ms
         )
         .unwrap();

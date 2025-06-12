@@ -23,7 +23,7 @@ pub fn run(config: &str) {
     let config: Config = toml::from_str(&toml_str).unwrap();
 
     let query = generate_random_dna_sequence(20);
-    let text = generate_random_dna_sequence(100);
+    let mut text = generate_random_dna_sequence(100);
     let text_len = text.len();
 
     println!(
@@ -34,6 +34,29 @@ pub fn run(config: &str) {
     println!(
         "Text (len: {}): {:?}",
         text_len,
+        String::from_utf8(text.clone()).unwrap()
+    );
+
+    // Insert query segments at specific positions:
+    // 1. At position 10: insert last 10 chars of query (query[10..])
+    // 2. At position 50: insert middle 10 chars of query (query[5..15])
+    // 3. At position 90: insert first 10 chars of query (query[..10])
+
+    // Helper function to insert a segment at a position
+    fn insert_segment_ending_at(text: &mut [u8], end_pos: usize, segment: &[u8]) {
+        let start_pos = end_pos.saturating_sub(segment.len());
+        if start_pos + segment.len() <= text.len() {
+            text[start_pos..end_pos].copy_from_slice(segment);
+        }
+    }
+
+    // Insert the three segments
+    insert_segment_ending_at(&mut text, 10, &query[10..]); // Last 10 chars at pos 10
+    insert_segment_ending_at(&mut text, 50, &query[..]); // All chars
+    insert_segment_ending_at(&mut text, 100, &query[..10]); // First 10 chars at pos 90
+
+    println!(
+        "Text with insert: {:?}",
         String::from_utf8(text.clone()).unwrap()
     );
 
