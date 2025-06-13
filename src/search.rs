@@ -502,6 +502,14 @@ impl<P: Profile> Searcher<P> {
     ) {
         let (p, m) = v.pm();
         let mut cost = cur_cost;
+
+        // Edge case for very start of sequence.
+        if base_pos == 0 {
+            if cost <= k {
+                self.lanes[lane].matches.push((base_pos, cost));
+            }
+        }
+
         // All <=k end points
         for bit in 1..=64 {
             // Update cost based on the P/M bit patterns
