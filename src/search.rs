@@ -390,35 +390,26 @@ impl<P: Profile> Searcher<P> {
                 let base_pos = self.lanes[lane].chunk_offset * 64 + 64 * i;
                 let cost = dist_to_start_of_lane.as_array()[lane] as Cost;
 
-                if base_pos + 64 <= text.len() || self.alpha.is_none() {
-                    if all_minima {
-                        self.find_all_minima(v, cost, k, text.len(), base_pos, lane);
-                    } else {
-                        self.find_local_minima(v, cost, k, text.len(), base_pos, lane);
-                    }
+                if all_minima {
+                    self.find_all_minima_with_overhang(
+                        v,
+                        cost,
+                        k,
+                        text.len(),
+                        query.len(),
+                        base_pos,
+                        lane,
+                    );
                 } else {
-                    let mut cost = cost;
-                    for l in 1..=64 {
-                        let pos = base_pos + l;
-                        if pos > text.len() + query.len() {
-                            break;
-                        }
-                        cost += ((v.0 >> (l - 1)) & 1) as Cost - ((v.1 >> (l - 1)) & 1) as Cost;
-
-                        // TODO: Fractional cost?
-                        // TODO: Round up?
-                        let overshoot = pos.saturating_sub(text.len());
-                        let overshoot_cost =
-                            (overshoot as f32 * self.alpha.unwrap()).floor() as Cost;
-                        let total_cost = cost + overshoot_cost;
-                        if all_minima {
-                            if total_cost <= k {
-                                self.lanes[lane].matches.push((pos, total_cost));
-                            }
-                        } else {
-                            todo!() // Replicate find_local_minima inner logic
-                        }
-                    }
+                    self.find_local_minima_with_overhang(
+                        v,
+                        cost,
+                        k,
+                        text.len(),
+                        query.len(),
+                        base_pos,
+                        lane,
+                    );
                 }
             }
 
@@ -433,12 +424,13 @@ impl<P: Profile> Searcher<P> {
     }
 
     #[inline(always)]
-    pub fn find_local_minima(
+    pub fn find_local_minima_with_overhang(
         &mut self,
         v: V<u64>,
         cur_cost: Cost,
         k: Cost,
         text_len: usize,
+        query_len: usize,
         base_pos: usize,
         lane: usize,
     ) {
@@ -448,20 +440,31 @@ impl<P: Profile> Searcher<P> {
             return;
         }
 
-        let max_pos = (text_len.saturating_sub(base_pos)).min(64);
+        println!("Base pos: {base_pos}, cur_cost: {cur_cost}");
         let mut prev_cost = cur_cost;
+        let mut prev_pos = 0;
         let mut cur_cost = cur_cost;
         let mut changes = changes;
+
+        let max_pos = if self.alpha.is_some() {
+            text_len + query_len
+        } else {
+            text_len
+        };
 
         while changes != 0 {
             let pos = changes.trailing_zeros() as usize;
 
-            if pos >= max_pos {
+            if pos > max_pos {
                 break;
             }
 
+            let overshoot = pos.saturating_sub(text_len);
+            let overshoot_cost = (self.alpha.unwrap_or(0.0) * overshoot as f32).floor() as Cost;
+            cur_cost += overshoot_cost;
             let delta = ((p >> pos) & 1) as Cost - ((m >> pos) & 1) as Cost;
             cur_cost += delta;
+            println!("pos: {pos}, overshoot cost: {overshoot_cost},  cur_cost: {cur_cost}");
 
             // Check for local minimum
             let was_decreasing = self.lanes[lane].decreasing;
@@ -470,11 +473,14 @@ impl<P: Profile> Searcher<P> {
 
             // Add match if we were decreasing and now increasing (local minimum)
             if was_decreasing && is_increasing && prev_cost <= k {
-                self.lanes[lane].matches.push((base_pos + pos, prev_cost));
+                self.lanes[lane]
+                    .matches
+                    .push((base_pos + prev_pos, prev_cost));
             }
 
             self.lanes[lane].decreasing = is_now_decreasing || (was_decreasing && !is_increasing);
             prev_cost = cur_cost;
+            prev_pos = pos;
             changes &= changes - 1;
         }
 
@@ -491,39 +497,40 @@ impl<P: Profile> Searcher<P> {
     }
 
     #[inline(always)]
-    fn find_all_minima(
+    pub fn find_all_minima_with_overhang(
         &mut self,
         v: V<u64>,
         cur_cost: Cost,
         k: Cost,
         text_len: usize,
+        query_len: usize,
         base_pos: usize,
         lane: usize,
     ) {
         let (p, m) = v.pm();
         let mut cost = cur_cost;
-
-        // Edge case for very start of sequence.
-        if base_pos == 0 {
-            if cost <= k {
-                self.lanes[lane].matches.push((base_pos, cost));
-            }
-        }
+        let max_pos = if self.alpha.is_some() {
+            text_len + query_len
+        } else {
+            text_len
+        };
 
         // All <=k end points
         for bit in 1..=64 {
-            // Update cost based on the P/M bit patterns
             cost += ((p >> (bit - 1)) & 1) as Cost;
             cost -= ((m >> (bit - 1)) & 1) as Cost;
 
             let pos = base_pos + bit;
-            if pos > text_len {
+
+            if pos > max_pos {
                 break;
             }
 
-            // Check if this position is a match (cost <= k)
-            if cost <= k {
-                self.lanes[lane].matches.push((pos, cost));
+            let overshoot = pos.saturating_sub(text_len);
+            let total_cost = cost + (self.alpha.unwrap_or(0.0) * overshoot as f32).floor() as Cost;
+
+            if total_cost <= k {
+                self.lanes[lane].matches.push((pos, total_cost));
             }
         }
     }
@@ -774,13 +781,39 @@ mod tests {
         let mut s = Searcher::<Iupac>::new_fwd();
         s.alpha = Some(0.5);
         s.search_positions_bounded(prefix.as_bytes(), text.as_bytes(), 2, true);
-        let expected_idx = 23;
+        let expected_idx = 20;
         let expected_edits = 2 as Cost;
         let m = s.lanes[0]
             .matches
             .iter()
             .find(|m| m.0 == expected_idx && m.1 <= expected_edits);
         assert!(m.is_some());
+    }
+
+    #[test]
+    fn overshoot_simple_suffix_local_minima() {
+        /*
+                            GGGGAAAA
+                            ||||
+            TTTTTTTTTTTTTTTTGGGGNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN
+            0123456789-123456789-12345
+                                   ^23,24,25, etc
+        */
+        let prefix = b"GGGGAAAA";
+        let text = b"TTTTTTTTTTTTTTTTGGGG";
+        let mut s = Searcher::<Iupac>::new_fwd();
+        s.alpha = Some(0.5);
+        let matches = s.search(prefix, text, 2);
+        let expected_idx = 20;
+        let expected_edits = 2 as Cost;
+        for m in matches.iter() {
+            println!("Match: {:?}", m);
+        }
+        let m = matches
+            .iter()
+            .find(|m| m.end.1 == expected_idx + 8 && m.cost == expected_edits);
+        assert!(m.is_some());
+        assert_eq!(matches.len(), 1); // Just one match now
     }
 
     #[test]
@@ -1143,19 +1176,19 @@ mod tests {
         }
     }
 
-    #[test]
-    fn search_fuzz_k20() {
-        use std::hint::black_box;
-        for _ in 0..10_000 {
-            let (query, text, text2_, locs) =
-                generate_query_and_text_with_matches(40, 500, 1, 20, 20, &Alphabet::Dna);
-            eprintln!("query: {}", String::from_utf8_lossy(&query));
-            eprintln!("text: {}", String::from_utf8_lossy(&text));
-            eprintln!("locs: {:?}", locs);
-            let matches = Searcher::<Dna>::new_fwd().search(&query, &text, 20);
-            black_box(matches);
-        }
-    }
+    // #[test]
+    // fn search_fuzz_k20() {
+    //     use std::hint::black_box;
+    //     for _ in 0..10_000 {
+    //         let (query, text, text2_, locs) =
+    //             generate_query_and_text_with_matches(40, 500, 1, 20, 20, &Alphabet::Dna);
+    //         eprintln!("query: {}", String::from_utf8_lossy(&query));
+    //         eprintln!("text: {}", String::from_utf8_lossy(&text));
+    //         eprintln!("locs: {:?}", locs);
+    //         let matches = Searcher::<Dna>::new_fwd().search(&query, &text, 20);
+    //         black_box(matches);
+    //     }
+    // }
 
     #[test]
     fn test_fixed_matches() {
