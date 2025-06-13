@@ -1023,6 +1023,128 @@ mod tests {
         }
     }
 
+    use rand::Rng;
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Copy, Clone, Debug, PartialEq, Deserialize, Serialize)]
+    #[serde(rename_all = "lowercase")]
+    pub enum Alphabet {
+        Dna,
+        Iupac,
+        Ascii,
+    }
+
+    /// Mutate sequence with at most max_edits
+    fn mutate_sequence(sequence: &[u8], min_edits: usize, max_edits: usize) -> Vec<u8> {
+        let mut rng = rand::rng();
+        let mut seq = sequence.to_vec();
+        for _ in 0..rng.random_range(min_edits..=max_edits) {
+            let idx = rng.random_range(0..seq.len());
+            match rng.random_range(0..3) {
+                0 => {
+                    let current = seq[idx];
+                    let mut new_char;
+                    // Keep trying until we get a different character
+                    loop {
+                        new_char = b"ACGT"[rng.random_range(0..4)];
+                        if new_char != current {
+                            break;
+                        }
+                    }
+                    seq[idx] = new_char;
+                }
+                1 if seq.len() > 1 => {
+                    seq.remove(idx);
+                }
+                2 => seq.insert(idx, b"ACGT"[rng.random_range(0..4)]),
+                _ => {}
+            }
+        }
+        seq
+    }
+
+    /// Generate random data with inserted target matches
+    pub fn generate_query_and_text_with_matches(
+        ql: usize,
+        tl: usize,
+        num: usize,
+        min_edits: usize,
+        max_edits: usize,
+        alphabet: &Alphabet,
+    ) -> (Vec<u8>, Vec<u8>, Vec<u8>, Vec<(usize, usize)>) {
+        let mut rng = rand::rng();
+        let query = generate_random_sequence(ql, alphabet, None); // Some("A"));
+
+        // Get the original text, where we insert NUM queries
+        let mut text_base = generate_random_sequence(tl, alphabet, None); // Some("G"));
+
+        let mut locs = Vec::new();
+        for _ in 0..num {
+            let m = mutate_sequence(&query, min_edits, max_edits);
+            if m.len() > text_base.len() {
+                continue;
+            }
+            let max_start = text_base.len() - m.len();
+            for _ in 0..10 {
+                let start = rng.random_range(0..=max_start);
+                let end = start + m.len();
+                if locs.iter().all(|&(s, e)| end <= s || start >= e) {
+                    text_base.splice(start..end, m.iter().cloned());
+                    locs.push((start, end));
+                    break;
+                }
+            }
+        }
+
+        // Insert one query extra, at a random location keep trying until we find a location that doesn't overlap with any of the existing matches
+        let mut text_with_insert = text_base.clone();
+        let max_start = text_base.len() - query.len();
+        loop {
+            let start = rng.random_range(0..=max_start);
+            let end = start + query.len();
+            if locs.iter().all(|&(s, e)| end <= s || start >= e) {
+                text_with_insert.splice(start..end, query.iter().cloned());
+                break;
+            }
+        }
+
+        (query, text_base, text_with_insert, locs)
+    }
+
+    /// Generate random dna sequence of length "length" with alphabet
+    fn generate_random_sequence(length: usize, alphabet: &Alphabet, bias: Option<&str>) -> Vec<u8> {
+        let mut rng = rand::rng();
+        // If there is bias just repeat the bias character length times
+        if let Some(bias) = bias {
+            return vec![bias.as_bytes()[0]; length];
+        }
+        match alphabet {
+            Alphabet::Dna => (0..length)
+                .map(|_| b"ACGT"[rng.random_range(0..4)])
+                .collect(),
+            Alphabet::Iupac => (0..length)
+                .map(|_| b"ACGTURYSWKMBDHVNX"[rng.random_range(0..16)])
+                .collect(),
+            Alphabet::Ascii => (0..length)
+                .map(|_| rng.random_range(0..256) as u8)
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn search_fuzz_k20() {
+        use std::hint::black_box;
+        for _ in 0..10_000 {
+            let (query, text, text2_, locs) =
+                generate_query_and_text_with_matches(40, 500, 1, 20, 20, &Alphabet::Dna);
+            eprintln!("query: {}", String::from_utf8_lossy(&query));
+            eprintln!("text: {}", String::from_utf8_lossy(&text));
+            eprintln!("locs: {:?}", locs);
+            let matches = Searcher::<Dna>::new_fwd().search(&query, &text, 20);
+            black_box(matches);
+        }
+    }
+
     #[test]
     fn test_fixed_matches() {
         let query = b"ATCGATCA";

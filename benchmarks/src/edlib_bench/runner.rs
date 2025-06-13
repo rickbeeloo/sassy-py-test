@@ -5,71 +5,58 @@ use sassy::search::{Match, Searcher};
 use std::fs::OpenOptions;
 use std::io::{BufWriter, Write};
 
+fn remove_10_percent_outliers(times: &mut Vec<f64>) {
+    times.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let trim_size = (times.len() as f64 * 0.1) as usize;
+    let trimmed_times = &times[trim_size..times.len() - trim_size];
+    *times = trimmed_times.to_vec();
+}
+
 macro_rules! time_it {
     ($label:expr, $expr:expr, $iters:expr, $pairs:expr) => {{
         let label = $label;
         const WARMUP_RUNS: usize = 5;
-        let mut times = Vec::with_capacity($iters);
+        const SAMPLES_PER_PAIR: usize = 3;
         let mut final_result = None;
+
+        let mut base_times = Vec::with_capacity($iters);
+        let mut plus_one_times = Vec::with_capacity($iters);
 
         // Warmup phase
         for _ in 0..WARMUP_RUNS {
-            for (q, t, _) in $pairs.iter() {
+            for (q, t, _, _) in $pairs.iter() {
                 std::hint::black_box($expr(q, t));
             }
         }
 
-        // Actual timing phase
-        for (q, t, _) in $pairs.iter() {
-            const SAMPLES_PER_PAIR: usize = 3;
-            let mut pair_times = Vec::with_capacity(SAMPLES_PER_PAIR);
-
+        for (q, t, t_plus_one_q, _) in $pairs.iter() {
             for _ in 0..SAMPLES_PER_PAIR {
+                // Run base case
                 let start = std::time::Instant::now();
                 let r = std::hint::black_box($expr(q, t));
                 let elapsed = start.elapsed();
-                // Store in nanoseconds for maximum precision
-                pair_times.push(elapsed.as_nanos() as f64);
+                base_times.push(elapsed.as_nanos() as f64);
                 final_result = Some(r);
-            }
 
-            times.push(
-                pair_times
-                    .into_iter()
-                    .min_by(|a, b| a.partial_cmp(b).unwrap())
-                    .unwrap(),
-            );
+                // Run base case + 1 extra query
+                let start = std::time::Instant::now();
+                let r = std::hint::black_box($expr(q, t_plus_one_q));
+                let elapsed = start.elapsed();
+                plus_one_times.push(elapsed.as_nanos() as f64);
+            }
         }
 
-        // Sort times and remove outliers (top and bottom 10%)
-        times.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        let trim_size = (times.len() as f64 * 0.1) as usize;
-        let trimmed_times = &times[trim_size..times.len() - trim_size];
+        // Then we also subtract the plus one from base times to get the extra time for one more match
+        let mut base_minus_plus_one: Vec<f64> = base_times.iter().zip(plus_one_times.iter()).map(|(b, p)| b - p).collect();
 
-        // Calculate median of trimmed times
-        let median = if trimmed_times.len() % 2 == 0 {
-            (trimmed_times[trimmed_times.len() / 2 - 1] + trimmed_times[trimmed_times.len() / 2])
-                / 2.0
-        } else {
-            trimmed_times[trimmed_times.len() / 2]
-        };
+        // For the base times we remove the top and bottom 10% outliers
+        remove_10_percent_outliers(&mut base_times);
+        remove_10_percent_outliers(&mut base_minus_plus_one);
 
-        // Calculate standard deviation
-        let mean = trimmed_times.iter().sum::<f64>() / trimmed_times.len() as f64;
-        let variance = trimmed_times
-            .iter()
-            .map(|&x| (x - mean).powi(2))
-            .sum::<f64>()
-            / trimmed_times.len() as f64;
-        let std_dev = variance.sqrt();
+        let base_mean = base_times.iter().sum::<f64>() / base_times.len() as f64;
+        let base_minus_plus_one_mean = base_minus_plus_one.iter().sum::<f64>() / base_minus_plus_one.len() as f64;
 
-        // Convert to ms for display but keep nanosecond precision in the data
-        eprintln!(
-            "{label:>10} : {:.3}ms ± {:.3}ms (median, std dev)",
-            median / 1_000_000.0,
-            std_dev / 1_000_000.0
-        );
-        (final_result.unwrap(), median)
+        (final_result.unwrap(), base_mean, base_minus_plus_one_mean)
     }};
 }
 
@@ -90,7 +77,7 @@ pub fn run(grid_config: &str) {
     // Write header
     writeln!(
         writer,
-        "query_length,text_length,k,edlib_matches,sassy_matches,max_edits,bench_iter,alphabet,profile,rc,edlib_ns,sassy_ns"
+        "query_length,text_length,k,edlib_matches,sassy_matches,max_edits,bench_iter,alphabet,profile,rc,edlib_ns,edlib_ns_plus_one,sassy_ns,sassy_ns_plus_one"
     ).unwrap();
 
     // Get combinations
@@ -115,27 +102,27 @@ pub fn run(grid_config: &str) {
             .collect();
 
         // Running Edlib
-        let (edlib_matches, edlib_mean_ms) = if param_set.edlib {
+        let (edlib_matches, edlib_mean_ms, edlib_plus_one_ms) = if param_set.edlib {
             let edlib_config = get_edlib_config(param_set.k as i32, &param_set.alphabet);
-            let (r, ms) = time_it!(
+            let (r, ms, ms_plus_one) = time_it!(
                 "edlib",
-                |q, t| run_edlib(q, t, &edlib_config),
+                |q, t| { run_edlib(q, t, &edlib_config) },
                 bench_iter,
                 &pairs
             );
             let edlib_matches = r.startLocations.unwrap_or(vec![]);
-            (edlib_matches, ms)
+            (edlib_matches, ms, ms_plus_one)
         } else {
-            (vec![], 0.0)
+            (vec![], 0.0, 0.0)
         };
 
         // Get the correct search function (not timed)
         let mut search_fn = get_search_fn(&param_set);
 
         // Now time the search
-        let (sassy_matches, sassy_mean_ms) = time_it!(
+        let (sassy_matches, sassy_mean_ms, sassy_plus_one_ms) = time_it!(
             "sassy",
-            |q, t| search_fn(q, t, param_set.k),
+            |q, t| { search_fn(q, t, param_set.k) },
             bench_iter,
             &pairs
         );
@@ -159,7 +146,7 @@ pub fn run(grid_config: &str) {
         // Write row to CSV
         writeln!(
             writer,
-            "{},{},{},{},{},{},{},{},{},{},{:.0},{:.0}", // Use .0 to avoid decimal places for ns
+            "{},{},{},{},{},{},{},{},{},{},{:.0},{:.0},{:.0},{:.0}", // Added one more .0 for plus_one_ms
             param_set.query_length,
             param_set.text_length,
             param_set.k,
@@ -170,8 +157,10 @@ pub fn run(grid_config: &str) {
             format!("{:?}", param_set.alphabet),
             param_set.profile,
             param_set.rc,
-            edlib_mean_ms, // These are now in nanoseconds
-            sassy_mean_ms
+            edlib_mean_ms,
+            edlib_plus_one_ms,
+            sassy_mean_ms,
+            sassy_plus_one_ms
         )
         .unwrap();
     }

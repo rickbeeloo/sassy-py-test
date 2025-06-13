@@ -17,33 +17,53 @@ pub fn generate_query_and_text_with_matches(
     min_edits: usize,
     max_edits: usize,
     alphabet: &Alphabet,
-) -> (Vec<u8>, Vec<u8>, Vec<(usize, usize)>) {
+) -> (Vec<u8>, Vec<u8>, Vec<u8>, Vec<(usize, usize)>) {
     let mut rng = rand::rng();
-    let query = generate_random_sequence(ql, alphabet);
-    let mut text = generate_random_sequence(tl, alphabet);
+    let query = generate_random_sequence(ql, alphabet, None); // Some("A"));
+
+    // Get the original text, where we insert NUM queries
+    let mut text_base = generate_random_sequence(tl, alphabet, None); // Some("G"));
+
     let mut locs = Vec::new();
     for _ in 0..num {
         let m = mutate_sequence(&query, min_edits, max_edits);
-        if m.len() > text.len() {
+        if m.len() > text_base.len() {
             continue;
         }
-        let max_start = text.len() - m.len();
+        let max_start = text_base.len() - m.len();
         for _ in 0..10 {
             let start = rng.random_range(0..=max_start);
             let end = start + m.len();
             if locs.iter().all(|&(s, e)| end <= s || start >= e) {
-                text.splice(start..end, m.iter().cloned());
+                text_base.splice(start..end, m.iter().cloned());
                 locs.push((start, end));
                 break;
             }
         }
     }
-    (query, text, locs)
+
+    // Insert one query extra, at a random location keep trying until we find a location that doesn't overlap with any of the existing matches
+    let mut text_with_insert = text_base.clone();
+    let max_start = text_base.len() - query.len();
+    loop {
+        let start = rng.random_range(0..=max_start);
+        let end = start + query.len();
+        if locs.iter().all(|&(s, e)| end <= s || start >= e) {
+            text_with_insert.splice(start..end, query.iter().cloned());
+            break;
+        }
+    }
+
+    (query, text_base, text_with_insert, locs)
 }
 
 /// Generate random dna sequence of length "length" with alphabet
-fn generate_random_sequence(length: usize, alphabet: &Alphabet) -> Vec<u8> {
+fn generate_random_sequence(length: usize, alphabet: &Alphabet, bias: Option<&str>) -> Vec<u8> {
     let mut rng = rand::rng();
+    // If there is bias just repeat the bias character length times
+    if let Some(bias) = bias {
+        return vec![bias.as_bytes()[0]; length];
+    }
     match alphabet {
         Alphabet::Dna => (0..length)
             .map(|_| b"ACGT"[rng.random_range(0..4)])
@@ -122,14 +142,16 @@ mod test {
 
     #[test]
     fn test_random_data_single_match_no_edits() {
-        let (q, t, locs) = generate_query_and_text_with_matches(10, 100, 1, 0, 0, &Alphabet::Dna);
+        let (q, t, t_plus_one_q, locs) =
+            generate_query_and_text_with_matches(10, 100, 1, 0, 0, &Alphabet::Dna);
         let (s, e) = locs[0];
         assert_eq!(q, t[s..e]);
     }
 
     #[test]
     fn test_random_data_single_match_1_edit() {
-        let (q, t, locs) = generate_query_and_text_with_matches(10, 100, 1, 1, 1, &Alphabet::Dna);
+        let (q, t, t_plus_one_q, locs) =
+            generate_query_and_text_with_matches(10, 100, 1, 1, 1, &Alphabet::Dna);
         let (s, e) = locs[0];
         assert_ne!(q, t[s..e]);
         // Get actual edits using edlib wrapper
@@ -139,7 +161,8 @@ mod test {
 
     #[test]
     fn test_random_two_matches() {
-        let (q, t, locs) = generate_query_and_text_with_matches(10, 100, 2, 1, 1, &Alphabet::Dna);
+        let (q, t, t_plus_one_q, locs) =
+            generate_query_and_text_with_matches(10, 100, 2, 1, 1, &Alphabet::Dna);
         assert_eq!(locs.len(), 2);
         for loc in locs {
             let (s, e) = loc;
