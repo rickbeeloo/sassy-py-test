@@ -479,7 +479,11 @@ impl<P: Profile> Searcher<P> {
         }
 
         // Check final position
-        if self.lanes[lane].decreasing && cur_cost <= k && base_pos + 64 >= text_len {
+        if self.lanes[lane].decreasing
+            && cur_cost <= k
+            && base_pos < text_len
+            && base_pos + 64 >= text_len
+        {
             self.lanes[lane]
                 .matches
                 .push(((base_pos + 64).min(text_len), cur_cost));
