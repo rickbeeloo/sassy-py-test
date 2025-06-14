@@ -602,9 +602,11 @@ impl<P: Profile> Searcher<P> {
 
                         assert!(
                             m.cost <= k as Cost,
-                            "Match has cost {} > {}: {m:?}",
+                            "Match has cost {} > {}: {m:?}\nQuery: {}\nText: {}\n",
                             m.cost,
-                            k
+                            k,
+                            String::from_utf8_lossy(query),
+                            String::from_utf8_lossy(text_slices[i])
                         );
                         traces.push(m);
                     }
@@ -637,9 +639,11 @@ impl<P: Profile> Searcher<P> {
 
                     assert!(
                         m.cost <= k as Cost,
-                        "Match has cost {} > {}: {m:?}",
+                        "Match has cost {} > {}: {m:?}\nQuery: {}\nText: {}\n",
                         m.cost,
-                        k
+                        k,
+                        String::from_utf8_lossy(query),
+                        String::from_utf8_lossy(text_slices[i])
                     );
                     traces.push(m);
                 }
@@ -662,9 +666,11 @@ impl<P: Profile> Searcher<P> {
 
                 assert!(
                     m.cost <= k as Cost,
-                    "Match has cost {} > {}: {m:?}",
+                    "Match has cost {} > {}: {m:?}\nQuery: {}\nText: {}\n",
                     m.cost,
-                    k
+                    k,
+                    String::from_utf8_lossy(query),
+                    String::from_utf8_lossy(text_slices[i])
                 );
                 traces.push(m);
             }
