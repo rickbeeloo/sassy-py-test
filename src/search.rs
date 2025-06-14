@@ -467,7 +467,11 @@ impl<P: Profile> Searcher<P> {
             return;
         }
 
-        let mut prev_cost = cur_cost;
+        let mut prev_cost = {
+            let overshoot = base_pos.saturating_sub(text_len);
+            let overshoot_cost = (self.alpha.unwrap_or(0.0) * overshoot as f32).floor() as Cost;
+            cur_cost + overshoot_cost
+        };
         let mut prev_pos = base_pos;
         let mut cur_cost = cur_cost;
 
