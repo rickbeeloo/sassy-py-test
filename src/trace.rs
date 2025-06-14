@@ -166,9 +166,13 @@ pub fn get_trace<P: Profile>(
 
     let mut cigar = Cigar::default();
 
+    let mut query_start = 0;
+    let mut query_end = query.len();
+
     // Overshoot at end.
     if i > text.len() {
         let overshoot = i - text.len();
+        query_end -= overshoot;
         let overshoot_cost = (overshoot as f32 * alpha.unwrap()).floor() as Cost;
 
         total_cost += overshoot_cost;
@@ -187,8 +191,10 @@ pub fn get_trace<P: Profile>(
         if i == 0
             && let Some(alpha) = alpha
         {
+            let overshoot = j;
+            query_start = overshoot;
             // Overshoot at start.
-            let overshoot_cost = (j as f32 * alpha).floor() as Cost;
+            let overshoot_cost = (overshoot as f32 * alpha).floor() as Cost;
             g -= overshoot_cost;
             break;
         }
@@ -234,8 +240,8 @@ pub fn get_trace<P: Profile>(
 
     Match {
         cost: total_cost,
-        start: Pos(0, (text_offset + i) as I),
-        end: Pos(query.len() as I, (text_offset + text.len()) as I),
+        start: Pos(query_start as I, (text_offset + i) as I),
+        end: Pos(query_end as I, (text_offset + text.len()) as I),
         strand: Strand::Fwd,
         cigar,
     }
