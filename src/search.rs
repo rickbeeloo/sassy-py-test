@@ -1,5 +1,4 @@
 use crate::minima::prefix_min;
-pub use crate::minima::{find_all_minima, find_local_minima};
 use crate::profiles::Profile;
 use crate::trace::{CostMatrix, fill, get_trace, simd_fill};
 use crate::{LANES, S};
@@ -1347,6 +1346,8 @@ mod tests {
         let matches = searcher.search(query, text, 0);
         let path = matches[0].to_path();
         assert_eq!(path, vec![Pos(0, 4), Pos(1, 5), Pos(2, 6), Pos(3, 7)]);
+        // Ends are exclusive
+        assert_eq!(matches[0].end, *path.last().unwrap() + Pos(1, 1));
     }
 
     #[test]
@@ -1360,6 +1361,8 @@ mod tests {
             path,
             vec![Pos(0, 4), Pos(1, 5), Pos(1, 6), Pos(2, 7), Pos(3, 8)]
         );
+        // Ends are exclusive
+        assert_eq!(matches[0].end, *path.last().unwrap() + Pos(1, 1));
     }
 
     #[test]
@@ -1372,6 +1375,8 @@ mod tests {
         let path = matches[0].to_path();
         // This "skips" the first 4 character of the query as they are in the overhang
         assert_eq!(path, vec![Pos(4, 0), Pos(5, 1), Pos(6, 2), Pos(7, 3)]);
+        // Ends are exclusive
+        assert_eq!(matches[0].end, *path.last().unwrap() + Pos(1, 1));
     }
 
     #[test]
@@ -1381,7 +1386,10 @@ mod tests {
         let mut searcher = Searcher::<Iupac>::new_fwd_with_overhang(0.5);
         searcher.alpha = Some(0.5);
         let matches = searcher.search(query, text, 2);
+        println!("matches: {:?}", matches);
         let path = matches[0].to_path();
         assert_eq!(path, vec![Pos(0, 7), Pos(1, 8), Pos(2, 9), Pos(3, 10)]);
+        // Ends are exclusive
+        assert_eq!(matches[0].end, *path.last().unwrap() + Pos(1, 1));
     }
 }

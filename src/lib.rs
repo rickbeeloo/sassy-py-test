@@ -22,7 +22,7 @@ mod trace;
 
 #[doc(hidden)]
 pub mod private {
-    pub use crate::minima::{prefix_min, prefix_min_k, prefix_min_k_simd};
+    pub use crate::minima::prefix_min;
 }
 
 #[cfg(feature = "avx512")]

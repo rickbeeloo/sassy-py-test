@@ -288,8 +288,6 @@ fn benchmark_prefix_min(c: &mut Criterion) {
 
     use pa_types::Cost;
     use sassy::private::prefix_min;
-    use sassy::private::prefix_min_k;
-    use sassy::private::prefix_min_k_simd;
 
     // Generate 100 random test pairs where p and m have no overlapping bits
     let mut rng = rand::rng();
@@ -306,34 +304,6 @@ fn benchmark_prefix_min(c: &mut Criterion) {
         b.iter(|| {
             for &(p, m, _) in &test_pairs {
                 let result = prefix_min(black_box(p), black_box(m));
-                black_box(result);
-            }
-        })
-    });
-
-    group.bench_function("prefix_min_k", |b| {
-        b.iter(|| {
-            for &(p, m, start_cost) in &test_pairs {
-                let result = prefix_min_k(
-                    black_box(start_cost),
-                    black_box(p),
-                    black_box(m),
-                    black_box(k),
-                );
-                black_box(result);
-            }
-        })
-    });
-
-    group.bench_function("prefix_min_k_simd", |b| {
-        b.iter(|| {
-            for &(p, m, start_cost) in &test_pairs {
-                let result = prefix_min_k_simd(
-                    black_box(start_cost),
-                    black_box(p),
-                    black_box(m),
-                    black_box(k),
-                );
                 black_box(result);
             }
         })
