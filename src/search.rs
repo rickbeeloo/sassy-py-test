@@ -608,6 +608,7 @@ impl<P: Profile> Searcher<P> {
                             String::from_utf8_lossy(query),
                             String::from_utf8_lossy(text_slices[i])
                         );
+
                         traces.push(m);
                     }
                     num_slices = 0;
@@ -1397,5 +1398,65 @@ mod tests {
         assert_eq!(path, vec![Pos(0, 7), Pos(1, 8), Pos(2, 9), Pos(3, 10)]);
         // Ends are exclusive
         assert_eq!(matches[0].end, *path.last().unwrap() + Pos(1, 1));
+    }
+
+    #[test]
+    fn test_random_queries_60_range() {
+        use rand::Rng;
+        let mut rng = rand::thread_rng();
+        let mut i = 0;
+
+        loop {
+            let mut searcher = Searcher::<Iupac>::new_rc_with_overhang(0.4);
+
+            // Generate random query of length 126
+            let query: Vec<u8> = (0..126).map(|_| b"ACGT"[rng.gen_range(0..4)]).collect();
+
+            // Generate random text length between 62-90
+            let text_len = rng.gen_range(62..91);
+            let text: Vec<u8> = (0..text_len)
+                .map(|_| b"ACGT"[rng.gen_range(0..4)])
+                .collect();
+
+            // Use k as half of query length
+            let k = query.len() / 2;
+
+            let matches = searcher.search(&query, &text, k);
+
+            // Print every 1000 iterations
+            i += 1;
+            println!(
+                "Iteration {}: Q={}, T={}, k={}, matches={}\nQuery: {}\nText: {}",
+                i,
+                query.len(),
+                text.len(),
+                k,
+                matches.len(),
+                String::from_utf8_lossy(&query),
+                String::from_utf8_lossy(&text)
+            );
+
+            // Verify matches
+            for m in matches {
+                assert!(
+                    m.cost <= k as Cost,
+                    "Match has cost {} > {}: {m:?}\nQuery: {}\nText: {}\n",
+                    m.cost,
+                    k,
+                    String::from_utf8_lossy(&query),
+                    String::from_utf8_lossy(&text)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_case3() {
+        let query = b"ACTGATTAGGAGGATTTGCGTTACATTACATAGGGGAGCTTTTTATATATTCACCCACGATTAGTCTTAGTGCTTTTTAATAAAATAAGCTCTATGTGTTATAGTCTGATAAAGATACCCACCTGT";
+        let text = b"TCCCCGTAACTTATGAAGAAGTCGGCTGGGCCTCGTTGAAACTTGTGCTGAATCAGGTTTTGGGTTCGATAGACCCAAAGAGCGGGGGG";
+        let mut searcher = Searcher::<Iupac>::new_rc(); //_with_overhang(0.4);
+        searcher.alpha = Some(0.5);
+        let matches = searcher.search(query, &text, 63);
+        println!("Matches: {:?}", matches);
     }
 }
