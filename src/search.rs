@@ -435,16 +435,14 @@ impl<P: Profile> Searcher<P> {
         lane: usize,
     ) {
         let (p, m) = v.pm();
-        let changes = p | m;
+        let mut changes = p | m;
         if changes == 0 {
             return;
         }
 
-        println!("Base pos: {base_pos}, cur_cost: {cur_cost}");
         let mut prev_cost = cur_cost;
-        let mut prev_pos = 0;
+        let mut prev_pos = base_pos;
         let mut cur_cost = cur_cost;
-        let mut changes = changes;
 
         let max_pos = if self.alpha.is_some() {
             text_len + query_len
@@ -452,47 +450,44 @@ impl<P: Profile> Searcher<P> {
             text_len
         };
 
-        while changes != 0 {
-            let pos = changes.trailing_zeros() as usize;
+        if base_pos >= max_pos {
+            return;
+        }
 
+        while changes != 0 {
+            let idx = changes.trailing_zeros() as usize;
+
+            let pos = base_pos + idx + 1;
             if pos > max_pos {
                 break;
             }
 
+            let delta = ((p >> idx) & 1) as Cost - ((m >> idx) & 1) as Cost;
+            cur_cost += delta;
+
             let overshoot = pos.saturating_sub(text_len);
             let overshoot_cost = (self.alpha.unwrap_or(0.0) * overshoot as f32).floor() as Cost;
-            cur_cost += overshoot_cost;
-            let delta = ((p >> pos) & 1) as Cost - ((m >> pos) & 1) as Cost;
-            cur_cost += delta;
-            println!("pos: {pos}, overshoot cost: {overshoot_cost},  cur_cost: {cur_cost}");
+            let here_cost = cur_cost + overshoot_cost;
 
             // Check for local minimum
             let was_decreasing = self.lanes[lane].decreasing;
-            let is_increasing = cur_cost > prev_cost;
-            let is_now_decreasing = cur_cost < prev_cost;
+            let is_increasing = here_cost > prev_cost;
+            let is_now_decreasing = here_cost < prev_cost;
 
             // Add match if we were decreasing and now increasing (local minimum)
             if was_decreasing && is_increasing && prev_cost <= k {
-                self.lanes[lane]
-                    .matches
-                    .push((base_pos + prev_pos, prev_cost));
+                self.lanes[lane].matches.push((prev_pos, prev_cost));
             }
 
             self.lanes[lane].decreasing = is_now_decreasing || (was_decreasing && !is_increasing);
-            prev_cost = cur_cost;
+            prev_cost = here_cost;
             prev_pos = pos;
             changes &= changes - 1;
         }
 
         // Check final position
-        if self.lanes[lane].decreasing
-            && cur_cost <= k
-            && base_pos < text_len
-            && base_pos + 64 >= text_len
-        {
-            self.lanes[lane]
-                .matches
-                .push(((base_pos + 64).min(text_len), cur_cost));
+        if self.lanes[lane].decreasing && prev_cost <= k && base_pos + 64 >= max_pos {
+            self.lanes[lane].matches.push((prev_pos, prev_cost));
         }
     }
 
@@ -781,7 +776,7 @@ mod tests {
         let mut s = Searcher::<Iupac>::new_fwd();
         s.alpha = Some(0.5);
         s.search_positions_bounded(prefix.as_bytes(), text.as_bytes(), 2, true);
-        let expected_idx = 20;
+        let expected_idx = 24;
         let expected_edits = 2 as Cost;
         let m = s.lanes[0]
             .matches
@@ -803,15 +798,15 @@ mod tests {
         let text = b"TTTTTTTTTTTTTTTTGGGG";
         let mut s = Searcher::<Iupac>::new_fwd();
         s.alpha = Some(0.5);
-        let matches = s.search(prefix, text, 2);
-        let expected_idx = 20;
+        let matches = s.search(prefix, text, 4);
+        let expected_end_pos = Pos(4, 20);
         let expected_edits = 2 as Cost;
         for m in matches.iter() {
             println!("Match: {:?}", m);
         }
         let m = matches
             .iter()
-            .find(|m| m.end.1 == expected_idx + 8 && m.cost == expected_edits);
+            .find(|m| m.end == expected_end_pos && m.cost == expected_edits);
         assert!(m.is_some());
         assert_eq!(matches.len(), 1); // Just one match now
     }
