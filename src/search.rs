@@ -670,7 +670,7 @@ impl<P: Profile> Searcher<P> {
                     m.cost,
                     k,
                     String::from_utf8_lossy(query),
-                    String::from_utf8_lossy(text_slices[i])
+                    String::from_utf8_lossy(text_slices[0])
                 );
                 traces.push(m);
             }
