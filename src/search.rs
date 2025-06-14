@@ -7,7 +7,7 @@ use crate::{
     bitpacking::compute_block_simd,
     delta_encoding::{V, VEncoding},
 };
-use pa_types::{Cigar, Cost, Pos};
+use pa_types::{Cigar, CigarOp, Cost, Pos};
 use std::borrow::Cow;
 use std::simd::cmp::SimdPartialOrd;
 
@@ -20,6 +20,26 @@ pub struct Match {
     pub cost: Cost,
     pub strand: Strand,
     pub cigar: Cigar,
+}
+
+impl Match {
+    pub fn to_path(&self) -> Vec<Pos> {
+        let mut pos = self.start;
+        let mut path = vec![pos];
+        for el in &self.cigar.ops {
+            for _ in 0..el.cnt {
+                pos += match el.op {
+                    CigarOp::Match => Pos(1, 1),
+                    CigarOp::Sub => Pos(1, 1),
+                    CigarOp::Del => Pos(1, 0),
+                    CigarOp::Ins => Pos(0, 1),
+                };
+                path.push(pos);
+            }
+        }
+        path.pop();
+        path
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1310,5 +1330,58 @@ mod tests {
             assert!(found[1], "Expected suffix overlap not found");
         }
         eprintln!("Passed: {} (skipped: {})", iter - skipped, skipped);
+    }
+
+    use pa_types::*;
+
+    #[test]
+    fn test_query_trace_path_0_edits() {
+        /*
+           Q:     ATGC
+           T: GGGGATGCGGG
+              0123456789*
+        */
+        let query = b"ATGC";
+        let text = b"GGGGATGCGGG";
+        let mut searcher = Searcher::<Dna>::new_fwd();
+        let matches = searcher.search(query, text, 0);
+        let path = matches[0].to_path();
+        assert_eq!(path, vec![Pos(0, 4), Pos(1, 5), Pos(2, 6), Pos(3, 7)]);
+    }
+
+    #[test]
+    fn test_query_trace_path_1_edits() {
+        let query = b"ATGC";
+        let text = b"GGGGATTGCGGG";
+        let mut searcher = Searcher::<Dna>::new_fwd();
+        let matches = searcher.search(query, text, 1);
+        let path = matches[0].to_path();
+        assert_eq!(
+            path,
+            vec![Pos(0, 4), Pos(1, 5), Pos(1, 6), Pos(2, 7), Pos(3, 8)]
+        );
+    }
+
+    #[test]
+    fn test_query_trace_path_with_overhang_prefix() {
+        let query = b"ATCGATCG";
+        let text = b"ATCGGGGGGGGGG"; // half of query removed at start
+        let mut searcher = Searcher::<Iupac>::new_fwd_with_overhang(0.5);
+        searcher.alpha = Some(0.5);
+        let matches = searcher.search(query, text, 2);
+        let path = matches[0].to_path();
+        // This "skips" the first 4 character of the query as they are in the overhang
+        assert_eq!(path, vec![Pos(4, 0), Pos(5, 1), Pos(6, 2), Pos(7, 3)]);
+    }
+
+    #[test]
+    fn test_query_trace_path_with_overhang_suffix() {
+        let query = b"ATCGATCG";
+        let text = b"GGGGGGGATCG"; // half of query removed at end
+        let mut searcher = Searcher::<Iupac>::new_fwd_with_overhang(0.5);
+        searcher.alpha = Some(0.5);
+        let matches = searcher.search(query, text, 2);
+        let path = matches[0].to_path();
+        assert_eq!(path, vec![Pos(0, 7), Pos(1, 8), Pos(2, 9), Pos(3, 10)]);
     }
 }
