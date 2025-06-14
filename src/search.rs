@@ -1441,7 +1441,7 @@ mod tests {
         let mut rng = rand::thread_rng();
         let mut i = 0;
 
-        loop {
+        for _ in 0..10000 {
             let mut searcher = Searcher::<Iupac>::new_rc_with_overhang(0.4);
 
             // Generate random query of length 126
