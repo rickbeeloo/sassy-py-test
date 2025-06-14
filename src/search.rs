@@ -151,17 +151,25 @@ impl<P: Profile> Searcher<P> {
         Self::new(true, None)
     }
 
-    pub fn new_fwd_with_overhang(alpha: f32) -> Self {
+    fn _overhang_check(alpha: f32) {
         if !P::supports_overhang() {
             panic!(
                 "Overhang is not supported for {:?}",
                 std::any::type_name::<P>()
             );
         }
+        if !(0.0..=1.0).contains(&alpha) {
+            panic!("Alpha must be in range 0.0 <= alpha <= 1.0");
+        }
+    }
+
+    pub fn new_fwd_with_overhang(alpha: f32) -> Self {
+        Self::_overhang_check(alpha);
         Self::new(false, Some(alpha))
     }
 
     pub fn new_rc_with_overhang(alpha: f32) -> Self {
+        Self::_overhang_check(alpha);
         Self::new(true, Some(alpha))
     }
 
@@ -262,7 +270,7 @@ impl<P: Profile> Searcher<P> {
                 });
             });
         }
-        self.process_matches(query, text, k)
+        self.process_matches(query, text, k as Cost)
     }
 
     #[inline(always)]
@@ -549,134 +557,157 @@ impl<P: Profile> Searcher<P> {
         }
     }
 
-    fn process_matches(&mut self, query: &[u8], text: &[u8], k: usize) -> Vec<Match> {
+    fn process_matches(&mut self, query: &[u8], text: &[u8], k: Cost) -> Vec<Match> {
         let mut traces = Vec::new();
-        let fill_len = query.len() + k;
+        let fill_len = query.len() + k as usize;
         let mut last_processed_pos = 0;
-        let mut text_slices = [[].as_slice(); LANES];
-        let mut offsets = [0; LANES];
-        let mut ends = [0; LANES];
-        let mut num_slices = 0;
 
         for m in &mut self.cost_matrices {
             m.alpha = self.alpha;
         }
 
-        // We "pull" matches from each lane (left>right). As soon as we collect LANES slices
-        // we use SIMD fill to compute the costs and traceback the path
+        // Collect slices to process in batches
+        let mut batch = MatchBatch::new();
+
         for lane in 0..LANES {
-            for &(end_pos, _) in &self.lanes[lane].matches {
-                // FIXME: We could be slightly more precise, and instead discard
-                // up to the true end col of the overlap.
+            for &(end_pos, cost) in &self.lanes[lane].matches {
                 if end_pos <= last_processed_pos {
                     continue;
                 }
 
-                ends[num_slices] = end_pos;
                 let offset = end_pos.saturating_sub(fill_len);
-                offsets[num_slices] = offset;
-                text_slices[num_slices] = &text[offset..end_pos.min(text.len())];
-                num_slices += 1;
+                let slice = &text[offset..end_pos.min(text.len())];
 
-                // Process when we have a full chunk
-                if num_slices == LANES {
-                    // Fill cost matrices for all lanes
-                    simd_fill::<P>(
+                batch.add(slice, offset, end_pos, cost);
+
+                if batch.is_full() {
+                    traces.extend(batch.process::<P>(
                         query,
-                        &text_slices[..num_slices],
                         fill_len,
                         &mut self.cost_matrices,
                         self.alpha,
-                    );
-
-                    // Process matches
-                    for i in 0..num_slices {
-                        let m = get_trace::<P>(
-                            query,
-                            offsets[i],
-                            ends[i],
-                            text_slices[i],
-                            &self.cost_matrices[i],
-                            self.alpha,
-                        );
-
-                        assert!(
-                            m.cost <= k as Cost,
-                            "Match has cost {} > {}: {m:?}\nQuery: {}\nText: {}\n",
-                            m.cost,
-                            k,
-                            String::from_utf8_lossy(query),
-                            String::from_utf8_lossy(text_slices[i])
-                        );
-
-                        traces.push(m);
-                    }
-                    num_slices = 0;
+                        k,
+                    ));
+                    batch.clear();
                 }
+
                 last_processed_pos = end_pos;
             }
         }
 
-        // We now have less < LANES text slices to process, we use SIMD fill if number of slices > 1
-        // else we fall back to scalar fill to avoid SIMD overhead with "empty" lanes
-        if num_slices > 0 {
-            if num_slices > 1 {
-                simd_fill::<P>(
-                    query,
-                    &text_slices[..num_slices],
-                    fill_len,
-                    &mut self.cost_matrices,
-                    self.alpha,
-                );
-                for i in 0..num_slices {
-                    let m = get_trace::<P>(
-                        query,
-                        offsets[i],
-                        ends[i],
-                        text_slices[i],
-                        &self.cost_matrices[i],
-                        self.alpha,
-                    );
-
-                    assert!(
-                        m.cost <= k as Cost,
-                        "Match has cost {} > {}: {m:?}\nQuery: {}\nText: {}\n",
-                        m.cost,
-                        k,
-                        String::from_utf8_lossy(query),
-                        String::from_utf8_lossy(text_slices[i])
-                    );
-                    traces.push(m);
-                }
-            } else {
-                fill::<P>(
-                    query,
-                    text_slices[0],
-                    fill_len,
-                    &mut self.cost_matrices[0],
-                    self.alpha,
-                );
-                let m = get_trace::<P>(
-                    query,
-                    offsets[0],
-                    ends[0],
-                    text_slices[0],
-                    &self.cost_matrices[0],
-                    self.alpha,
-                );
-
-                assert!(
-                    m.cost <= k as Cost,
-                    "Match has cost {} > {}: {m:?}\nQuery: {}\nText: {}\n",
-                    m.cost,
-                    k,
-                    String::from_utf8_lossy(query),
-                    String::from_utf8_lossy(text_slices[0])
-                );
-                traces.push(m);
-            }
+        if !batch.is_empty() {
+            traces.extend(batch.process::<P>(
+                query,
+                fill_len,
+                &mut self.cost_matrices,
+                self.alpha,
+                k,
+            ));
         }
+
         traces
+    }
+}
+
+struct MatchBatch<'a> {
+    slices: [&'a [u8]; LANES],
+    offsets: [usize; LANES],
+    ends: [usize; LANES],
+    expected_costs: [Cost; LANES],
+    count: usize,
+}
+
+impl<'a> MatchBatch<'a> {
+    fn new() -> Self {
+        Self {
+            slices: [b""; LANES],
+            offsets: [0; LANES],
+            ends: [0; LANES],
+            expected_costs: [0; LANES],
+            count: 0,
+        }
+    }
+
+    fn add(&mut self, slice: &'a [u8], offset: usize, end: usize, cost: Cost) {
+        self.slices[self.count] = slice;
+        self.offsets[self.count] = offset;
+        self.ends[self.count] = end;
+        self.expected_costs[self.count] = cost;
+        self.count += 1;
+    }
+
+    fn is_full(&self) -> bool {
+        self.count == LANES
+    }
+
+    fn is_empty(&self) -> bool {
+        self.count == 0
+    }
+
+    fn clear(&mut self) {
+        self.count = 0;
+        // Don't have to clear all data as add will keep track of count
+        // which process uses to make sure it only uses filled data
+    }
+
+    fn process<P: Profile>(
+        &self,
+        query: &[u8],
+        fill_len: usize,
+        cost_matrices: &mut [CostMatrix; LANES],
+        alpha: Option<f32>,
+        k: Cost,
+    ) -> Vec<Match> {
+        if self.count > 1 {
+            simd_fill::<P>(
+                query,
+                &self.slices[..self.count],
+                fill_len,
+                cost_matrices,
+                alpha,
+            );
+        } else {
+            fill::<P>(
+                query,
+                self.slices[0],
+                fill_len,
+                &mut cost_matrices[0],
+                alpha,
+            );
+        }
+
+        let mut results = Vec::with_capacity(self.count);
+
+        for i in 0..self.count {
+            let m = get_trace::<P>(
+                query,
+                self.offsets[i],
+                self.ends[i],
+                self.slices[i],
+                &cost_matrices[i],
+                alpha,
+            );
+
+            // Check if get_trace cost is same as expected end position cost
+            assert!(
+                m.cost <= self.expected_costs[i],
+                "Match has unexpected cost {} > {}: {m:?}",
+                m.cost,
+                self.expected_costs[i],
+            );
+
+            // Make sure it's also <=k
+            assert!(
+                m.cost <= k,
+                "Match exceeds k after traceback: m.cost={}, k={}",
+                m.cost,
+                k,
+            );
+
+            results.push(m);
+        }
+
+        results
     }
 }
 
@@ -1452,10 +1483,9 @@ mod tests {
 
     #[test]
     fn test_case3() {
-        let query = b"ACTGATTAGGAGGATTTGCGTTACATTACATAGGGGAGCTTTTTATATATTCACCCACGATTAGTCTTAGTGCTTTTTAATAAAATAAGCTCTATGTGTTATAGTCTGATAAAGATACCCACCTGT";
-        let text = b"TCCCCGTAACTTATGAAGAAGTCGGCTGGGCCTCGTTGAAACTTGTGCTGAATCAGGTTTTGGGTTCGATAGACCCAAAGAGCGGGGGG";
-        let mut searcher = Searcher::<Iupac>::new_rc(); //_with_overhang(0.4);
-        searcher.alpha = Some(0.5);
+        let query = b"GTCTTTCATTCTCTCATCATAATCTCTAATACGACACATTGTACATCTGCTTGCGAGCCGGTGTAGCGCCGTCCTGTTATTTCAAGGCTATAATTACGAATTCAATTCCTCCTCTTCCAAAACACG";
+        let text = b"AGTGATATCTCAAGGGGCCCTATTGGAAGGAAAGCCGCGATGGGTTCAACGTCAAGTGGATCATTCGATATTCATTAGCCCAACAGAAAC";
+        let mut searcher = Searcher::<Iupac>::new_fwd_with_overhang(0.4);
         let matches = searcher.search(query, &text, 63);
         println!("Matches: {:?}", matches);
     }
