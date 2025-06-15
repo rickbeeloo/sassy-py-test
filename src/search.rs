@@ -335,8 +335,6 @@ impl<P: Profile> Searcher<P> {
         // The max row where the right of the previous column was <=k
         let mut prev_end_last_below = 0;
 
-        // SmallVec will now stack alloc 128 elements, and heap allocate beyond that.
-        // Only little difference in practice, perhaps switch back to regular vecs
         self.hp.clear();
         self.hm.clear();
         self.hp.resize(query.len(), S::splat(1));
@@ -428,7 +426,7 @@ impl<P: Profile> Searcher<P> {
                         lane,
                     );
                 } else {
-                    self.find_local_minima_with_overhang(
+                    self.find_local_minima_with_overhang_simple(
                         v,
                         cost,
                         k,
@@ -558,6 +556,65 @@ impl<P: Profile> Searcher<P> {
             if total_cost <= k {
                 self.lanes[lane].matches.push((pos, total_cost));
             }
+        }
+    }
+
+    #[inline(always)]
+    pub fn find_local_minima_with_overhang_simple(
+        &mut self,
+        v: V<u64>,
+        cur_cost: Cost,
+        k: Cost,
+        text_len: usize,
+        query_len: usize,
+        base_pos: usize,
+        lane: usize,
+    ) {
+        let (p, m) = v.pm();
+        let mut cost = cur_cost;
+        let max_pos = if self.alpha.is_some() {
+            text_len + query_len
+        } else {
+            text_len
+        };
+        let mut prev_pos = base_pos;
+
+        // Track costs for local minima detection
+        let mut prev_cost = {
+            let overshoot = base_pos.saturating_sub(text_len);
+            let overshoot_cost = (self.alpha.unwrap_or(0.0) * overshoot as f32).floor() as Cost;
+            cur_cost + overshoot_cost
+        };
+
+        self.lanes[lane].decreasing = true;
+
+        // All <=k end points
+        for bit in 1..=64 {
+            cost += ((p >> (bit - 1)) & 1) as Cost;
+            cost -= ((m >> (bit - 1)) & 1) as Cost;
+
+            let pos = base_pos + bit;
+            if pos > max_pos {
+                break;
+            }
+
+            let overshoot = pos.saturating_sub(text_len);
+            let total_cost = cost + (self.alpha.unwrap_or(0.0) * overshoot as f32).floor() as Cost;
+
+            // Check if this is a local minimum
+
+            let was_decreasing = self.lanes[lane].decreasing;
+            let is_increasing = total_cost > prev_cost;
+            let is_now_decreasing = total_cost < prev_cost;
+
+            // Add match if we were decreasing and now increasing (local minimum)
+            if was_decreasing && is_increasing && prev_cost <= k {
+                self.lanes[lane].matches.push((prev_pos, prev_cost));
+            }
+
+            self.lanes[lane].decreasing = is_now_decreasing || (was_decreasing && !is_increasing);
+            prev_cost = total_cost;
+            prev_pos = pos;
         }
     }
 
@@ -1373,6 +1430,8 @@ mod tests {
         eprintln!("Passed: {} (skipped: {})", iter - skipped, skipped);
     }
 
+    use pa_types::*;
+
     #[test]
     fn test_query_trace_path_0_edits() {
         /*
@@ -1490,5 +1549,56 @@ mod tests {
         let mut searcher = Searcher::<Iupac>::new_fwd_with_overhang(0.4);
         let matches = searcher.search(query, &text, 63);
         println!("Matches: {:?}", matches);
+    }
+
+    #[test]
+    fn test_case4() {
+        let expected_end_pos = 1;
+        let expected_cost = 1;
+        let query = b"ATC";
+        let text = b"CGGGGGG";
+        let mut searcher = Searcher::<Iupac>::new_fwd_with_overhang(0.5);
+        let matches = searcher.search(query, &text, query.len());
+        let all_matches = searcher.search_all(query, &text, query.len());
+
+        println!("[ALL MATCHES]");
+        let mut all_found = false;
+        for m in all_matches {
+            println!("\t{}-{} c: {}", m.start, m.end, m.cost);
+            if m.end.1 == expected_end_pos && m.cost == expected_cost {
+                all_found = true;
+                break;
+            }
+        }
+
+        println!("[LOCAL MATCHES]");
+        let mut local_found = false;
+        for m in matches {
+            println!("\t{}-{} c: {}", m.start, m.end, m.cost);
+            if m.end.1 == expected_end_pos && m.cost == expected_cost {
+                local_found = true;
+                break;
+            }
+        }
+
+        assert!(
+            all_found,
+            "No ALL match found ending at {expected_end_pos} with cost {expected_cost}"
+        );
+        assert!(
+            local_found,
+            "No LOCAL match found ending at {expected_end_pos} with cost {expected_cost}"
+        );
+    }
+
+    #[test]
+    fn test_match_exact_at_end() {
+        let query = b"ATAC".to_vec();
+        let text = b"CCCCCCATAC";
+        let mut searcher = Searcher::<Iupac>::new_fwd_with_overhang(0.5);
+        let matches = searcher.search(&query, &text, 0);
+        println!("Matches: {:?}", matches);
+        let all_matches = searcher.search_all(&query, &text, 0);
+        println!("All matches: {:?}", all_matches)
     }
 }
