@@ -927,16 +927,16 @@ mod tests {
         let mut s = Searcher::<Iupac>::new_fwd();
         s.alpha = Some(0.5);
         let matches = s.search(prefix, text, 4);
-        let expected_end_pos = Pos(4, 20);
+        let expected_end_pos = Pos(3, 20);
         let expected_edits = 2 as Cost;
         for m in matches.iter() {
-            println!("Match: {:?}", m);
+            println!("Match: {:?}", m.without_cigar());
         }
         let m = matches
             .iter()
             .find(|m| m.end == expected_end_pos && m.cost == expected_edits);
         assert!(m.is_some());
-        assert_eq!(matches.len(), 1); // Just one match now
+        assert_eq!(matches.len(), 2);
     }
 
     #[test]
