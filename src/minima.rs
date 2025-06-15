@@ -1,4 +1,3 @@
-use pa_types::Cost;
 use std::arch::x86_64::_pext_u64;
 
 /// For each byte: (min_cost, end_cost)

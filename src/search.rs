@@ -1373,8 +1373,6 @@ mod tests {
         eprintln!("Passed: {} (skipped: {})", iter - skipped, skipped);
     }
 
-    use pa_types::*;
-
     #[test]
     fn test_query_trace_path_0_edits() {
         /*
