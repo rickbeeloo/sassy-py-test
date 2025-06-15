@@ -219,7 +219,7 @@ impl Tool for Swofinder {
             dist.to_string(),
             dist.to_string(),
             "false".to_string(),
-            "0".to_string(),
+            "23".to_string(),
             "NGG".to_string(),
             "false".to_string(),
         ];
