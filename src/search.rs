@@ -549,6 +549,10 @@ impl<P: Profile> Searcher<P> {
             text_len
         };
 
+        if base_pos > max_pos {
+            return;
+        }
+
         // All <=k end points
         for bit in 1..=64 {
             cost += ((p >> (bit - 1)) & 1) as Cost;
@@ -587,6 +591,11 @@ impl<P: Profile> Searcher<P> {
         } else {
             text_len
         };
+
+        if base_pos > max_pos {
+            return;
+        }
+
         let mut prev_pos = base_pos;
 
         // Track costs for local minima detection
