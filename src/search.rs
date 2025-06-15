@@ -448,6 +448,13 @@ impl<P: Profile> Searcher<P> {
     }
 
     #[inline(always)]
+    fn add_overshoot_cost(&self, cost: Cost, pos: usize, text_len: usize) -> Cost {
+        let overshoot = pos.saturating_sub(text_len);
+        let overshoot_cost = (self.alpha.unwrap_or(0.0) * overshoot as f32).floor() as Cost;
+        cost + overshoot_cost
+    }
+
+    #[inline(always)]
     fn find_minima_with_overhang(
         &mut self,
         v: V<u64>,
@@ -460,7 +467,6 @@ impl<P: Profile> Searcher<P> {
         all_minima: bool,
     ) {
         let (p, m) = v.pm();
-        let mut cost = cur_cost;
         let max_pos = if self.alpha.is_some() {
             text_len + query_len
         } else {
@@ -471,38 +477,30 @@ impl<P: Profile> Searcher<P> {
             return;
         }
 
-        // Initialize prev_cost for local minima detection
-        let mut prev_cost = {
-            let overshoot = base_pos.saturating_sub(text_len);
-            let overshoot_cost = (self.alpha.unwrap_or(0.0) * overshoot as f32).floor() as Cost;
-            cur_cost + overshoot_cost
-        };
+        let mut cost = cur_cost;
+        let mut prev_cost = self.add_overshoot_cost(cur_cost, base_pos, text_len);
         let mut prev_pos = base_pos;
 
         for bit in 1..=64 {
+            // Update cost based on bit changes
             cost += ((p >> (bit - 1)) & 1) as Cost;
             cost -= ((m >> (bit - 1)) & 1) as Cost;
 
             let pos = base_pos + bit;
             if pos > max_pos {
-                // For local minima, check if we were decreasing at the end
                 if !all_minima && self.lanes[lane].decreasing && prev_cost <= k {
                     self.lanes[lane].matches.push((prev_pos, prev_cost));
                 }
                 break;
             }
 
-            let overshoot = pos.saturating_sub(text_len);
-            let overshoot_cost = (self.alpha.unwrap_or(0.0) * overshoot as f32).floor() as Cost;
-            let total_cost = cost + overshoot_cost;
+            let total_cost = self.add_overshoot_cost(cost, pos, text_len);
 
             if all_minima {
-                // For all minima, just record if cost <= k
                 if total_cost <= k {
                     self.lanes[lane].matches.push((pos, total_cost));
                 }
             } else {
-                // For local minima, check if we found a minimum
                 let was_decreasing = self.lanes[lane].decreasing;
                 let is_increasing = total_cost > prev_cost;
                 let is_now_decreasing = total_cost < prev_cost;
