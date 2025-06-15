@@ -482,7 +482,6 @@ impl<P: Profile> Searcher<P> {
         let mut prev_pos = base_pos;
 
         for bit in 1..=64 {
-            // Update cost based on bit changes
             cost += ((p >> (bit - 1)) & 1) as Cost;
             cost -= ((m >> (bit - 1)) & 1) as Cost;
 
@@ -501,16 +500,23 @@ impl<P: Profile> Searcher<P> {
                     self.lanes[lane].matches.push((pos, total_cost));
                 }
             } else {
-                let was_decreasing = self.lanes[lane].decreasing;
-                let is_increasing = total_cost > prev_cost;
-                let is_now_decreasing = total_cost < prev_cost;
+                // Local minima
+                // Check how costs are changing
+                let costs_are_equal = total_cost == prev_cost;
+                let costs_are_increasing = total_cost > prev_cost;
+                let costs_are_decreasing = total_cost < prev_cost;
 
-                if was_decreasing && is_increasing && prev_cost <= k {
+                // Found a local minimum if we were decreasing and now costs are increasing
+                if self.lanes[lane].decreasing && costs_are_increasing && prev_cost <= k {
                     self.lanes[lane].matches.push((prev_pos, prev_cost));
                 }
 
+                // Update decreasing state:
+                // - If costs are decreasing, we're in a decreasing sequence
+                // - If costs are equal, keep the previous state
+                // - If costs are increasing, we're not decreasing
                 self.lanes[lane].decreasing =
-                    is_now_decreasing || (was_decreasing && !is_increasing);
+                    costs_are_decreasing || (self.lanes[lane].decreasing && costs_are_equal);
             }
 
             prev_cost = total_cost;
