@@ -39,6 +39,16 @@ impl Match {
         path.pop();
         path
     }
+
+    pub fn without_cigar(&self) -> Match {
+        Match {
+            start: self.start,
+            end: self.end,
+            cost: self.cost,
+            strand: self.strand,
+            cigar: Cigar::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
