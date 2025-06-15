@@ -614,6 +614,10 @@ impl<P: Profile> Searcher<P> {
 
             let pos = base_pos + bit;
             if pos > max_pos {
+                let was_decreasing = self.lanes[lane].decreasing;
+                if was_decreasing && prev_cost <= k {
+                    self.lanes[lane].matches.push((prev_pos, prev_cost));
+                }
                 break;
             }
 
