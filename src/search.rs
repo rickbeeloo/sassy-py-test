@@ -294,8 +294,6 @@ impl<P: Profile> Searcher<P> {
     ) -> Option<usize> {
         for lane in 0..LANES {
             let v = V(vp.as_array()[lane], vm.as_array()[lane]);
-
-            //Fixme: to go back to old impl. we could use prefix_min here again. Check speed difference
             let min_in_lane =
                 prefix_min(v.0, v.1).0 as Cost + dist_to_start_of_lane.as_array()[lane] as Cost;
             if min_in_lane <= k {
@@ -485,7 +483,7 @@ impl<P: Profile> Searcher<P> {
             cost += ((p >> (bit - 1)) & 1) as Cost;
             cost -= ((m >> (bit - 1)) & 1) as Cost;
 
-            let pos = base_pos + bit;
+            let pos: usize = base_pos + bit;
             if pos > max_pos {
                 if !all_minima && self.lanes[lane].decreasing && prev_cost <= k {
                     self.lanes[lane].matches.push((prev_pos, prev_cost));
