@@ -422,31 +422,19 @@ impl<P: Profile> Searcher<P> {
             // Save positions with cost <= k directly after processing each row
             for lane in 0..LANES {
                 let v = <V<u64> as VEncoding<u64>>::from(vp[lane], vm[lane]);
-
                 let base_pos = self.lanes[lane].chunk_offset * 64 + 64 * i;
                 let cost = dist_to_start_of_lane.as_array()[lane] as Cost;
 
-                if all_minima {
-                    self.find_all_minima_with_overhang(
-                        v,
-                        cost,
-                        k,
-                        text.len(),
-                        query.len(),
-                        base_pos,
-                        lane,
-                    );
-                } else {
-                    self.find_local_minima_with_overhang_simple(
-                        v,
-                        cost,
-                        k,
-                        text.len(),
-                        query.len(),
-                        base_pos,
-                        lane,
-                    );
-                }
+                self.find_minima_with_overhang(
+                    v,
+                    cost,
+                    k,
+                    text.len(),
+                    query.len(),
+                    base_pos,
+                    lane,
+                    all_minima,
+                );
             }
 
             prev_end_last_below = cur_end_last_below.max(8);
@@ -460,7 +448,7 @@ impl<P: Profile> Searcher<P> {
     }
 
     #[inline(always)]
-    pub fn find_local_minima_with_overhang(
+    fn find_minima_with_overhang(
         &mut self,
         v: V<u64>,
         cur_cost: Cost,
@@ -469,21 +457,10 @@ impl<P: Profile> Searcher<P> {
         query_len: usize,
         base_pos: usize,
         lane: usize,
+        all_minima: bool,
     ) {
         let (p, m) = v.pm();
-        let mut changes = p | m;
-        if changes == 0 {
-            return;
-        }
-
-        let mut prev_cost = {
-            let overshoot = base_pos.saturating_sub(text_len);
-            let overshoot_cost = (self.alpha.unwrap_or(0.0) * overshoot as f32).floor() as Cost;
-            cur_cost + overshoot_cost
-        };
-        let mut prev_pos = base_pos;
-        let mut cur_cost = cur_cost;
-
+        let mut cost = cur_cost;
         let max_pos = if self.alpha.is_some() {
             text_len + query_len
         } else {
@@ -494,147 +471,50 @@ impl<P: Profile> Searcher<P> {
             return;
         }
 
-        while changes != 0 {
-            let idx = changes.trailing_zeros() as usize;
-
-            let pos = base_pos + idx + 1;
-            if pos > max_pos {
-                break;
-            }
-
-            let delta = ((p >> idx) & 1) as Cost - ((m >> idx) & 1) as Cost;
-            cur_cost += delta;
-
-            let overshoot = pos.saturating_sub(text_len);
-            let overshoot_cost = (self.alpha.unwrap_or(0.0) * overshoot as f32).floor() as Cost;
-            let here_cost = cur_cost + overshoot_cost;
-
-            // Check for local minimum
-            let was_decreasing = self.lanes[lane].decreasing;
-            let is_increasing = here_cost > prev_cost;
-            let is_now_decreasing = here_cost < prev_cost;
-
-            // Add match if we were decreasing and now increasing (local minimum)
-            if was_decreasing && is_increasing && prev_cost <= k {
-                self.lanes[lane].matches.push((prev_pos, prev_cost));
-            }
-
-            self.lanes[lane].decreasing = is_now_decreasing || (was_decreasing && !is_increasing);
-            prev_cost = here_cost;
-            prev_pos = pos;
-            changes &= changes - 1;
-        }
-
-        // Check final position
-        if self.lanes[lane].decreasing && prev_cost <= k && base_pos + 64 >= max_pos {
-            self.lanes[lane].matches.push((prev_pos, prev_cost));
-        }
-    }
-
-    #[inline(always)]
-    pub fn find_all_minima_with_overhang(
-        &mut self,
-        v: V<u64>,
-        cur_cost: Cost,
-        k: Cost,
-        text_len: usize,
-        query_len: usize,
-        base_pos: usize,
-        lane: usize,
-    ) {
-        let (p, m) = v.pm();
-        let mut cost = cur_cost;
-        let max_pos = if self.alpha.is_some() {
-            text_len + query_len
-        } else {
-            text_len
-        };
-
-        if base_pos > max_pos {
-            return;
-        }
-
-        // All <=k end points
-        for bit in 1..=64 {
-            cost += ((p >> (bit - 1)) & 1) as Cost;
-            cost -= ((m >> (bit - 1)) & 1) as Cost;
-
-            let pos = base_pos + bit;
-
-            if pos > max_pos {
-                break;
-            }
-
-            let overshoot = pos.saturating_sub(text_len);
-            let total_cost = cost + (self.alpha.unwrap_or(0.0) * overshoot as f32).floor() as Cost;
-
-            if total_cost <= k {
-                self.lanes[lane].matches.push((pos, total_cost));
-            }
-        }
-    }
-
-    #[inline(always)]
-    pub fn find_local_minima_with_overhang_simple(
-        &mut self,
-        v: V<u64>,
-        cur_cost: Cost,
-        k: Cost,
-        text_len: usize,
-        query_len: usize,
-        base_pos: usize,
-        lane: usize,
-    ) {
-        let (p, m) = v.pm();
-        let mut cost = cur_cost;
-        let max_pos = if self.alpha.is_some() {
-            text_len + query_len
-        } else {
-            text_len
-        };
-
-        if base_pos > max_pos {
-            return;
-        }
-
-        let mut prev_pos = base_pos;
-
-        // Track costs for local minima detection
+        // Initialize prev_cost for local minima detection
         let mut prev_cost = {
             let overshoot = base_pos.saturating_sub(text_len);
             let overshoot_cost = (self.alpha.unwrap_or(0.0) * overshoot as f32).floor() as Cost;
             cur_cost + overshoot_cost
         };
+        let mut prev_pos = base_pos;
 
-        // All <=k end points
         for bit in 1..=64 {
             cost += ((p >> (bit - 1)) & 1) as Cost;
             cost -= ((m >> (bit - 1)) & 1) as Cost;
 
             let pos = base_pos + bit;
             if pos > max_pos {
-                let was_decreasing = self.lanes[lane].decreasing;
-                if was_decreasing && prev_cost <= k {
+                // For local minima, check if we were decreasing at the end
+                if !all_minima && self.lanes[lane].decreasing && prev_cost <= k {
                     self.lanes[lane].matches.push((prev_pos, prev_cost));
                 }
                 break;
             }
 
             let overshoot = pos.saturating_sub(text_len);
-            let total_cost = cost + (self.alpha.unwrap_or(0.0) * overshoot as f32).floor() as Cost;
+            let overshoot_cost = (self.alpha.unwrap_or(0.0) * overshoot as f32).floor() as Cost;
+            let total_cost = cost + overshoot_cost;
 
-            // Check if this is a local minimum
+            if all_minima {
+                // For all minima, just record if cost <= k
+                if total_cost <= k {
+                    self.lanes[lane].matches.push((pos, total_cost));
+                }
+            } else {
+                // For local minima, check if we found a minimum
+                let was_decreasing = self.lanes[lane].decreasing;
+                let is_increasing = total_cost > prev_cost;
+                let is_now_decreasing = total_cost < prev_cost;
 
-            let was_decreasing = self.lanes[lane].decreasing;
-            let is_increasing = total_cost > prev_cost;
-            let is_now_decreasing = total_cost < prev_cost;
+                if was_decreasing && is_increasing && prev_cost <= k {
+                    self.lanes[lane].matches.push((prev_pos, prev_cost));
+                }
 
-            // Add match if we were decreasing and now increasing (local minimum)
-            if was_decreasing && is_increasing && prev_cost <= k {
-                self.lanes[lane].matches.push((prev_pos, prev_cost));
+                self.lanes[lane].decreasing =
+                    is_now_decreasing || (was_decreasing && !is_increasing);
             }
 
-            self.lanes[lane].decreasing = is_now_decreasing || (was_decreasing && !is_increasing);
             prev_cost = total_cost;
             prev_pos = pos;
         }
