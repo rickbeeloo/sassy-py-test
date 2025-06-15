@@ -338,6 +338,7 @@ impl<P: Profile> Searcher<P> {
         // Clear matches in each lane
         for lane in 0..LANES {
             self.lanes[lane].matches.clear();
+            self.lanes[lane].decreasing = true;
         }
 
         // Up to where the previous column was computed.
@@ -604,8 +605,6 @@ impl<P: Profile> Searcher<P> {
             let overshoot_cost = (self.alpha.unwrap_or(0.0) * overshoot as f32).floor() as Cost;
             cur_cost + overshoot_cost
         };
-
-        self.lanes[lane].decreasing = true;
 
         // All <=k end points
         for bit in 1..=64 {
