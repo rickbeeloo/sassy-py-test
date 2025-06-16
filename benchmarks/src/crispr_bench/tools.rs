@@ -224,6 +224,8 @@ impl Tool for Swofinder {
             "false".to_string(),
         ];
 
+        println!("Swofinder args: {:?}", args);
+
         // Execute the command and time just the execution
         let start = Instant::now();
         let mut child = Command::new("java")
