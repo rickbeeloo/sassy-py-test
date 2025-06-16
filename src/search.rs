@@ -153,6 +153,10 @@ pub struct Searcher<P: Profile> {
 }
 
 impl<P: Profile> Searcher<P> {
+    // The number of rows (query chars) we *at least*
+    // mainly to avoid branching
+    pub const CHECK_AT_LEAST_ROWS: usize = 8;
+
     pub fn new_fwd() -> Self {
         Self::new(false, None)
     }
@@ -297,7 +301,8 @@ impl<P: Profile> Searcher<P> {
             let min_in_lane =
                 prefix_min(v.0, v.1).0 as Cost + dist_to_start_of_lane.as_array()[lane] as Cost;
             if min_in_lane <= k {
-                return Some(j + 4.max((k - min_in_lane) as usize));
+                //Fixme: check_at_least_rows / 2 (as it was 4 originally)?
+                return Some(j + Self::CHECK_AT_LEAST_ROWS.max((k - min_in_lane) as usize));
             }
         }
         None
@@ -402,7 +407,7 @@ impl<P: Profile> Searcher<P> {
                             self.hp[j2] = S::splat(1);
                             self.hm[j2] = S::splat(0);
                         }
-                        prev_end_last_below = cur_end_last_below.max(8);
+                        prev_end_last_below = cur_end_last_below.max(Self::CHECK_AT_LEAST_ROWS);
                         prev_max_j = j;
 
                         if i >= blocks_per_chunk
@@ -414,8 +419,6 @@ impl<P: Profile> Searcher<P> {
                     }
                 }
             }
-
-            // We reached the end of the query, at j=query.len()-1.
 
             // Save positions with cost <= k directly after processing each row
             for lane in 0..LANES {
@@ -435,7 +438,7 @@ impl<P: Profile> Searcher<P> {
                 );
             }
 
-            prev_end_last_below = cur_end_last_below.max(8);
+            prev_end_last_below = cur_end_last_below.max(Self::CHECK_AT_LEAST_ROWS);
             prev_max_j = query.len() - 1;
         }
 
