@@ -1402,19 +1402,19 @@ mod tests {
     #[test]
     fn test_random_queries_60_range() {
         use rand::Rng;
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let mut i = 0;
 
         for _ in 0..10000 {
             let mut searcher = Searcher::<Iupac>::new_rc_with_overhang(0.4);
 
             // Generate random query of length 126
-            let query: Vec<u8> = (0..126).map(|_| b"ACGT"[rng.gen_range(0..4)]).collect();
+            let query: Vec<u8> = (0..126).map(|_| b"ACGT"[rng.random_range(0..4)]).collect();
 
             // Generate random text length between 62-90
-            let text_len = rng.gen_range(62..91);
+            let text_len = rng.random_range(62..91);
             let text: Vec<u8> = (0..text_len)
-                .map(|_| b"ACGT"[rng.gen_range(0..4)])
+                .map(|_| b"ACGT"[rng.random_range(0..4)])
                 .collect();
 
             // Use k as half of query length
@@ -1496,6 +1496,19 @@ mod tests {
             local_found,
             "No LOCAL match found ending at {expected_end_pos} with cost {expected_cost}"
         );
+    }
+
+    #[test]
+    fn test_rc_positions() {
+        let query = b"ATCATGCTAGC";
+        let text = b"GGGGGGGGGGATCATGCTAGCGGGGGGGGGGG";
+        let mut searcher = Searcher::<Dna>::new_rc();
+        let matches = searcher.search(query, &text, 0);
+        println!("Matches: {:?}", matches);
+        let query_rc = Dna::reverse_complement(query);
+        let text_rc = Dna::reverse_complement(text);
+        let matches_rc = searcher.search(&query_rc, &text_rc, 0);
+        println!("Matches RC: {:?}", matches_rc);
     }
 
     #[test]
