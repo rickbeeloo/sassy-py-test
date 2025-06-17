@@ -59,7 +59,7 @@ impl Profile for Dna {
     }
 
     #[inline(always)]
-    fn valid_seq(&self, seq: &[u8]) -> bool {
+    fn valid_seq(seq: &[u8]) -> bool {
         // we’ll do 32-byte chunks
         const LANES: usize = 32;
         type V = Simd<u8, LANES>;
@@ -244,26 +244,26 @@ mod test {
     #[test]
     fn test_dna_valid_seq_empty() {
         let dna = Dna::encode_query(b"ACGT").0;
-        assert!(dna.valid_seq(b"")); // Not sure if this should be valid or not
+        assert!(Dna::valid_seq(b"")); // Not sure if this should be valid or not
     }
 
     #[test]
     fn test_dna_valid_seq() {
         // scalar, dna (as <32); valid
         let dna = Dna::encode_query(b"ACGT").0;
-        assert!(dna.valid_seq(b"ACGTactg"));
+        assert!(Dna::valid_seq(b"ACGTactg"));
 
         // scalar, non-dna; invalid
         // -1 is all ascii which are not dna
         let non_actg = non_actg_bytes(-1);
-        assert!(!dna.valid_seq(&non_actg));
+        assert!(!Dna::valid_seq(&non_actg));
 
         // 32-byte chunks, dna; valid
         let seq = [b'A', b'C', b'T', b'G', b'a', b'c', b't', b'g'].repeat(32);
-        assert!(dna.valid_seq(&seq));
+        assert!(Dna::valid_seq(&seq));
 
         // 32-byte chunks, non-dna; invalid
         let seq = non_actg_bytes(256);
-        assert!(!dna.valid_seq(&seq));
+        assert!(!Dna::valid_seq(&seq));
     }
 }

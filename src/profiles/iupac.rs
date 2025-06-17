@@ -108,7 +108,7 @@ impl Profile for Iupac {
     }
 
     #[inline(always)]
-    fn valid_seq(&self, seq: &[u8]) -> bool {
+    fn valid_seq(seq: &[u8]) -> bool {
         const LANES: usize = 32;
         type V = u8x32;
         let len = seq.len();
@@ -424,11 +424,11 @@ mod test {
         let iupac = Iupac::encode_query(b"ACGT").0;
         let all_codes = b"ACTUGNRYSWKMBDHVX";
         for &c in all_codes {
-            assert!(iupac.valid_seq(&[c]));
-            assert!(iupac.valid_seq(&[c.to_ascii_lowercase()]));
+            assert!(Iupac::valid_seq(&[c]));
+            assert!(Iupac::valid_seq(&[c.to_ascii_lowercase()]));
         }
         // Mixed case should also be valid
-        assert!(iupac.valid_seq(b"AaCcTtUuGgNnRrYySsWwKkMmBbDdHhVvXx"));
+        assert!(Iupac::valid_seq(b"AaCcTtUuGgNnRrYySsWwKkMmBbDdHhVvXx"));
     }
 
     #[test]
@@ -442,14 +442,14 @@ mod test {
                 .take(len)
                 .copied()
                 .collect::<Vec<_>>();
-            assert!(iupac.valid_seq(&seq), "Failed at length {}", len);
+            assert!(Iupac::valid_seq(&seq), "Failed at length {}", len);
         }
     }
 
     #[test]
     fn test_iupac_valid_seq_empty() {
         let iupac = Iupac::encode_query(b"ACGT").0;
-        assert!(iupac.valid_seq(b"")); // Not sure if this should be valid or not
+        assert!(Iupac::valid_seq(b"")); // Not sure if this should be valid or not
     }
 
     #[test]
@@ -465,7 +465,7 @@ mod test {
         ];
 
         for case in invalid_cases {
-            assert!(!iupac.valid_seq(case));
+            assert!(!Iupac::valid_seq(case));
         }
     }
 
@@ -474,17 +474,17 @@ mod test {
         let iupac = Iupac::encode_query(b"ACGT").0;
 
         // Test exact boundaries
-        assert!(!iupac.valid_seq(b"@")); // 64 - invalid
-        assert!(iupac.valid_seq(b"A")); // 65 - valid
-        assert!(iupac.valid_seq(b"X")); // 88 - valid
-        assert!(iupac.valid_seq(b"Y")); // 89 - valid
-        assert!(!iupac.valid_seq(b"Z")); // 90 - invalid
+        assert!(!Iupac::valid_seq(b"@")); // 64 - invalid
+        assert!(Iupac::valid_seq(b"A")); // 65 - valid
+        assert!(Iupac::valid_seq(b"X")); // 88 - valid
+        assert!(Iupac::valid_seq(b"Y")); // 89 - valid
+        assert!(!Iupac::valid_seq(b"Z")); // 90 - invalid
 
         // Same but in 32 bytes to trigger SIMD
         let mut seq = b"ACGT".repeat(8); // 32 bytes
         seq[31] = b'Y';
-        assert!(iupac.valid_seq(&seq));
+        assert!(Iupac::valid_seq(&seq));
         seq[31] = b'Z';
-        assert!(!iupac.valid_seq(&seq));
+        assert!(!Iupac::valid_seq(&seq));
     }
 }

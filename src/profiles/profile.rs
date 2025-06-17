@@ -14,7 +14,7 @@ pub trait Profile: Clone + std::fmt::Debug {
     fn alloc_out() -> Self::B;
     fn n_bases(&self) -> usize;
     /// Verify whether a seqeunce matching the profile characters
-    fn valid_seq(&self, seq: &[u8]) -> bool;
+    fn valid_seq(seq: &[u8]) -> bool;
     /// Return true if the two characters are a match accroding to profile
     fn is_match(char1: u8, char2: u8) -> bool;
     /// Reverse-complement the input string.

@@ -66,7 +66,7 @@ impl<const CASE_SENSITIVE: bool> Profile for Ascii<CASE_SENSITIVE> {
     }
 
     #[inline(always)]
-    fn valid_seq(&self, _seq: &[u8]) -> bool {
+    fn valid_seq(_seq: &[u8]) -> bool {
         true // assuming every u8 is valid ascii
     }
 }
