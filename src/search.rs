@@ -1391,13 +1391,133 @@ mod tests {
     fn test_rc_positions() {
         let query = b"ATCATGCTAGC";
         let text = b"GGGGGGGGGGATCATGCTAGCGGGGGGGGGGG";
-        let mut searcher = Searcher::<Dna>::new_rc();
-        let matches = searcher.search(query, &text, 0);
-        println!("Matches: {:?}", matches);
 
+        // Test 1: Search with RC enabled (should find both forward and RC matches)
+        let mut searcher_rc = Searcher::<Dna>::new_rc();
+        let matches_rc_enabled = searcher_rc.search(query, &text, 0);
+
+        // Test 2: Search forward query directly
+        let mut searcher_fwd = Searcher::<Dna>::new_fwd();
+        let matches_fwd = searcher_fwd.search(query, &text, 0);
+
+        // Test 3: Search reverse complement query directly
         let query_rc = Dna::reverse_complement(query);
-        let matches_rc = searcher.search(&query_rc, &text, 0);
-        println!("Matches RC: {:?}", matches_rc);
+        let matches_rc_direct = searcher_fwd.search(&query_rc, &text, 0);
+
+        println!("Query: {}", String::from_utf8_lossy(query));
+        println!("Query RC: {}", String::from_utf8_lossy(&query_rc));
+        println!("Text: {}", String::from_utf8_lossy(text));
+
+        println!("RC-enabled matches ({}):", matches_rc_enabled.len());
+        for m in &matches_rc_enabled {
+            println!("  {:?} strand: {:?}", m.without_cigar(), m.strand);
+        }
+
+        println!("Forward-only matches ({}):", matches_fwd.len());
+        for m in &matches_fwd {
+            println!("  {:?} strand: {:?}", m.without_cigar(), m.strand);
+        }
+
+        println!("RC-direct matches ({}):", matches_rc_direct.len());
+        for m in &matches_rc_direct {
+            println!("  {:?} strand: {:?}", m.without_cigar(), m.strand);
+        }
+
+        // Verify that RC-enabled search finds both forward and RC matches
+        let fwd_matches_in_rc = matches_rc_enabled
+            .iter()
+            .filter(|m| m.strand == Strand::Fwd)
+            .collect::<Vec<_>>();
+        let rc_matches_in_rc = matches_rc_enabled
+            .iter()
+            .filter(|m| m.strand == Strand::Rc)
+            .collect::<Vec<_>>();
+
+        // Forward matches should be identical
+        assert_eq!(
+            fwd_matches_in_rc.len(),
+            matches_fwd.len(),
+            "RC-enabled search should find same number of forward matches"
+        );
+
+        // RC matches should have same count as direct RC search
+        assert_eq!(
+            rc_matches_in_rc.len(),
+            matches_rc_direct.len(),
+            "RC-enabled search should find same number of RC matches as direct RC search"
+        );
+
+        // Verify that RC matches have the same costs as direct RC search
+        // (positions will be different due to coordinate transformation)
+        let mut rc_costs_rc_enabled: Vec<Cost> = rc_matches_in_rc.iter().map(|m| m.cost).collect();
+        let mut rc_costs_direct: Vec<Cost> = matches_rc_direct.iter().map(|m| m.cost).collect();
+
+        rc_costs_rc_enabled.sort();
+        rc_costs_direct.sort();
+
+        assert_eq!(
+            rc_costs_rc_enabled, rc_costs_direct,
+            "RC matches should have same costs whether found via RC-enabled search or direct RC search"
+        );
+
+        // Verify that forward matches have same costs and positions
+        let mut fwd_costs_rc_enabled: Vec<Cost> =
+            fwd_matches_in_rc.iter().map(|m| m.cost).collect();
+        let mut fwd_costs_direct: Vec<Cost> = matches_fwd.iter().map(|m| m.cost).collect();
+
+        fwd_costs_rc_enabled.sort();
+        fwd_costs_direct.sort();
+
+        assert_eq!(
+            fwd_costs_rc_enabled, fwd_costs_direct,
+            "Forward matches should have same costs whether found via RC-enabled search or forward-only search"
+        );
+
+        // Test with a more complex case that has both forward and RC matches
+        let query2 = b"ATCG";
+        let text2 = b"GGGGATCGTTTTGCGATTTT"; // Contains both ATCG and its RC (CGAT)
+
+        let mut searcher_rc2 = Searcher::<Dna>::new_rc();
+        let matches_rc2 = searcher_rc2.search(query2, &text2, 0);
+
+        let mut searcher_fwd2 = Searcher::<Dna>::new_fwd();
+        let matches_fwd2 = searcher_fwd2.search(query2, &text2, 0);
+
+        let query2_rc = Dna::reverse_complement(query2);
+        let matches_rc2_direct = searcher_fwd2.search(&query2_rc, &text2, 0);
+
+        println!("\nComplex case:");
+        println!("Query2: {}", String::from_utf8_lossy(query2));
+        println!("Query2 RC: {}", String::from_utf8_lossy(&query2_rc));
+        println!("Text2: {}", String::from_utf8_lossy(text2));
+
+        println!("RC-enabled matches ({}):", matches_rc2.len());
+        for m in &matches_rc2 {
+            println!("  {:?} strand: {:?}", m.without_cigar(), m.strand);
+        }
+
+        // Should find both forward and RC matches
+        let fwd_count = matches_rc2
+            .iter()
+            .filter(|m| m.strand == Strand::Fwd)
+            .count();
+        let rc_count = matches_rc2
+            .iter()
+            .filter(|m| m.strand == Strand::Rc)
+            .count();
+
+        assert!(fwd_count > 0, "Should find forward matches");
+        assert!(rc_count > 0, "Should find RC matches");
+        assert_eq!(
+            fwd_count,
+            matches_fwd2.len(),
+            "Forward match count should match"
+        );
+        assert_eq!(
+            rc_count,
+            matches_rc2_direct.len(),
+            "RC match count should match"
+        );
     }
 
     #[test]
