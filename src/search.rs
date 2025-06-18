@@ -1474,26 +1474,34 @@ mod tests {
 
     #[test]
     fn fwd_rc_test() {
-        let fwd = b"TGAAGCGGCGCACGAAAAACGCGAAAGCGTTTCACGATAAATGCGAAAACNNNNNNNNNNNNNNNNNNNNNNNNGGTTAAACACCCAAGCAGCAATACGTAACTGAACGAAGTACAGGAAAAAAAA";
+        let fwd = b"TGAAGCGGCGCACGAAAAACGCGAAAGCGTTTCACGATAAATGCGAAAAC";
         let rc = Iupac::reverse_complement(fwd);
 
-        let text = b"TGTTATATTTCCCTGTACTTCGTTCCAGTTATTTTTATGCAAAAAACCGGTGTTTAACCACCACTGCCATGTATCAAAGTACGGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCAACAGGAAAACTATTTTCTGCAGGCATTTTGCCCGGTTTAGTGCTGGGGCTGGCATTAATAATCTATGCAGTAATCGTCGCCCATAAAAGGCTACGGCGGCCTGCCTAAA".to_vec();
+        let text = b"TGTTATATTTCCCTGTACTTCGTTCCAGTTATTTTTATGCAAAAAACCGGTGTTTAACCACCACTGCCATGTATCAAAGTACGGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCAACAGGAAAACTATTTAGCTACGATCAGAGCATCTATCGACTCTATCGACT".to_vec();
+        //                                                                                 ^                                                 ^ c=20
+        //                                                                                                       ^                                                ^ c = 0
 
         println!("TEXT LEN: {}", text.len());
         println!("FWD LEN: {}", fwd.len());
 
-        let mut searcher = Searcher::<Iupac>::new_rc_with_overhang(0.5);
-        let fwd_matches = searcher.search(fwd, &text, 44);
-        let rc_matches = searcher.search(&rc, &text, 44);
+        let mut searcher = Searcher::<Iupac>::new_rc(); // (0.5);
+        let fwd_matches = searcher.search(fwd, &text, 20);
+        let rc_matches = searcher.search(&rc, &text, 20);
 
         // Print matches for debugging
         println!("Forward matches:");
         for m in fwd_matches.iter() {
             println!("  {:?}", m.without_cigar());
+            let matching_slice =
+                String::from_utf8_lossy(&text[m.start.1 as usize..m.end.1 as usize]);
+            println!("\tM slice: {}", matching_slice);
         }
         println!("\nReverse complement matches:");
         for m in rc_matches.iter() {
             println!("  {:?}", m.without_cigar());
+            let matching_slice =
+                String::from_utf8_lossy(&text[m.start.1 as usize..m.end.1 as usize]);
+            println!("\tM slice: {}", matching_slice);
         }
 
         assert_eq!(
