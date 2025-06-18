@@ -584,6 +584,7 @@ impl<P: Profile> Searcher<P> {
                     self.lanes[lane].matches.push((pos, total_cost));
                 }
             } else {
+                log::trace!("lane {lane}      {pos} {total_cost}");
                 // Local minima
                 // Check how costs are changing
                 let costs_are_equal = total_cost == prev_cost;
