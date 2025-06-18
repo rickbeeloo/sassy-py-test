@@ -1720,4 +1720,42 @@ mod tests {
         println!("RC: {}", rc_cigar);
         assert_eq!(fwd_cigar, rc_cigar);
     }
+
+    #[test]
+    fn test_cigar_rc_at_overhang() {
+        let query = b"TTTTAAAAAA";
+        let text: &'static str = "AAAAAAGGGGGGGGGGGGGGGGGGGGGGGGGGGG"; // 5 matches
+        let query_rc = Iupac::reverse_complement(query);
+
+        println!("[MANUAL Reversing]");
+        println!("- RC(q):\t{:?}", String::from_utf8_lossy(&query_rc));
+        println!(
+            "- compl(RC(q)):\t{:?}",
+            String::from_utf8_lossy(&Iupac::complement(&query_rc))
+        );
+        let mut reversed_text = text.as_bytes().to_vec();
+        reversed_text.reverse();
+        println!(
+            "- Rev(text):\t{:?}",
+            String::from_utf8_lossy(&reversed_text)
+        );
+        //                    TTTTAAAAAA, 6 matches, 4 * 0.5 = 2 cost overhang
+
+        let mut searcher = Searcher::<Iupac>::new_rc_with_overhang(0.5);
+
+        let fwd_matches = searcher.search(query, &text, 2);
+        let rc_matches = searcher.search(&query_rc, &text, 2);
+
+        for m in fwd_matches.iter() {
+            println!("fwd: {:?}", m);
+        }
+        for m in rc_matches.iter() {
+            println!("rc: {:?}", m);
+        }
+        let fwd_cigar = fwd_matches[0].cigar.to_string();
+        let rc_cigar = rc_matches[0].cigar.to_string(); // Should also be 6 matches (prints above)
+        assert_eq!(fwd_matches.len(), 1);
+        assert_eq!(fwd_matches.len(), rc_matches.len());
+        assert_eq!(fwd_cigar, rc_cigar);
+    }
 }
