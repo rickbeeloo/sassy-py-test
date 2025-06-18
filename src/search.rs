@@ -535,13 +535,19 @@ impl<P: Profile> Searcher<P> {
             text_len
         };
 
-        if base_pos >= max_pos {
-            return;
-        }
-
         let mut cost = cur_cost;
         let mut prev_cost = self.add_overshoot_cost(cur_cost, base_pos, text_len);
         let mut prev_pos = base_pos;
+
+        if base_pos >= max_pos {
+            if base_pos == max_pos {
+                if self.lanes[lane].decreasing && cur_cost <= k {
+                    self.lanes[lane].matches.push((prev_pos, prev_cost));
+                }
+            }
+
+            return;
+        }
 
         for bit in 1..=64 {
             cost += ((p >> (bit - 1)) & 1) as Cost;
@@ -1561,6 +1567,80 @@ mod tests {
 
         let edits = 2;
         let expected_idx = 452;
+        let mut searcher = Searcher::<Dna>::new_fwd();
+
+        // NOTE: does pass with search_all as all in minima plateau are then reported
+        let matches = searcher.search(query, &text, edits);
+        for fw_m in matches.iter() {
+            println!("fw_m: {:?}", fw_m.without_cigar());
+            let (text_start, text_end) = (fw_m.start, fw_m.end);
+            println!(
+                "Text slice: {}",
+                String::from_utf8_lossy(&text[text_start.1 as usize..text_end.1 as usize])
+            );
+        }
+
+        let m = matches
+            .iter()
+            .find(|m| (m.start.1 as usize).abs_diff(expected_idx) <= edits);
+        assert!(m.is_some(), "Fwd searcher failed");
+    }
+
+    #[test]
+    fn search_fuzz_bug_2() {
+        /*
+        edits 2
+        edits 1
+        query q=12 TACACAGTCAAG
+        pattern TACGACAGTCAAG
+        text len 560
+        planted idx 435
+        expected idx 436
+        matches []
+        */
+
+        let query = b"TACACAGTCAAG";
+        let text = b"GAAGTGTCACGACTGTAGGATTGTTCGTTTGTGTGGTCATATTAAGAATATGCGTCCTGGCATTTACTCCGCAATATGATAACCCACTAACGCCTGGCTAAACTAATAAAATTCTTGCGTATGCCAGTGGGTATTGTCCACCTCACTCCTGAGTCTACGCGCGACCAATAACTTAGTTACGAACTTCCGGAACACATATTACCAGAAAAAGCGCACGATGTTACGTATCGTTATGGGCAGCCTCCGTAACCCCGTCTCTAGGGTTTCGCCCTTCGTAGTCCTAACACCCCCTGATTTTTTAATACAGACGGACGCTCTCCAAAGTCCGCTGACTAGTTTCCTAATACTCTCTTTGTCATATAACACCCTCGTTTTCGACAGGCCATCTAGAATTTTATGGATCCTTAGGGTATTCAGGGCGGTCAAATCTAGCCTTACGACAGTCAAGTCACATGTGAATACTCCTTCTTCCACGGACGTCTTTATAAATTCCCCCTATTGCCTCTCACTAGGGGTTTCCATGGGGCTTGATCGCACAATAGGAATGTCTAGGAGGCAAG";
+
+        let edits = 1;
+        let expected_idx = 436;
+        let mut searcher = Searcher::<Dna>::new_fwd();
+
+        // NOTE: does pass with search_all as all in minima plateau are then reported
+        let matches = searcher.search(query, &text, edits);
+        for fw_m in matches.iter() {
+            println!("fw_m: {:?}", fw_m.without_cigar());
+            let (text_start, text_end) = (fw_m.start, fw_m.end);
+            println!(
+                "Text slice: {}",
+                String::from_utf8_lossy(&text[text_start.1 as usize..text_end.1 as usize])
+            );
+        }
+
+        let m = matches
+            .iter()
+            .find(|m| (m.start.1 as usize).abs_diff(expected_idx) <= edits);
+        assert!(m.is_some(), "Fwd searcher failed");
+    }
+
+    #[test]
+    fn search_fuzz_bug_3() {
+        /*
+        edits 18
+        query q=61 CGATCGGAATCTCTTTGTTCATGATCCAAAGCCCAGCCATCAGCCCGAACGGTGGTTCGCG
+        pattern TGATCGAATCTTTTTTTTTGTACTCCAAAGCCCTCATCAGCTCCGACAGTGGTTCGCG
+        text len 64
+        planted idx 6
+        expected idx 3
+        text ACAGGGTGATCGAATCTTTTTTTTTGTACTCCAAAGCCCTCATCAGCTCCGACAGTGGTTCGCG
+        matches []
+        */
+
+        let query = b"CGATCGGAATCTCTTTGTTCATGATCCAAAGCCCAGCCATCAGCCCGAACGGTGGTTCGCG";
+        let text = b"ACAGGGTGATCGAATCTTTTTTTTTGTACTCCAAAGCCCTCATCAGCTCCGACAGTGGTTCGCG";
+
+        let edits = 18;
+        let expected_idx = 3;
         let mut searcher = Searcher::<Dna>::new_fwd();
 
         // NOTE: does pass with search_all as all in minima plateau are then reported
