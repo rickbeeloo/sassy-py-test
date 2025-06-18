@@ -1677,4 +1677,28 @@ mod tests {
             .find(|m| (m.start.1 as usize).abs_diff(expected_idx) <= edits);
         assert!(m.is_some(), "Fwd searcher failed");
     }
+
+    #[test]
+    fn original_rc_bug() {
+        let fwd = b"TGAAGCGGCGCACGAAAAACGCGAAAGCGTTTCACGATAAATGCGAAAACNNNNNNNNNNNNNNNNNNNNNNNNGGTTAAACACCCAAGCAGCAATACGTAACTGAACGAAGTACAGGAAAAAAAA";
+        let rc: Vec<u8> = Iupac::reverse_complement(fwd);
+
+        let text = b"TGTTATATTTCCCTGTACTTCGTTCCAGTTATTTTTATGCAAAAAACCGGTGTTTAACCACCACTGCCATGTATCAAAGTACGGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCAACAGGAAAACTATTTTCTGCAG".to_vec();
+
+        println!("Q len: {}", fwd.len());
+        println!("T len: {}", text.len());
+
+        println!("FWD");
+        let mut searcher = Searcher::<Iupac>::new_rc();
+        let matches = searcher.search(fwd, &text, 44);
+        for m in matches.iter() {
+            println!("fwd: {:?}", m.without_cigar());
+        }
+
+        println!("\nRC");
+        let matches = searcher.search(&rc, &text, 44);
+        for m in matches.iter() {
+            println!("rc: {:?}", m.without_cigar());
+        }
+    }
 }
