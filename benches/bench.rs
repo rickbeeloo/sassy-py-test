@@ -235,8 +235,7 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             &dna_seq,
             |b, seq| {
                 b.iter(|| {
-                    let profiler = Dna::encode_query(b"").0;
-                    let is_valid = profiler.valid_seq(seq);
+                    let is_valid = Dna::valid_seq(seq);
                     black_box(is_valid);
                 })
             },
@@ -248,7 +247,7 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             |b, seq| {
                 b.iter(|| {
                     let profiler = Iupac::encode_query(b"").0;
-                    let is_valid = profiler.valid_seq(seq);
+                    let is_valid = Iupac::valid_seq(seq);
                     black_box(is_valid);
                 })
             },

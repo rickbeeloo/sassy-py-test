@@ -297,14 +297,26 @@ impl<P: Profile> Searcher<P> {
         j: usize,
     ) -> Option<usize> {
         for lane in 0..LANES {
+            // Get the current cost state for this lane
             let v = V(vp.as_array()[lane], vm.as_array()[lane]);
+
+            // Calculate the minimum possible cost in this lane
+            // This is the best case scenario - if even this minimum is > k,
+            // then no matches are possible in this lane
             let min_in_lane =
                 prefix_min(v.0, v.1).0 as Cost + dist_to_start_of_lane.as_array()[lane] as Cost;
+
             if min_in_lane <= k {
-                //Fixme: check_at_least_rows / 2 (as it was 4 originally)?
-                return Some(j + Self::CHECK_AT_LEAST_ROWS.max((k - min_in_lane) as usize));
+                // Promising lane, we "estimate" how many rows more we need to check
+                // as the difference between the minimum in the lane and the maximum edits
+                // we can afford.
+                let rows_needed = (k - min_in_lane) as usize;
+                let new_end = j + Self::CHECK_AT_LEAST_ROWS.max(rows_needed);
+                return Some(new_end);
             }
         }
+
+        // No lanes are promising
         None
     }
 
@@ -344,9 +356,10 @@ impl<P: Profile> Searcher<P> {
             self.lanes[lane].decreasing = true;
         }
 
-        // Up to where the previous column was computed.
+        // State tracking for early termination optimization:
+        // - prev_max_j: tracks the highest query row we've computed so far
+        // - prev_end_last_below: tracks the highest row where any lane had cost <= k
         let mut prev_max_j = 0;
-        // The max row where the right of the previous column was <=k
         let mut prev_end_last_below = 0;
 
         self.hp.clear();
@@ -369,7 +382,7 @@ impl<P: Profile> Searcher<P> {
             let mut dist_to_end_of_lane = S::splat(0);
             let mut cur_end_last_below = 0;
 
-            // Iterate over query chars
+            // Iterate over query chars (rows in the DP matrix)
             for j in 0..query.len() {
                 dist_to_start_of_lane += self.hp[j];
                 dist_to_start_of_lane -= self.hm[j];
@@ -381,38 +394,38 @@ impl<P: Profile> Searcher<P> {
 
                 compute_block_simd(&mut self.hp[j], &mut self.hm[j], &mut vp, &mut vm, eq);
 
-                // For DNA, the distance between random/unrelated sequences is around q.len()/2.
-                // Thus, for threshold k, we can expect random matches between seqs of length ~2*k.
-                // To have some buffer, we start filtering at length 3*k.
+                // Early termination check: If we've moved past the last row that had any
+                // promising matches (cost <= k), we can potentially skip ahead or terminate
                 'check: {
                     dist_to_end_of_lane += self.hp[j];
                     dist_to_end_of_lane -= self.hm[j];
 
+                    // Check if any lane has cost <= k at the current row
                     let cmp = dist_to_end_of_lane.simd_le(S::splat(k as u64));
-                    let bitmask = cmp.to_bitmask(); // less assembly than .any
+                    let bitmask = cmp.to_bitmask();
                     let end_leq_k = bitmask != 0;
 
+                    // Track the highest row where we found any promising matches
                     cur_end_last_below = if end_leq_k { j } else { cur_end_last_below };
 
+                    // Only do early termination checks if we've moved past the last promising row
                     if j > prev_end_last_below {
+                        // Check if any lane has a minimum cost that could lead to matches <= k
                         if let Some(new_end) =
                             self.check_lanes(&vp, &vm, &dist_to_start_of_lane, k, j)
                         {
+                            // Found a promising lane - update our tracking and continue
                             prev_end_last_below = new_end;
                             break 'check;
                         }
 
-                        // No lanes had values <= k
-                        for j2 in j + 1..=prev_max_j {
-                            self.hp[j2] = S::splat(1);
-                            self.hm[j2] = S::splat(0);
-                        }
+                        // No lanes have promising matches - we can skip ahead
+                        self.reset_unused_rows(j, prev_max_j);
                         prev_end_last_below = cur_end_last_below.max(Self::CHECK_AT_LEAST_ROWS);
                         prev_max_j = j;
 
-                        if i >= blocks_per_chunk
-                            && (64 * (i - blocks_per_chunk)).saturating_sub(j) > k as usize
-                        {
+                        // Early termination: if we're in overlap region and too far from text end
+                        if self.should_terminate_early(i, blocks_per_chunk, j, k) {
                             break 'text_chunk;
                         }
                         continue 'text_chunk;
@@ -442,10 +455,42 @@ impl<P: Profile> Searcher<P> {
             prev_max_j = query.len() - 1;
         }
 
+        // Clean up any remaining rows that weren't reset
         for j in 0..=prev_max_j {
             self.hp[j] = S::splat(1);
             self.hm[j] = S::splat(0);
         }
+    }
+
+    /// Reset rows that are no longer needed for future computations
+    #[inline(always)]
+    fn reset_unused_rows(&mut self, current_row: usize, prev_max_row: usize) {
+        for j2 in current_row + 1..=prev_max_row {
+            self.hp[j2] = S::splat(1);
+            self.hm[j2] = S::splat(0);
+        }
+    }
+
+    /// Check if we should terminate early based on position and distance from text end
+    #[inline(always)]
+    fn should_terminate_early(
+        &self,
+        current_block: usize,
+        blocks_per_chunk: usize,
+        current_row: usize,
+        k: Cost,
+    ) -> bool {
+        // Only consider early termination in the overlap region (after main chunks)
+        if current_block < blocks_per_chunk {
+            return false;
+        }
+
+        // Calculate how far we are from the end of the text
+        let distance_from_end =
+            (64 * (current_block - blocks_per_chunk)).saturating_sub(current_row);
+
+        // If we're too far from the end, no matches are possible
+        distance_from_end > k as usize
     }
 
     #[inline(always)]
