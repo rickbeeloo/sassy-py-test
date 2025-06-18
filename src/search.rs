@@ -420,7 +420,7 @@ impl<P: Profile> Searcher<P> {
                         }
 
                         // No lanes have promising matches - we can skip ahead
-                        self.reset_unused_rows(j, prev_max_j);
+                        self.reset_rows(j, prev_max_j);
                         prev_end_last_below = cur_end_last_below.max(Self::CHECK_AT_LEAST_ROWS);
                         prev_max_j = j;
 
@@ -456,15 +456,12 @@ impl<P: Profile> Searcher<P> {
         }
 
         // Clean up any remaining rows that weren't reset
-        for j in 0..=prev_max_j {
-            self.hp[j] = S::splat(1);
-            self.hm[j] = S::splat(0);
-        }
+        self.reset_rows(0, prev_max_j);
     }
 
     /// Reset rows that are no longer needed for future computations
     #[inline(always)]
-    fn reset_unused_rows(&mut self, current_row: usize, prev_max_row: usize) {
+    fn reset_rows(&mut self, current_row: usize, prev_max_row: usize) {
         for j2 in current_row + 1..=prev_max_row {
             self.hp[j2] = S::splat(1);
             self.hm[j2] = S::splat(0);
