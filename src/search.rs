@@ -263,6 +263,7 @@ impl<P: Profile> Searcher<P> {
                 let org_end = m.end.1;
                 m.start.1 = input.text().len() as i32 - org_end;
                 m.end.1 = input.text().len() as i32 - org_start;
+                m.cigar.ops.reverse();
                 m
             }));
         }
@@ -1701,5 +1702,22 @@ mod tests {
         for m in matches.iter() {
             println!("rc: {:?}", m.without_cigar());
         }
+    }
+
+    #[test]
+    fn test_cigar_rc() {
+        let query = b"AAAAAAA";
+        let text = "GGGGAATAAAAGGG"; // 2 match, 1 sub, 4 match
+        let mut searcher = Searcher::<Dna>::new_fwd();
+        let matches = searcher.search(query, &text, 1);
+        let fwd_cigar = matches[0].cigar.to_string();
+        // Now enabling rc search, and reverse complementing query should yield same cigar
+        let mut searcher = Searcher::<Dna>::new_rc();
+        let query_rc = Iupac::reverse_complement(query);
+        let matches = searcher.search(&query_rc, &text, 1);
+        let rc_cigar = matches[0].cigar.to_string();
+        println!("FWD: {}", fwd_cigar);
+        println!("RC: {}", rc_cigar);
+        assert_eq!(fwd_cigar, rc_cigar);
     }
 }
