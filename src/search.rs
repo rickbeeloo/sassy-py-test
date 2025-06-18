@@ -106,6 +106,8 @@ struct LaneState<P: Profile> {
     text_profile: P::B,
     matches: Vec<(usize, Cost)>,
     chunk_offset: usize,
+    /// Index of last computed text position for this lane.
+    lane_end: usize,
 }
 
 impl<P: Profile> LaneState<P> {
@@ -116,11 +118,13 @@ impl<P: Profile> LaneState<P> {
             text_profile,
             matches: Vec::new(),
             chunk_offset,
+            lane_end: 0,
         }
     }
 
     fn update_and_encode(&mut self, text: &[u8], i: usize, profiler: &P) {
         let start = self.chunk_offset * 64 + 64 * i;
+        self.lane_end = start + 64;
         if start + 64 <= text.len() {
             self.text_slice.copy_from_slice(&text[start..start + 64]);
         } else {
@@ -457,6 +461,21 @@ impl<P: Profile> Searcher<P> {
 
         // Clean up any remaining rows that weren't reset
         self.reset_rows(0, prev_max_j);
+
+        // Prune matches in overlapping regions.
+        for lane in 1..LANES {
+            let prev_lane_end = self.lanes[lane - 1].lane_end;
+            self.lanes[lane].matches.retain(|&(end_pos, cost)| {
+                if end_pos < prev_lane_end {
+                    eprintln!(
+                        "lane {lane} drop {end_pos} {cost} because it's before {prev_lane_end}"
+                    );
+                }
+                // Keep matches that end after the previous lane's end position
+                // Note that `prev_lane_end` itself is handled by the current lane.
+                end_pos >= prev_lane_end
+            });
+        }
     }
 
     /// Reset rows that are no longer needed for future computations
@@ -570,7 +589,6 @@ impl<P: Profile> Searcher<P> {
     fn process_matches(&mut self, query: &[u8], text: &[u8], k: Cost) -> Vec<Match> {
         let mut traces = Vec::new();
         let fill_len = query.len() + k as usize;
-        let mut last_processed_pos = 0;
 
         for m in &mut self.cost_matrices {
             m.alpha = self.alpha;
@@ -581,10 +599,6 @@ impl<P: Profile> Searcher<P> {
 
         for lane in 0..LANES {
             for &(end_pos, cost) in &self.lanes[lane].matches {
-                if end_pos <= last_processed_pos {
-                    continue;
-                }
-
                 let offset = end_pos.saturating_sub(fill_len);
                 let slice = &text[offset..end_pos.min(text.len())];
 
@@ -600,8 +614,6 @@ impl<P: Profile> Searcher<P> {
                     ));
                     batch.clear();
                 }
-
-                last_processed_pos = end_pos;
             }
         }
 
