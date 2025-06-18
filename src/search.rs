@@ -467,7 +467,7 @@ impl<P: Profile> Searcher<P> {
             let prev_lane_end = self.lanes[lane - 1].lane_end;
             self.lanes[lane].matches.retain(|&(end_pos, cost)| {
                 if end_pos < prev_lane_end {
-                    eprintln!(
+                    log::trace!(
                         "lane {lane} drop {end_pos} {cost} because it's before {prev_lane_end}"
                     );
                 }
