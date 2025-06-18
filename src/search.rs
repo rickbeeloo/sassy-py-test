@@ -463,13 +463,26 @@ impl<P: Profile> Searcher<P> {
         self.reset_rows(0, prev_max_j);
 
         // Prune matches in overlapping regions.
+        if log::log_enabled!(log::Level::Trace) {
+            self.lanes[0].matches.iter().for_each(|&(end_pos, cost)| {
+                log::trace!("lane 0 KEEP {end_pos} {cost}");
+            });
+        }
         for lane in 1..LANES {
             let prev_lane_end = self.lanes[lane - 1].lane_end;
+            log::debug!("End of lane {}: {prev_lane_end}", lane - 1);
+            log::debug!(
+                "Last match of lane {}: {:?}",
+                lane - 1,
+                self.lanes[lane - 1].matches.last()
+            );
             self.lanes[lane].matches.retain(|&(end_pos, cost)| {
                 if end_pos < prev_lane_end {
                     log::trace!(
                         "lane {lane} drop {end_pos} {cost} because it's before {prev_lane_end}"
                     );
+                } else {
+                    log::trace!("lane {lane} KEEP {end_pos} {cost}");
                 }
                 // Keep matches that end after the previous lane's end position
                 // Note that `prev_lane_end` itself is handled by the current lane.
@@ -542,6 +555,7 @@ impl<P: Profile> Searcher<P> {
         if base_pos >= max_pos {
             if base_pos == max_pos {
                 if self.lanes[lane].decreasing && cur_cost <= k {
+                    log::debug!("lane {lane} push {prev_pos} {prev_cost} <last>");
                     self.lanes[lane].matches.push((prev_pos, prev_cost));
                 }
             }
@@ -556,6 +570,7 @@ impl<P: Profile> Searcher<P> {
             let pos: usize = base_pos + bit;
             if pos > max_pos {
                 if !all_minima && self.lanes[lane].decreasing && prev_cost <= k {
+                    log::debug!("lane {lane} push {prev_pos} {prev_cost} <last>");
                     self.lanes[lane].matches.push((prev_pos, prev_cost));
                 }
                 break;
@@ -565,6 +580,7 @@ impl<P: Profile> Searcher<P> {
 
             if all_minima {
                 if total_cost <= k {
+                    log::trace!("lane {lane} push {prev_pos} {prev_cost}");
                     self.lanes[lane].matches.push((pos, total_cost));
                 }
             } else {
@@ -576,6 +592,7 @@ impl<P: Profile> Searcher<P> {
 
                 // Found a local minimum if we were decreasing and now costs are increasing
                 if self.lanes[lane].decreasing && costs_are_increasing && prev_cost <= k {
+                    log::debug!("lane {lane} push {prev_pos} {prev_cost}");
                     self.lanes[lane].matches.push((prev_pos, prev_cost));
                 }
 
@@ -1196,6 +1213,8 @@ mod tests {
 
     #[test]
     fn overhang_trace_fuzz() {
+        // env_logger::init();
+
         use rand::rngs::StdRng;
         use rand::{Rng, SeedableRng};
         use std::iter::repeat_with;
@@ -1222,6 +1241,8 @@ mod tests {
         let iter = 1000;
 
         for _ in 0..iter {
+            eprintln!("\n\n============================\n\n");
+
             // Random query (short for testing)
             let query_len = rng.random_range(1..=100);
             let query = rand_dna_w_seed(query_len, &mut rng);
