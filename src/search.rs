@@ -61,7 +61,7 @@ pub trait SearchAble {
     /// The forward text
     fn text(&self) -> &[u8];
     /// Produce the reverse‐complement (or reverse) when requested
-    fn rev_text(&self) -> Cow<[u8]>;
+    fn rev_text(&'_ self) -> Cow<'_, [u8]>;
 }
 
 impl<T> SearchAble for T
@@ -814,9 +814,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic()]
+    #[should_panic]
     fn overhang_test_panic_for_dna() {
-        let mut searcher = Searcher::<Dna>::new_fwd_with_overhang(0.0);
+        Searcher::<Dna>::new_fwd_with_overhang(0.0);
     }
 
     #[test]
@@ -1167,7 +1167,6 @@ mod tests {
         // }
     }
 
-    use rand::Rng;
     use serde::{Deserialize, Serialize};
 
     #[derive(Copy, Clone, Debug, PartialEq, Deserialize, Serialize)]
@@ -1308,8 +1307,6 @@ mod tests {
         }
         eprintln!("Passed: {} (skipped: {})", iter - skipped, skipped);
     }
-
-    use pa_types::*;
 
     #[test]
     fn test_query_trace_path_0_edits() {

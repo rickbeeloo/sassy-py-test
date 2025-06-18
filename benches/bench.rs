@@ -1,8 +1,9 @@
 #![feature(portable_simd, array_chunks)]
-use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use rand::Rng;
 use sassy::profiles::*;
 use sassy::search::Searcher;
+use std::hint::black_box;
 use std::time::Duration;
 
 fn generate_dna_sequence(size: usize) -> Vec<u8> {
@@ -246,7 +247,6 @@ fn benchmark_base_lookup(c: &mut Criterion) {
             &dna_seq,
             |b, seq| {
                 b.iter(|| {
-                    let profiler = Iupac::encode_query(b"").0;
                     let is_valid = Iupac::valid_seq(seq);
                     black_box(is_valid);
                 })
@@ -297,7 +297,6 @@ fn benchmark_prefix_min(c: &mut Criterion) {
         let start_cost: Cost = rng.random_range(0..20);
         test_pairs.push((p, m, start_cost));
     }
-    let k: i32 = 1;
 
     group.bench_function("prefix_min", |b| {
         b.iter(|| {

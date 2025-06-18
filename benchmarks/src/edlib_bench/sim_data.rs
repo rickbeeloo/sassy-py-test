@@ -107,6 +107,7 @@ fn mutate_sequence(sequence: &[u8], min_edits: usize, max_edits: usize) -> Vec<u
 }
 
 #[cfg(test)]
+#[allow(unused)]
 mod test {
 
     use super::*;

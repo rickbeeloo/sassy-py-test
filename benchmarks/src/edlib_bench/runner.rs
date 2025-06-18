@@ -14,7 +14,7 @@ fn remove_10_percent_outliers(times: &mut Vec<f64>) {
 
 macro_rules! time_it {
     ($label:expr, $expr:expr, $iters:expr, $pairs:expr) => {{
-        let label = $label;
+        let _label = $label;
         const WARMUP_RUNS: usize = 5;
         const SAMPLES_PER_PAIR: usize = 3;
         let mut final_result = None;
@@ -40,7 +40,7 @@ macro_rules! time_it {
 
                 // Run base case + 1 extra query
                 let start = std::time::Instant::now();
-                let r = std::hint::black_box($expr(q, t_plus_one_q));
+                 std::hint::black_box($expr(q, t_plus_one_q));
                 let elapsed = start.elapsed();
                 plus_one_times.push(elapsed.as_nanos() as f64);
             }

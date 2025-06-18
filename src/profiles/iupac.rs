@@ -421,7 +421,6 @@ mod test {
 
     #[test]
     fn test_iupac_valid_seq_all() {
-        let iupac = Iupac::encode_query(b"ACGT").0;
         let all_codes = b"ACTUGNRYSWKMBDHVX";
         for &c in all_codes {
             assert!(Iupac::valid_seq(&[c]));
@@ -433,7 +432,6 @@ mod test {
 
     #[test]
     fn test_iupac_different_lengths() {
-        let iupac = Iupac::encode_query(b"ACGT").0;
         let valid_codes = b"ACTUGNRYSWKMBDHVX";
         for len in [1, 31, 32, 33, 63, 64, 65, 127, 128, 129] {
             let seq = valid_codes
@@ -448,13 +446,11 @@ mod test {
 
     #[test]
     fn test_iupac_valid_seq_empty() {
-        let iupac = Iupac::encode_query(b"ACGT").0;
         assert!(Iupac::valid_seq(b"")); // Not sure if this should be valid or not
     }
 
     #[test]
     fn test_invalid_iupac_codes() {
-        let iupac = Iupac::encode_query(b"ACGT").0;
         // Test invalid characters
         let invalid_cases = [
             // Below 'A'
@@ -471,8 +467,6 @@ mod test {
 
     #[test]
     fn test_iupac_boundary_chars() {
-        let iupac = Iupac::encode_query(b"ACGT").0;
-
         // Test exact boundaries
         assert!(!Iupac::valid_seq(b"@")); // 64 - invalid
         assert!(Iupac::valid_seq(b"A")); // 65 - valid

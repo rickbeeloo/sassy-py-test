@@ -3,7 +3,7 @@ use sassy::search::Searcher;
 use serde::Deserialize;
 use std::fs;
 use std::fs::File;
-use std::io::{BufWriter, Write};
+use std::io::Write;
 
 #[derive(Deserialize)]
 struct Config {
