@@ -178,6 +178,10 @@ pub fn get_trace<P: Profile>(
         total_cost += overshoot_cost;
         i -= overshoot;
         j -= overshoot;
+        log::trace!("Trace from ({j}, {i}) for total cost {total_cost}");
+        log::trace!("Right overshoot {overshoot} for cost {overshoot_cost}");
+    } else {
+        log::trace!("Trace from ({j}, {i}) for total cost {total_cost}");
     }
 
     loop {
