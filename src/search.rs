@@ -555,7 +555,7 @@ impl<P: Profile> Searcher<P> {
 
         if base_pos >= max_pos {
             if base_pos == max_pos {
-                if self.lanes[lane].decreasing && cur_cost <= k {
+                if self.lanes[lane].decreasing && prev_cost <= k {
                     log::debug!("lane {lane} push {prev_pos} {prev_cost} <last>");
                     self.lanes[lane].matches.push((prev_pos, prev_cost));
                 }
