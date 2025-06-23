@@ -1,0 +1,5 @@
+q_lens = [100]
+t_lens = [100_000]
+k = 4
+alpha = 0.5
+iterations = 10_000

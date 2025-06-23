@@ -9,6 +9,9 @@ use crispr_bench::runner as crispr_runner;
 mod overhang;
 use overhang::runner as overhang_runner;
 
+mod profiles;
+use profiles::runner as profiles_runner;
+
 #[derive(Parser)]
 #[command(author, version, about)]
 struct Args {
@@ -37,6 +40,13 @@ enum Commands {
         #[arg(long)]
         config: String,
     },
+
+    /// Run the profiles benchmark
+    Profiles {
+        /// Path to the profiles config TOML file
+        #[arg(long)]
+        config: String,
+    },
 }
 
 fn main() {
@@ -53,6 +63,10 @@ fn main() {
         Commands::Overhang { config } => {
             println!("Running overhang benchmark");
             overhang_runner::run(&config);
+        }
+        Commands::Profiles { config } => {
+            println!("Running profiles benchmark");
+            profiles_runner::run(&config);
         }
     }
 }
