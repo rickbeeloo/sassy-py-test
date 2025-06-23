@@ -12,6 +12,9 @@ use overhang::runner as overhang_runner;
 mod profiles;
 use profiles::runner as profiles_runner;
 
+mod agrep_comparison;
+use agrep_comparison::runner as agrep_runner;
+
 #[derive(Parser)]
 #[command(author, version, about)]
 struct Args {
@@ -47,6 +50,13 @@ enum Commands {
         #[arg(long)]
         config: String,
     },
+
+    /// Run the agrep comparison benchmark
+    Agrep {
+        /// Path to the agrep config TOML file
+        #[arg(long)]
+        config: String,
+    },
 }
 
 fn main() {
@@ -67,6 +77,10 @@ fn main() {
         Commands::Profiles { config } => {
             println!("Running profiles benchmark");
             profiles_runner::run(&config);
+        }
+        Commands::Agrep { config } => {
+            println!("Running agrep comparison benchmark");
+            agrep_runner::run(&config);
         }
     }
 }

@@ -1773,4 +1773,16 @@ mod tests {
             println!("m: {:?}", m.without_cigar());
         }
     }
+
+    #[test]
+    fn test_simple_ascii() {
+        use crate::profiles::Ascii;
+        let query = b"hello";
+        let text = b"heeloo world";
+        let mut searcher = Searcher::<Ascii>::new_fwd();
+        let matches = searcher.search(query, &text, 1);
+        for m in matches.iter() {
+            println!("m: {:?}", m.without_cigar());
+        }
+    }
 }
