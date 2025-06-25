@@ -1723,7 +1723,7 @@ mod tests {
 
     #[test]
     #[ignore = "expected fail; local minima flip, see search all results"]
-    fn test_cigar_rc_at_overhang() {
+    fn test_cigar_rc_at_overhang_beging() {
         let query = b"TTTTAAAAAA";
         let text: &'static str = "AAAAAAGGGGGGGGGGGGGGGGGGGGGGGGGGGG"; // 5 matches
         let query_rc = Iupac::reverse_complement(query);
@@ -1764,6 +1764,30 @@ mod tests {
     }
 
     #[test]
+    fn test_cigar_rc_at_overhang_end() {
+        let query = b"TTTTAAA";
+        let query_rc = Iupac::reverse_complement(query);
+        let text = b"GGGGGGGGGTTTTAAA"; // 2 match, 1 sub, 4 match
+        let mut searcher = Searcher::<Iupac>::new_rc_with_overhang(0.5);
+        // Fwd search
+        let matches = searcher.search(query, &text, 1);
+        let fwd_cigar = matches[0].cigar.to_string();
+        println!(
+            "start - end: {} - {}",
+            matches[0].start.1 as usize, matches[0].end.1 as usize
+        );
+        println!("FWD: {}", fwd_cigar);
+        // RC search
+        let matches = searcher.search(&query_rc, &text, 1);
+        let rc_cigar = matches[0].cigar.to_string();
+        println!(
+            "start - end: {} - {}",
+            matches[0].start.1 as usize, matches[0].end.1 as usize
+        );
+        println!("RC: {}", rc_cigar);
+    }
+
+    #[test]
     fn real_data_bug() {
         let query = b"TTTTTTTTCCTGTACTTCGTTCAGTTACGTATTGCTGCTTGGGTGTTTAACCNNNNNNNNNNNNNNNNNNNNNNNNGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA";
         let text = b"TTATGTATACCTTGGCATTGAAGCCGATATTGACAACTAGGCACAGCGAGTCTTGGTTGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCTGCCGCTTCACTGGCATTGATTGAAAATCTGCAACGCGAAGATTTGACACCAATCGAAGAAGCAGAAGCCTATGAGCGCTTGCTTGCGTTTACAAGACATCACGCAGAAGTGTTAGCTCGTAAGCTCGGACGTAGTCAATCGACGATTGCTAACAAATTGCGTTTGCTTCGATTGCCAACGGATGTCCGGGGAAACGTGAAGCAACGCAAATAACGGAGCGTCATGCCCGTGCGTTATTGCCGCTCAAGGATGAAGCGCTACAAGTAACGGTACTCGCTGAAATTCTGGAACGGGAATGGAACGTCAAGGAGACGGAGCGCCGGGTGGAACGATTGATGACACCACAGCCACCGAAGAAAAAACGTCATAAGAGCTTTGCTCGGGATACACGGATTGCGTTAAATACCCTTCGCGATTCCGTCGATATGATCGAGCAAACCGGATTGACGATTGAAAAAGAAGAAGTCGATTGTGAAGAATATGTAGAGGTGCGGATTCGCATCGTGAAGGCACGTCCGGAATAAGCGGTCGTGCCTTCCGCTACGTTTAGGAGAGAAGGCAAGTGAACGAATTACCTGTTCGGGCAATTAGCCAATCCGACTCAACCCCGGAAACGATTCAATGAAAAAGCATTAGAGACTCGCCCAATCACTCGTTCGGCACGGGATTAGTCGGACCATCGTCGTCCGACCATGTGATGGCTATTATGAAATCATCGCCGGCGAACGACGGTATCAAGCAGCGAGTCGCGCAGGATTCGAACGTGTACCGGTCCTCGTCGTCGAAGACGACGAGACACGCGTGATGGAGCTCGCTTTGATCGAAAACATCCAACGGGCGGATTTATCCGCGATTGGAAGAGGCGATGGCGTATGCGGAGATGATTCGAGGAATTCGGTATCACGCAAGCAGAGCTTGCGCAGCGTGTCGCAGAAAGTCGTTCGCACATCACGAACAGTCTTGGGTTACTACAATTGCCGTTACTCGTTCAACAAGCGGTCATAGATAGCGTCTATCGATGGGACATGCCCGCGCGCTCCTGTCGCTGAAACATCCAAAGAAGATGAACAGATGGCAGAGGGGGCATGGCGGAGAACTGGAACGTCCGTCAGTCAGTTCAGGCCACACTCTGGGAACGTAAGGAAGCCGCCCGTCCGCAACAAGCGACCGCTGTTCAATTCGTCGAGGAATCACTTCGCGAAAAATACGGGGCGACCGTTCGGATTAAACAAGGAAAACAAGCAGGGAAACTCGAGATCGATTTTATAGACGAAGACGACCTCAATCGGTTGCTCGACTTGTTATTACCTGAATCGGATCACTAAAAAGAAGCGATCCGGGCGACGGTCCGCTCTTTTGCTTACATCGAGCGTGGCGTGAAAGAAATCGTCGTCCGTGTGGATTCGGCGGAAGCTCGCATCAAGTAAGTGGAAGCTGTTCGCGACGAGTTCCGCTAGTTCATAAACAAGGTGTAACCGTGTGTTCTGGAGAATCATCATCTCCATGAATCCACTGACGTTGACGACAGCCTTAATGTTGAAGTCACCGACCGCAGGTAACTCTTTTTGGACGCCGGCGCCGGGTGCGAGTGGACCTTCCGAGAAAAAGGCATGTCCGACACTTGAAAGGCGACC";
@@ -1785,4 +1809,62 @@ mod tests {
             println!("m: {:?}", m.without_cigar());
         }
     }
+
+    #[test]
+    fn diff_rc_result() {
+        let text = b"ACCAGATTGCTGGTGCTGCTTGTCCAGGGTTTGTGTAACCTTTTAACCTTCGTCGGCAGCGTCAGATGTGTATAAGAGACAGTACCTGGTTGATCCTGCCAGTAGTCATATGCTTGTCTCAAGATTAAGCCATGCATGTCTAAGTATAAACAAATTCATACTGTGAAACTGCGAATGGCTCATTAAATCAGTTATAGTTTATTTGATGGTTTCTTGCTACATGGATAACTGTGGTAATTCTAGAGCTAATACATGCTGAAAAGCCCCGACTTCTGGAAGGGGTGTATTTATTAGATAAAAAACCAATGACTTCGGTCTTCTTGGTGATTCATAATAACTTCTCGAATCGCATGGCCTCGCGCCGGCGATGCTTCATTCAAATATCTGCCCTATCAACTTTCGATGGTAGGATAGAGGCCTACCATGGTATCAACGGGTAACGGGAATTAGGGTTCGATTCCGGAGAGGGAGCCTAGAAACGGCTACCACATCCAAGGAAGGCAGCAGGCGCGCAAATTACCCAATCCCGACACGGGGA";
+        let text_rc = Iupac::reverse_complement(text);
+        let q = b"AATGTACTTCGTTCAGTTACGTATTGCTGGTGCTGNNNNNNNNNNNNNNNNNNNNNNNNTTAACCTTCGTCGGCAGCGTCAGATGTGTATAAGAGACAGTACCTGGTTGATYCTG";
+        let mut searcher = Searcher::<Iupac>::new_rc_with_overhang(0.5);
+
+        println!("Forward matches");
+        let matches = searcher.search(q, &text, 12);
+        for m in matches.iter() {
+            println!("m: {:?}", m.without_cigar());
+            let (m_start, m_end) = (m.start.1 as usize, m.end.1 as usize);
+            let m_text = &text[m_start..m_end];
+            let path = m.to_path();
+            println!("Cigar: {}", m.cigar.to_string());
+            for pos in path.iter() {
+                let q_pos = pos.0;
+                let r_pos = pos.1;
+                let q_char = q[q_pos as usize];
+                let r_char = text[r_pos as usize];
+                println!(
+                    "q_pos: {}, r_pos: {}, q_char: {}, r_char: {}",
+                    q_pos, r_pos, q_char as char, r_char as char
+                );
+            }
+            println!("m_text: {}", String::from_utf8_lossy(m_text));
+        }
+
+        println!("Reverse matches");
+        let matches = searcher.search(q, &text_rc, 12);
+        for m in matches.iter() {
+            let (m_start, m_end) = (m.start.1 as usize, m.end.1 as usize);
+            let m_text = &text_rc[m_start..m_end];
+            println!("Match text: {}", String::from_utf8_lossy(m_text));
+            let path = m.to_path();
+            for pos in path.iter() {
+                let q_pos = pos.0;
+                let r_pos = pos.1;
+                let q_char = q[q_pos as usize];
+                let r_char = text_rc[r_pos as usize];
+                println!(
+                    "q_pos: {}, r_pos: {}, q_char: {}, r_char: {}",
+                    q_pos, r_pos, q_char as char, r_char as char
+                );
+            }
+            println!("Cigar: {}", m.cigar.to_string());
+            println!("m_text: {}", String::from_utf8_lossy(m_text));
+        }
+    }
 }
+
+/*
+q: AAGGTTACACAAACCCTGGACAAG
+
+GAAGGCAGCAGGCGCGCAAATTAC
+CTTGTCCAGGGTTTGTGTAACCTT
+
+*/
