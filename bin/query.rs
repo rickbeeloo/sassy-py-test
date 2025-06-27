@@ -35,6 +35,10 @@ pub struct QueryArgs {
     /// Output file for results. Defaults to stdout.
     #[arg(short, long)]
     output: Option<PathBuf>,
+
+    /// Overhang cost
+    #[arg(long)]
+    overhang_cost: Option<f32>,
 }
 
 #[derive(clap::ValueEnum, Default, Clone, PartialEq)]
@@ -110,6 +114,13 @@ pub fn query(args: &mut QueryArgs) {
         );
         args.no_rc = true;
     }
+    let overhang_cost = args.overhang_cost;
+    if overhang_cost.is_some() {
+        println!(
+            "Using overhang cost: {} for alignments extending beyond sequence bounds",
+            overhang_cost.unwrap()
+        );
+    }
 
     let num_threads = args.threads.unwrap_or_else(num_cpus::get);
 
@@ -137,7 +148,7 @@ pub fn query(args: &mut QueryArgs) {
             scope.spawn(move || match thread_args.alphabet {
                 Alphabet::Ascii => run_query_worker!(
                     Ascii,
-                    Searcher::<Ascii>::new(false, None),
+                    Searcher::<Ascii>::new(false, overhang_cost),
                     thread_args,
                     query_reader,
                     write_lock,
@@ -145,7 +156,7 @@ pub fn query(args: &mut QueryArgs) {
                 ),
                 Alphabet::Dna => run_query_worker!(
                     Dna,
-                    Searcher::<Dna>::new(!thread_args.no_rc, None),
+                    Searcher::<Dna>::new(!thread_args.no_rc, overhang_cost),
                     thread_args,
                     query_reader,
                     write_lock,
@@ -153,7 +164,7 @@ pub fn query(args: &mut QueryArgs) {
                 ),
                 Alphabet::Iupac => run_query_worker!(
                     Iupac,
-                    Searcher::<Iupac>::new(!thread_args.no_rc, None),
+                    Searcher::<Iupac>::new(!thread_args.no_rc, overhang_cost),
                     thread_args,
                     query_reader,
                     write_lock,
@@ -228,6 +239,7 @@ mod test {
             no_rc: true,
             threads: Some(1),
             output: None,
+            overhang_cost: None,
         };
 
         println!("Query without RC");
