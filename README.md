@@ -13,26 +13,26 @@ shorter texts.
 ## Usage
 
 ```
-> cargo run -r -- search --help
+> cargo run -r --  --help
 
-Usage: sassy [OPTIONS] --alphabet <ALPHABET> <QUERY> <K> <PATH>
+Usage: sassy <COMMAND>
 
-Arguments:
-  <QUERY>  Pattern to search for
-  <K>      Report matches up to (and including) this distance threshold
-  <PATH>   Fasta file to search. May be gzipped
+Commands:
+  search  Default search behavior
+  crispr  CRISPR-specific search with PAM and edit-free region
+  query   Search multiple queries from a FASTA file against a target FASTA file
+  help    Print this message or the help of the given subcommand(s)
 
 Options:
-      --alphabet <ALPHABET>  The alphabet to use. DNA=ACTG, or IUPAC=ACTG+NYR... [possible values: ascii, dna, iupac]
-      --rc                   Whether to include matches of the reverse-complement string
-  -j, --threads <THREADS>    Number of threads to use. All CPUs by default
-  -h, --help                 Print help
+  -h, --help     Print help
+  -V, --version  Print version
+
 ```
 
-You can also first build with `cargo build -r` and then do
-`./target/release/sassy <args>`.
-
 ## Example
+
+### Search
+To search a single pattern (i.e. `ACTGCTACTGTACA`) in a fasta file
 
 To find matches of a pattern with up to 1 edit:
 
@@ -53,6 +53,16 @@ chr1	2	-	199471583	199471601	TTATCGATGACACTGAAT	 13=X2=X=
 chr1	2	-	229999068	229999085	ATATCGATGACACCAGT	 X13=D3=
 chr1	2	-	231082126	231082144	ttatcaatgacaacgagt	 5=X6=X5=
 ```
+
+### Query
+When searching a multi-fasta against another (multi) fasta file. For example to search a list of protospacers in a contig collection.
+
+To find all spacer matches with up to 3 edits
+
+```rust
+cargo run -r --  search spacers.fasta 3 contigs.fasta
+```
+
 
 ## Alphabets
 Three alphabets are supported:
