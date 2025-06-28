@@ -37,7 +37,7 @@ To search a single pattern (i.e. `ACTGCTACTGTACA`) in a fasta file
 To find matches of a pattern with up to 1 edit:
 
 ``` rust
-cargo run -r -- search --alphabet dna --rc ACTGCTACTGTACA 1 hg.fa
+cargo run -r -- search --alphabet dna ACTGCTACTGTACA 1 hg.fa
 ```
 
 Output is written as tab-separated values to stdout, containing the sequence id,
@@ -60,7 +60,7 @@ When searching a multi-fasta against another (multi) fasta file. For example to 
 To find all spacer matches with up to 3 edits
 
 ```rust
-cargo run -r --  search spacers.fasta 3 contigs.fasta
+cargo run -r --  query  --alphabet iupac spacers.fasta 3 contigs.fasta
 ```
 
 
