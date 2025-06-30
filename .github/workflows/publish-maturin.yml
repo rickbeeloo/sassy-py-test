@@ -30,9 +30,7 @@ jobs:
     - name: Build and publish
       uses: PyO3/maturin-action@v1
       with:
-        target: ${{ matrix.os }}
-        args: --release --features python
+        # Set target to the appropriate Rust target triple
+        target: ${{ matrix.os == 'windows-latest' && 'x86_64-pc-windows-msvc' || 'x86_64-unknown-linux-gnu' }}
+        args: publish --release --features python --no-sdist -u __token__ -p ${{ secrets.PYPI_API_TOKEN }}
         manylinux: auto
-        upload: true
-      env:
-        MATURIN_PASSWORD: ${{ secrets.PYPI_API_TOKEN }} 
