@@ -54,7 +54,7 @@ impl PySearcher {
         })
     }
 
-    #[pyo3(text_signature = "(self, query, text, k)")]
+    #[pyo3(signature = (query, text, k))]
     #[doc = "Search for a query in a text. Returns a list of PyMatch."]
     fn search(&mut self, query: Vec<u8>, text: Vec<u8>, k: usize) -> PyResult<Vec<PyMatch>> {
         match self.alphabet.to_lowercase().as_str() {
@@ -128,7 +128,7 @@ impl From<Match> for PyMatch {
 }
 
 #[pyfunction]
-#[pyo3(text_signature = "(query, text, k, alphabet, no_rc, alpha=None)")]
+#[pyo3(signature = (query, text, k, alphabet, no_rc, alpha=None))]
 #[doc = "Search for a single query in a single text. Returns a list of PyMatch."]
 fn search_sequence(
     query: Vec<u8>,
@@ -143,7 +143,7 @@ fn search_sequence(
 }
 
 #[pyfunction]
-#[pyo3(text_signature = "(queries, texts, k, alphabet, no_rc, alpha=None)")]
+#[pyo3(signature = (queries, texts, k, alphabet, no_rc, alpha=None))]
 #[doc = "Search multiple queries against multiple texts. Returns a list of lists of PyMatch."]
 fn search_sequences(
     queries: Vec<Vec<u8>>,
