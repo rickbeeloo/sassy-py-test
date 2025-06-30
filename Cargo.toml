@@ -3,6 +3,10 @@ name = "sassy"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "sassy"
+crate-type = ["cdylib", "rlib"]
+
 [profile.release]
 incremental = true
 opt-level = 3
@@ -25,8 +29,12 @@ num_cpus = "1.16.0"
 needletail = "0.6.3"
 once_cell = "1.19.0"
 
+# PyO3 dependencies (only when python feature is enabled)
+pyo3 = { version = "0.22", features = ["extension-module"], optional = true }
+
 [features]
 avx512 = []
+python = ["pyo3"]
 # default = ["avx512"]
 
 [[bench]]

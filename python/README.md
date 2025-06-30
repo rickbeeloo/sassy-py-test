@@ -1,10 +1,16 @@
 # simd-sassy Python Bindings
 
-Fast, SIMD accelerated, Approximate String Matching (ASM) implemented in Rust with Python bindings
+This directory contains the Python interface for the simd-sassy sequence search library, powered by Rust and PyO3.
 
 ## Installation
 
-install from PyPI:
+You can install the package using [maturin](https://github.com/PyO3/maturin):
+
+```bash
+maturin develop --features python
+```
+
+Or install from PyPI (once published):
 
 ```bash
 pip install simd-sassy

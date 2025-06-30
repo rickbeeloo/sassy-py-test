@@ -5,3 +5,5 @@
 /data
 *.ipynb
 *.png
+__pycache__
+*.so
