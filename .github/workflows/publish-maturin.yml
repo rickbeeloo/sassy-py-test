@@ -27,10 +27,31 @@ jobs:
         toolchain: stable
         override: true
 
-    - name: Build and publish
+    - name: Build wheels
       uses: PyO3/maturin-action@v1
       with:
-        # Set target to the appropriate Rust target triple
-        target: ${{ matrix.os == 'windows-latest' && 'x86_64-pc-windows-msvc' || 'x86_64-unknown-linux-gnu' }}
-        args: publish --release --features python --no-sdist -u __token__ -p ${{ secrets.PYPI_API_TOKEN }}
+        args: build --release --features python
         manylinux: auto
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'  # Any version for publishing step
+
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+
+    - name: Publish to PyPI
+      run: |
+        pip install maturin
+        maturin publish --release --features python --no-sdist -u __token__ -p ${{ secrets.PYPI_API_TOKEN }}
