@@ -1,0 +1,38 @@
+name: Build and publish Python wheels with maturin
+
+on:
+  push:
+    tags:
+      - 'v*'  # Trigger on version tags like v0.1.0
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ['3.8', '3.9', '3.10', '3.11', '3.12']
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+
+    - name: Build and publish
+      uses: PyO3/maturin-action@v1
+      with:
+        target: ${{ matrix.os }}
+        args: --release --features python
+        manylinux: auto
+        upload: true
+      env:
+        MATURIN_PASSWORD: ${{ secrets.PYPI_API_TOKEN }} 
