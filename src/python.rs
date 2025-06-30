@@ -5,7 +5,7 @@ use pyo3::wrap_pyfunction;
 
 /// A Python module implemented in Rust.
 #[pymodule]
-fn sassy(_py: Python, m: &PyModule) -> PyResult<()> {
+fn sassy(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySearcher>()?;
     m.add_class::<PyMatch>()?;
     m.add_function(wrap_pyfunction!(search_sequence, m)?)?;
