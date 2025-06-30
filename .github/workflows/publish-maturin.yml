@@ -21,6 +21,9 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             python-version: '3.12'
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            python-version: '3.13'
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             python-version: '3.10'
@@ -30,6 +33,9 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             python-version: '3.12'
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            python-version: '3.13'
           - os: macos-latest
             target: x86_64-apple-darwin
             python-version: '3.10'
@@ -39,6 +45,9 @@ jobs:
           - os: macos-latest
             target: x86_64-apple-darwin
             python-version: '3.12'
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            python-version: '3.13'
 
     steps:
     - uses: actions/checkout@v4
