@@ -1,16 +1,10 @@
 # simd-sassy Python Bindings
 
-This directory contains the Python interface for the simd-sassy sequence search library, powered by Rust and PyO3.
+Fast, SIMD accelerated, Approximate String Matching (ASM) implemented in Rust with Python bindings
 
 ## Installation
 
-You can install the package using [maturin](https://github.com/PyO3/maturin):
-
-```bash
-maturin develop --features python
-```
-
-Or install from PyPI (once published):
+install from PyPI:
 
 ```bash
 pip install simd-sassy
@@ -19,11 +13,57 @@ pip install simd-sassy
 ## Usage
 
 ```python
-import sassy
-searcher = sassy.PySearcher('dna', False)
-results = searcher.search(b'ACGT', b'ACGTTT', 1)
-for m in results:
-    print(m.start, m.end, m.cost, m.strand, m.cigar)
+import sassy 
+
+# Example 1: Simple DNA search
+print("=== DNA Search Example ===")
+query = b"ATCGATCG"
+text = b"GGGGATCGATCGTTTT"
+
+# Search with DNA alphabet
+matches = sassy.search_sequence(query, text, k=0, alphabet="dna", no_rc=False, alpha=0.5)
+
+print(f"Query: {query.decode()}")
+print(f"Text:  {text.decode()}")
+print(f"Found {len(matches)} matches:")
+
+for i, match in enumerate(matches):
+    print(f"  Match {i+1}:")
+    print(f"    Start: {match.start}")
+    print(f"    End: {match.end}")
+    print(f"    Cost: {match.cost}")
+    print(f"    Strand: {match.strand}")
+    print(f"    CIGAR: {match.cigar}")
+
+# Example 2: Using the Searcher class
+print("\n=== Searcher Class Example ===")
+searcher = sassy.PySearcher("dna", no_rc=False)
+
+query2 = b"GCTAGCTA"
+text2 = b"AAAAAGCTAGCTAAAAA"
+
+matches2 = searcher.search(query2, text2, k=1)
+
+print(f"Query: {query2.decode()}")
+print(f"Text:  {text2.decode()}")
+print(f"Found {len(matches2)} matches with k=1:")
+
+for i, match in enumerate(matches2):
+    print(f"  Match {i+1}: cost={match.cost}, strand={match.strand}")
+
+# Example 3: ASCII search
+print("\n=== ASCII Search Example ===")
+query3 = b"hello"
+text3 = b"world hello there"
+
+matches3 = sassy.search_sequence(query3, text3, k=0, alphabet="ascii", no_rc=True)
+
+print(f"Query: {query3.decode()}")
+print(f"Text:  {text3.decode()}")
+print(f"Found {len(matches3)} matches:")
+
+for i, match in enumerate(matches3):
+    print(f"  Match {i+1}: start={match.start}, end={match.end}, cost={match.cost}")
 ```
 
 See the main project README for more details and advanced usage. 
