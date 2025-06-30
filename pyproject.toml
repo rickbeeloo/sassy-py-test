@@ -29,5 +29,4 @@ module-name = "sassy"
 bindings = "pyo3"
 features = ["python"] 
 
-[tool.setuptools]
 license-files = []
