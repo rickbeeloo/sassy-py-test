@@ -42,9 +42,7 @@ jobs:
       uses: PyO3/maturin-action@v1.49.3
       with:
         command: upload
-        args: --non-interactive --skip-existing dist/*
-        username: __token__
-        password: ${{ secrets.PYPI_API_TOKEN }}
+        args: -u __token__ -p  ${{ secrets.PYPI_API_TOKEN }} --non-interactive --skip-existing dist/*
 
     - name: Upload wheels as artifacts
       uses: actions/upload-artifact@v3
