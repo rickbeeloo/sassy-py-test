@@ -1,5 +1,5 @@
 [build-system]
-requires = ["maturin>=1.0,<2.0"]
+requires = ["maturin>=1.0,<2.0", "packaging>=24.2"]
 build-backend = "maturin"
 
 [project]
@@ -29,4 +29,5 @@ module-name = "sassy"
 bindings = "pyo3"
 features = ["python"] 
 
+[tool.setuptools]
 license-files = []

@@ -48,6 +48,9 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
 
+    - name: Install build dependencies
+      run: pip install "packaging>=24.2"
+
     - name: Install Rust nightly
       uses: dtolnay/rust-toolchain@nightly
       with:
@@ -75,6 +78,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    - name: Install build dependencies
+      run: pip install "packaging>=24.2"
     - name: Build sdist
       uses: PyO3/maturin-action@v1
       with:
@@ -103,10 +112,12 @@ jobs:
     - name: List built artifacts
       run: ls -la dist/
 
+    - name: Install upload dependencies
+      run: pip install "packaging>=24.2" --upgrade twine
+
     - name: Publish to PyPI
       env:
         TWINE_USERNAME: __token__
         TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
       run: |
-        pip install --upgrade twine
         twine upload --skip-existing dist/*
