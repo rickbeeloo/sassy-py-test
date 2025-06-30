@@ -104,7 +104,9 @@ jobs:
       run: ls -la dist/
 
     - name: Publish to PyPI
-      uses: PyO3/maturin-action@v1.49.3
-      with:
-        command: upload
-        args: --username "__token__" --password ${{ secrets.PYPI_API_TOKEN }} --non-interactive --skip-existing dist/*
+      env:
+        TWINE_USERNAME: __token__
+        TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+      run: |
+        pip install --upgrade twine
+        twine upload --skip-existing dist/*
