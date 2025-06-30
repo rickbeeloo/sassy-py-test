@@ -1,6 +1,7 @@
 #![feature(portable_simd, int_roundings, let_chains)]
 
 use std::simd::Simd;
+
 mod bitpacking;
 mod delta_encoding;
 
@@ -19,6 +20,10 @@ pub mod profiles {
 mod minima;
 pub mod search;
 mod trace;
+
+// Python bindings module
+#[cfg(feature = "python")]
+mod python;
 
 #[doc(hidden)]
 pub mod private {
