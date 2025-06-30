@@ -10,48 +10,68 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
         python-version: ['3.10', '3.11', '3.12']
 
     steps:
     - uses: actions/checkout@v4
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
 
     - name: Install Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        override: true
+      uses: dtolnay/rust-toolchain@stable
 
     - name: Build wheels
       uses: PyO3/maturin-action@v1
       with:
-        args: build --release --features python
+        args: --release --features python --out dist --find-interpreter
+        sccache: 'true'
         manylinux: auto
 
-  publish:
-    needs: build
-    runs-on: ubuntu-latest
+    - name: Upload wheels as artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: wheels-${{ matrix.os }}-${{ matrix.python-version }}
+        path: dist
 
+  # Build source distribution on Linux only
+  sdist:
+    runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-
-    - name: Set up Python
-      uses: actions/setup-python@v4
+    - name: Build sdist
+      uses: PyO3/maturin-action@v1
       with:
-        python-version: '3.12'  # Any version for publishing step
-
-    - name: Install Rust
-      uses: actions-rs/toolchain@v1
+        command: sdist
+        args: --out dist
+    - name: Upload sdist as artifact
+      uses: actions/upload-artifact@v4
       with:
-        toolchain: stable
-        override: true
+        name: sdist
+        path: dist
+
+  publish:
+    needs: [build, sdist]
+    runs-on: ubuntu-latest
+    environment: pypi  # Use environment protection for PyPI token
+    permissions:
+      id-token: write  # For trusted publishing (optional)
+
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: dist
+        merge-multiple: true
+
+    - name: List built artifacts
+      run: ls -la dist/
 
     - name: Publish to PyPI
-      run: |
-        pip install maturin
-        maturin publish --release --features python --no-sdist -u __token__ -p ${{ secrets.PYPI_API_TOKEN }}
+      uses: PyO3/maturin-action@v1
+      with:
+        command: upload
+        args: --non-interactive --skip-existing -u __token__ -p ${{ secrets.PYPI_API_TOKEN }} dist/*
