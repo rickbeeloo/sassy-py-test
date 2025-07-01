@@ -1886,6 +1886,44 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Example of rc(q) vs t != compl(q) vs rev(t)"]
+    fn diff_rc_method() {
+        let query = b"AATGCTCCAATGGATGTCACTGCAAGCTCTT".to_vec();
+        let text = b"ATAGAGAGCTTGCAGTGACATCCATTGGAGCATTGCG";
+        let query_rc = Iupac::reverse_complement(query.as_slice());
+        println!("Query: {:?}", String::from_utf8_lossy(&query));
+        println!(
+            "Query rc: {:?}",
+            String::from_utf8_lossy(&query_rc.as_slice())
+        );
+        println!("Sub text: {:?}", String::from_utf8_lossy(text));
+        let mut searcher = Searcher::<Iupac>::new_rc();
+        let matches = searcher.search_all(&query, &text, 3);
+        for m in matches {
+            println!(
+                "m start {} end {} cost {}, cigar: {}",
+                m.start,
+                m.end,
+                m.cost,
+                m.cigar.to_string()
+            );
+        }
+
+        println!("Using RC as query fwd only");
+        let mut searcher = Searcher::<Iupac>::new_fwd();
+        let matches = searcher.search_all(&query_rc, &text, 3);
+        for m in matches {
+            println!(
+                "m start {} end {} cost {}, cigar: {}",
+                m.start,
+                m.end,
+                m.cost,
+                m.cigar.to_string()
+            );
+        }
+    }
+
+    #[test]
     fn diff_rc_result() {
         let text = b"ACCAGATTGCTGGTGCTGCTTGTCCAGGGTTTGTGTAACCTTTTAACCTTCGTCGGCAGCGTCAGATGTGTATAAGAGACAGTACCTGGTTGATCCTGCCAGTAGTCATATGCTTGTCTCAAGATTAAGCCATGCATGTCTAAGTATAAACAAATTCATACTGTGAAACTGCGAATGGCTCATTAAATCAGTTATAGTTTATTTGATGGTTTCTTGCTACATGGATAACTGTGGTAATTCTAGAGCTAATACATGCTGAAAAGCCCCGACTTCTGGAAGGGGTGTATTTATTAGATAAAAAACCAATGACTTCGGTCTTCTTGGTGATTCATAATAACTTCTCGAATCGCATGGCCTCGCGCCGGCGATGCTTCATTCAAATATCTGCCCTATCAACTTTCGATGGTAGGATAGAGGCCTACCATGGTATCAACGGGTAACGGGAATTAGGGTTCGATTCCGGAGAGGGAGCCTAGAAACGGCTACCACATCCAAGGAAGGCAGCAGGCGCGCAAATTACCCAATCCCGACACGGGGA";
         let text_rc = Iupac::reverse_complement(text);
