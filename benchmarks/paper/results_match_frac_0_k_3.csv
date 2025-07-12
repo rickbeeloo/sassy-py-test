@@ -1,0 +1,9 @@
+query_length,text_length,k,edlib_matches,sassy_matches,max_edits,bench_iter,alphabet,profile,rc,edlib_ns,edlib_ns_plus_one,sassy_ns,sassy_ns_plus_one
+20,100000,3,0,0,3,1000,Dna,dna,withoutrc,565095,-71932,59004,-813
+30,100000,3,0,0,3,1000,Dna,dna,withoutrc,568256,-83003,50846,-1596
+50,100000,3,0,0,3,1000,Dna,dna,withoutrc,568922,-83538,50691,-1969
+100,100000,3,0,0,3,1000,Dna,dna,withoutrc,574071,-87633,50982,-3305
+200,100000,3,0,0,3,1000,Dna,dna,withoutrc,575069,-94677,50714,-7255
+300,100000,3,0,0,3,1000,Dna,dna,withoutrc,578332,-100457,51721,-12585
+500,100000,3,0,0,3,1000,Dna,dna,withoutrc,580099,-89478,51336,-27669
+1000,100000,3,0,0,3,1000,Dna,dna,withoutrc,584888,-123288,51913,-94633

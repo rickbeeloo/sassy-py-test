@@ -9,7 +9,6 @@ This creates the `benchmarks` executable in `/target/release/`.
 This is what the python scripts use to run the benchmarks. 
 
 
-
 ### Tool comparison (0 & 1 match)
 
 #### Generating the data
