@@ -84,6 +84,8 @@ impl GridConfig {
                                             verbose: self.verbose,
                                         })
                                     })
+                                    // Avoid cases with accidental matches.
+                                    .filter(|param| param.query_length > 3 * param.k)
                                     .filter(|param| {
                                         (param.alphabet == Alphabet::Dna && param.profile == "dna")
                                             || (param.alphabet == Alphabet::Dna
