@@ -34,7 +34,7 @@ pub struct ParamSet<'a> {
 impl GridConfig {
     pub fn output_file(&self) -> String {
         format!(
-            "results_match_frac_{}_k_{}.csv",
+            "data/match_frac_{}_k_{}.csv",
             self.matches
                 .iter()
                 .map(|x| x.to_string())
