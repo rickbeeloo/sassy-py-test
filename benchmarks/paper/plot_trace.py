@@ -72,8 +72,8 @@ if not dfs:
 df = pd.concat(dfs, ignore_index=True)
 
 # Convert time differences to microseconds
-df["sassy_time_diff"] = df["sassy_ns_plus_one"] * -1 / 1000
-df["edlib_time_diff"] = df["edlib_ns_plus_one"] * -1 / 1000
+df["sassy_time_diff"] = 1000 / (df["sassy_ns_plus_one"] * -1 / 1000)
+df["edlib_time_diff"] = 1000 / (df["edlib_ns_plus_one"] * -1 / 1000)
 
 # === Plotting parameters ===
 sassy_color = "#fcc007"  # yellow
@@ -116,8 +116,8 @@ ax.set_yscale("log")
 # Grid, labels
 ax.grid(True, which="major", linewidth=0.5, alpha=0.7)
 
-ax.set_xlabel("Query Length")
-ax.set_ylabel("Trace time (μs)")
+ax.set_xlabel("Query length")
+ax.set_ylabel("Trace throughput ($10^3$ matches/s)")
 
 # Y-axis formatter
 ax.yaxis.set_major_locator(LogLocator(base=10.0, subs=[1.0, 2.0, 5.0], numticks=10))
@@ -207,7 +207,7 @@ ax.legend(
     fancybox=True,
     shadow=False,
     #  bbox_to_anchor=(0.95, 0.1),  # lower right but moved up a bit
-    loc="lower right",
+    loc="upper right",
     handlelength=3.0,
     handletextpad=0.5,
     labelspacing=0.3,
@@ -220,5 +220,6 @@ os.makedirs("figs", exist_ok=True)
 
 plt.tight_layout()
 plt.savefig("figs/trace.svg", bbox_inches="tight")
+plt.savefig("figs/trace.pdf", bbox_inches="tight")
 
 print("Plots saved successfully to figs/ directory")
