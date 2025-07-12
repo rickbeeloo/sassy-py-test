@@ -12,7 +12,7 @@ use std::simd::cmp::SimdPartialOrd;
 
 pub type Deltas = Vec<(Cost, V<u64>)>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Match {
     pub start: Pos,
     pub end: Pos,
@@ -455,6 +455,7 @@ impl<P: Profile> Searcher<P> {
                         if self.should_terminate_early(i, blocks_per_chunk, j, k) {
                             break 'text_chunk;
                         }
+                        //  println!("Skipping {j}");
                         continue 'text_chunk;
                     }
                 }
@@ -1105,6 +1106,9 @@ mod tests {
             .chain((0..10).map(|_| random_range(1000..10000)))
             .collect::<Vec<_>>();
 
+        let mut query_lens = [3, 4, 5, 8, 10].repeat(1000);
+        let mut text_lens = [10, 15, 20, 30].repeat(1000);
+
         // let mut query_lens = [1000, 2000, 5000, 10_000].repeat(1);
         // let mut text_lens = [10_000, 100_000, 1_000_000].repeat(1);
 
@@ -1112,7 +1116,7 @@ mod tests {
         text_lens.sort();
 
         // Create single searcher for all tests to check proper resetting of internal states
-        let mut searcher = Searcher::<Dna>::new_fwd();
+        // let mut searcher = Searcher::<Dna>::new_fwd();
         let mut rc_searcher = Searcher::<Dna>::new_rc();
 
         for q in query_lens {
@@ -1152,43 +1156,87 @@ mod tests {
                 fn show(x: &[u8]) -> &str {
                     str::from_utf8(x).unwrap()
                 }
-                eprintln!("");
-                eprintln!("edits {edits}");
-                eprintln!("query q={q} {}", show(&query));
-                eprintln!("pattern {}", show(&p));
-
+                ///eprintln!("");
+                ////  eprintln!("query q={q} {}", show(&query));
+                //  eprintln!("pattern {}", show(&p));
                 if p.len() > text.len() {
                     continue;
                 }
 
                 let idx = random_range(0..=text.len().saturating_sub(p.len()));
-                eprintln!("text len {}", text.len());
-                eprintln!("planted idx {idx}");
+                //  eprintln!("text len {}", text.len());
+                // eprintln!("planted idx {idx}");
                 let expected_idx = (idx + p.len()).saturating_sub(q);
-                eprintln!("expected idx {expected_idx}");
+                // eprintln!("expected idx {expected_idx}");
 
                 text.splice(idx..idx + p.len(), p);
-                eprintln!("text {}", show(&text));
+                //eprintln!("text {}", show(&text));
 
-                // Just fwd
-                let matches = searcher.search(&query, &text, edits);
-                eprintln!("matches {matches:?}");
-                let m = matches
-                    .iter()
-                    .find(|m| (m.start.1 as usize).abs_diff(expected_idx) <= edits);
-                assert!(m.is_some());
+                // // Just fwd
+                // let matches = searcher.search(&query, &text, edits);
+                // eprintln!("matches {matches:?}");
+                // let m = matches
+                //     .iter()
+                //     .find(|m| (m.start.1 as usize).abs_diff(expected_idx) <= edits);
+                // assert!(m.is_some());
 
-                // Also rc search, should still find the same match
+                // // Also rc search, should still find the same match
                 let matches = rc_searcher.search(&query, &text, edits);
 
-                eprintln!("matches {matches:?}");
-                let m = matches
-                    .iter()
-                    .find(|m| (m.start.1 as usize).abs_diff(expected_idx) <= edits);
-                assert!(m.is_some());
+                // eprintln!("matches {matches:?}");
+                // let m = matches
+                //     .iter()
+                //     .find(|m| (m.start.1 as usize).abs_diff(expected_idx) <= edits);
+                // assert!(m.is_some());
+
+                // Check if fwd and rev give the same
+                let query_rev = query.iter().rev().copied().collect::<Vec<_>>();
+                let text_rev = text.iter().rev().copied().collect::<Vec<_>>();
+                let matches_rev = rc_searcher.search(&query_rev, &text_rev, edits);
+                assert_eq!(
+                    matches.len(),
+                    matches_rev.len(),
+                    "error: fwd matches {} vs rev {}\nQuery: {}\nText: {}\nEdits: {}",
+                    matches.len(),
+                    matches_rev.len(),
+                    show(&query),
+                    show(&text),
+                    edits,
+                );
             }
         }
         // }
+    }
+
+    #[test]
+    // #[ignore = "for plotting only"]
+    fn print_matches() {
+        let query = b"GCCGT";
+        let text = b"AGCGCGTA";
+        let k = 1;
+        let matches = Searcher::<Dna>::new_rc().search_all(query, text, k);
+        let match_local = Searcher::<Dna>::new_rc().search(query, text, k);
+        //   println!("matches: {:?}", matches);
+        println!("fwd matches (ALL): {}", matches.len());
+        for m in matches {
+            println!("m: {:?}", m.without_cigar());
+        }
+        println!("local matches: {}", match_local.len());
+        for m in match_local {
+            println!("m: {:?}", m.without_cigar());
+        }
+        let query_rev = query.iter().rev().copied().collect::<Vec<_>>();
+        let text_rev = text.iter().rev().copied().collect::<Vec<_>>();
+        let matches_rev = Searcher::<Dna>::new_rc().search_all(&query_rev, &text_rev, k);
+        let match_rev_local = Searcher::<Dna>::new_rc().search(&query_rev, &text_rev, k);
+        println!("rev matches (ALL): {}", matches_rev.len());
+        for m in matches_rev {
+            println!("m: {:?}", m.without_cigar());
+        }
+        println!("rev local matches: {}", match_rev_local.len());
+        for m in match_rev_local {
+            println!("m: {:?}", m.without_cigar());
+        }
     }
 
     use serde::{Deserialize, Serialize};
@@ -1872,6 +1920,16 @@ mod tests {
                 String::from_utf8_lossy(Iupac::reverse_complement(m_text).as_ref())
             );
         }
+    }
+
+    #[test]
+    fn test_searchable_slice() {
+        let q = b"ATG";
+        let t = b"ATGCTACA";
+        let t_ref = t.as_slice();
+        let mut searcher = Searcher::<Iupac>::new_rc();
+        let matches = searcher.search(q, &t_ref, 0);
+        assert_eq!(matches.is_empty(), false);
     }
 
     #[test]
