@@ -19,10 +19,10 @@ pub fn generate_query_and_text_with_matches(
     alphabet: &Alphabet,
 ) -> (Vec<u8>, Vec<u8>, Vec<u8>, Vec<(usize, usize)>) {
     let mut rng = rand::rng();
-    let query = generate_random_sequence(ql, alphabet, None); // Some("A"));
+    let query = generate_random_sequence(ql, alphabet, None);
 
     // Get the original text, where we insert NUM queries
-    let mut text_base = generate_random_sequence(tl, alphabet, None); // Some("G"));
+    let mut text_base = generate_random_sequence(tl, alphabet, None);
 
     let mut locs = Vec::new();
     for _ in 0..num {
@@ -46,8 +46,11 @@ pub fn generate_query_and_text_with_matches(
     let mut text_with_insert = text_base.clone();
     let max_start = text_base.len() - query.len();
     loop {
-        let start = rng.random_range(0..=max_start);
-        let end = start + query.len();
+        //let start = rng.random_range(0..=max_start);
+        //let end = start + query.len();
+        let start = text_base.len() - query.len();
+        let end = text_base.len();
+
         if locs.iter().all(|&(s, e)| end <= s || start >= e) {
             text_with_insert.splice(start..end, query.iter().cloned());
             break;
