@@ -99,6 +99,28 @@ impl<'a> SearchAble for StaticText<'a> {
     }
 }
 
+pub struct OwnedStaticText {
+    pub text: Vec<u8>,
+    pub rev: Vec<u8>,
+}
+
+impl OwnedStaticText {
+    pub fn new(text: Vec<u8>) -> Self {
+        let rev = text.iter().rev().copied().collect();
+        OwnedStaticText { text, rev }
+    }
+}
+
+impl SearchAble for OwnedStaticText {
+    fn text(&self) -> &[u8] {
+        &self.text
+    }
+    fn rev_text(&'_ self) -> Cow<'_, [u8]> {
+        // borrow stored, is free
+        Cow::Borrowed(&self.rev)
+    }
+}
+
 #[derive(Clone)]
 struct LaneState<P: Profile> {
     decreasing: bool,

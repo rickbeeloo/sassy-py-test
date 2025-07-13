@@ -1,6 +1,5 @@
-use sassy::{
-    profiles::Iupac, profiles::Profile, search::Searcher, search::StaticText, search::Strand,
-};
+use sassy::search::{OwnedStaticText, SearchAble};
+use sassy::{profiles::Iupac, profiles::Profile, search::Searcher, search::Strand};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::sync::Arc;
@@ -137,7 +136,7 @@ pub fn matching_seq<P: Profile>(seq1: &[u8], seq2: &[u8]) -> bool {
 }
 
 pub fn crispr(args: CrisprArgs) {
-    let guide_sequences = read_guide_sequences(&args.guide);
+    let ref guide_sequences = read_guide_sequences(&args.guide);
     println!("[GUIDES] Found {} guides", guide_sequences.len());
 
     if guide_sequences.is_empty() {
@@ -148,9 +147,8 @@ pub fn crispr(args: CrisprArgs) {
     println!("Creating output file with path: {}", args.output.display());
     let file = File::create(&args.output).expect("Failed to create output file");
     let writer = Mutex::new(BufWriter::new(file));
-    let reader = Mutex::new(needletail::parse_fastx_file(args.target.clone()).unwrap());
 
-    let (pam, max_n_frac) = print_and_check_params(&args, &guide_sequences);
+    let (pam, max_n_frac) = print_and_check_params(&args, guide_sequences);
     let pam = pam.as_bytes();
     let pam_compl = Iupac::complement(pam);
     let pam_compl = pam_compl.as_slice();
@@ -160,93 +158,104 @@ pub fn crispr(args: CrisprArgs) {
     let num_threads = args.threads.unwrap_or_else(num_cpus::get);
     println!("[Threads] Using {num_threads} threads");
 
+    let generator = Mutex::new({
+        let mut reader = needletail::parse_fastx_file(args.target.clone()).unwrap();
+        let mut next_pattern_idx = 0;
+        let mut record = None;
+        move || -> Option<(&Vec<u8>, Arc<(String, OwnedStaticText)>)> {
+            if record.is_none() {
+                assert!(next_pattern_idx == 0);
+                let new_record = reader.next()?.unwrap();
+                let id = String::from_utf8(new_record.id().to_owned()).unwrap();
+                let text = new_record.seq().into_owned();
+                let static_text = OwnedStaticText::new(text);
+                record = Some(Arc::new((id, static_text)));
+            }
+
+            let result = (&guide_sequences[next_pattern_idx], record.clone().unwrap());
+            next_pattern_idx += 1;
+            if next_pattern_idx == guide_sequences.len() {
+                next_pattern_idx = 0;
+                record = None;
+            }
+            return Some(result);
+        }
+    });
+
     let start = Instant::now();
     std::thread::scope(|scope| {
         for _ in 0..num_threads {
             scope.spawn(|| {
-                while let Ok(mut guard) = reader.lock()
-                    && let Some(record) = guard.next()
+                // Searcher, IUPAC and always reverse complement
+                let mut searcher = Searcher::<Iupac>::new_rc();
+
+                let filter_fn = |_q: &[u8], text_up_to_end: &[u8], strand: Strand| {
+                    let pam_slice = &text_up_to_end[text_up_to_end.len() - 3..];
+                    if strand == Strand::Fwd {
+                        matching_seq::<Iupac>(pam_slice, pam)
+                    } else {
+                        matching_seq::<Iupac>(pam_slice, pam_compl)
+                    }
+                };
+
+                while let mut guard = generator.lock().unwrap()
+                    && let Some((guide_sequence, id_text)) = guard()
                 {
-                    // Get fasta record
-                    let record = record.unwrap();
-                    let id = String::from_utf8(record.id().to_vec()).unwrap();
-                    let text = &record.seq().into_owned();
                     drop(guard);
-
-                    // Create static text by precomputing reverse
-                    let static_text = StaticText::new(text);
-
-                    // Searcher, IUPAC and always reverse complement
-                    let mut searcher = Searcher::<Iupac>::new_rc();
-
                     // Only used in loop if no edits are allowed, otherwise falls back to default report all search
-                    let filter_fn = move |_q: &[u8], text_up_to_end: &[u8], strand: Strand| {
-                        let pam_slice = &text_up_to_end[text_up_to_end.len() - 3..];
-                        if strand == Strand::Fwd {
-                            matching_seq::<Iupac>(pam_slice, pam)
-                        } else {
-                            matching_seq::<Iupac>(pam_slice, pam_compl)
-                        }
+                    //
+                    let id = &id_text.0;
+                    let text = &id_text.1;
+
+                    let matches = if !args.allow_pam_edits {
+                        searcher.search_with_fn(guide_sequence, text, args.k, true, filter_fn)
+                    } else {
+                        searcher.search_all(guide_sequence, text, args.k)
                     };
 
-                    // Search for each guide sequence
-                    guide_sequences.iter().for_each(|guide_sequence| {
-                        let matches = if !args.allow_pam_edits {
-                            searcher.search_with_fn(
-                                guide_sequence,
-                                &static_text,
-                                args.k,
-                                true,
-                                filter_fn,
-                            )
+                    total_found.fetch_add(matches.len(), Ordering::Relaxed);
+
+                    let mut writer_guard = writer.lock().unwrap();
+
+                    for m in matches {
+                        let start = m.start.1 as usize;
+                        let end = m.end.1 as usize;
+                        let slice = &text.text()[start..end];
+
+                        // Check if satisfies user max N cut off
+                        let n_ok = if max_n_frac < 100.0 {
+                            check_n_frac(max_n_frac, slice)
                         } else {
-                            searcher.search_all(guide_sequence, &static_text, args.k)
+                            true
                         };
 
-                        total_found.fetch_add(matches.len(), Ordering::Relaxed);
-
-                        let mut writer_guard = writer.lock().unwrap();
-
-                        for m in matches {
-                            let start = m.start.1 as usize;
-                            let end = m.end.1 as usize;
-                            let slice = &text[start..end];
-
-                            // Check if satisfies user max N cut off
-                            let n_ok = if max_n_frac < 100.0 {
-                                check_n_frac(max_n_frac, slice)
-                            } else {
-                                true
-                            };
-
-                            if !n_ok {
-                                // println!("N-frac too high: {}", String::from_utf8_lossy(slice));
-                                continue;
-                            }
-
-                            total_found.fetch_add(1, Ordering::Relaxed);
-
-                            // If the match we found is in reverse complement, we also rc the matched text
-                            // to make it easier to spot the PAM in the output file
-                            let matched_slice = if m.strand == Strand::Rc {
-                                let rc = <Iupac as Profile>::reverse_complement(slice);
-                                String::from_utf8_lossy(&rc).into_owned()
-                            } else {
-                                String::from_utf8_lossy(slice).into_owned()
-                            };
-                            let cost = m.cost;
-                            let cigar = m.cigar.to_string();
-                            let strand = match m.strand {
-                                Strand::Fwd => "+",
-                                Strand::Rc => "-",
-                            };
-                            writeln!(
-                                writer_guard,
-                                "{id}\t{cost}\t{strand}\t{start}\t{end}\t{matched_slice}\t{cigar}"
-                            )
-                            .unwrap();
+                        if !n_ok {
+                            // println!("N-frac too high: {}", String::from_utf8_lossy(slice));
+                            continue;
                         }
-                    });
+
+                        total_found.fetch_add(1, Ordering::Relaxed);
+
+                        // If the match we found is in reverse complement, we also rc the matched text
+                        // to make it easier to spot the PAM in the output file
+                        let matched_slice = if m.strand == Strand::Rc {
+                            let rc = <Iupac as Profile>::reverse_complement(slice);
+                            String::from_utf8_lossy(&rc).into_owned()
+                        } else {
+                            String::from_utf8_lossy(slice).into_owned()
+                        };
+                        let cost = m.cost;
+                        let cigar = m.cigar.to_string();
+                        let strand = match m.strand {
+                            Strand::Fwd => "+",
+                            Strand::Rc => "-",
+                        };
+                        writeln!(
+                            writer_guard,
+                            "{id}\t{cost}\t{strand}\t{start}\t{end}\t{matched_slice}\t{cigar}"
+                        )
+                        .unwrap();
+                    }
                 }
             });
         }
