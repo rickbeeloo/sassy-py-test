@@ -171,6 +171,7 @@ pub fn crispr(args: CrisprArgs) {
                     let record = record.unwrap();
                     let id = String::from_utf8(record.id().to_vec()).unwrap();
                     let text = &record.seq().into_owned();
+                    drop(guard);
 
                     // Create static text by precomputing reverse
                     let static_text = StaticText::new(text);
