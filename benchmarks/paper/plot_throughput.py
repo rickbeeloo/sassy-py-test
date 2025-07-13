@@ -105,7 +105,7 @@ ax.set_yscale("log")
 # Grid, labels
 ax.grid(True, which="major", linewidth=0.5, alpha=0.7)
 
-ax.set_xlabel("Query length")
+ax.set_xlabel("Pattern length")
 ax.set_ylabel("Search throughput (GB/s)")
 
 # Y-axis formatter
