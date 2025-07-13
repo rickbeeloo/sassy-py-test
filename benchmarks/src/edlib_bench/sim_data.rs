@@ -44,7 +44,7 @@ pub fn generate_query_and_text_with_matches(
 
     // Insert one query extra, at a random location keep trying until we find a location that doesn't overlap with any of the existing matches
     let mut text_with_insert = text_base.clone();
-    let max_start = text_base.len() - query.len();
+    // let max_start = text_base.len() - query.len();
     loop {
         //let start = rng.random_range(0..=max_start);
         //let end = start + query.len();

@@ -17,9 +17,9 @@ struct Config {
 
 fn generate_random_ascii_sequence(len: usize) -> Vec<u8> {
     // lets test random DNA
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     (0..len)
-        .map(|_| rng.gen_range(0..4)) // DNA characters
+        .map(|_| rng.random_range(0..4)) // DNA characters
         .map(|c| match c {
             0 => b'A',
             1 => b'C',
@@ -182,8 +182,8 @@ pub fn run(config: &str) {
         let mut text = generate_random_ascii_sequence(*t_len);
 
         // Insert query random position in text
-        let mut rng = rand::thread_rng();
-        let pos = rng.gen_range(0..text.len());
+        let mut rng = rand::rng();
+        let pos = rng.random_range(0..text.len());
         text.splice(pos..pos, query.clone());
 
         // Benchmark sassy executable

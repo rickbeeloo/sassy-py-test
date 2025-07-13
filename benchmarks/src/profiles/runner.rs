@@ -9,15 +9,15 @@ struct Config {
     q_lens: Vec<usize>,
     t_lens: Vec<usize>,
     k: usize,
-    alpha: f32,
+    // alpha: f32,
     iterations: Option<usize>,
 }
 
 fn generate_random_dna_sequence(len: usize) -> Vec<u8> {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     (0..len)
         .map(|_| {
-            let n = rng.gen_range(0..4);
+            let n = rng.random_range(0..4);
             match n {
                 0 => b'A',
                 1 => b'C',
