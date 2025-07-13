@@ -59,6 +59,7 @@ pub fn search(args: &mut SearchArgs) {
                     let record = record.unwrap();
                     let id = String::from_utf8(record.id().to_vec()).unwrap();
                     let text = &record.seq().into_owned();
+                    drop(guard);
 
                     let matches = match args.alphabet {
                         Alphabet::Ascii => {
