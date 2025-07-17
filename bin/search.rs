@@ -1,5 +1,5 @@
 use needletail::parse_fastx_file;
-use sassy::rec_iter::{Query, RecordIterator};
+use sassy::rec_iter::{Pattern, RecordIterator};
 use sassy::{
     profiles::{Ascii, Dna, Iupac, Profile},
     search::{Match, OwnedStaticText, SearchAble, Searcher, Strand},
@@ -58,26 +58,27 @@ pub enum Alphabet {
     Iupac,
 }
 
-fn get_queries(args: &SearchArgs) -> Vec<Query> {
+fn get_patterns(args: &SearchArgs) -> Vec<Pattern> {
     if let Some(p) = &args.pattern {
         // Single inline pattern; give it a dummy id
-        vec![Query {
-            id: "query".to_string(),
+        vec![Pattern {
+            id: "pattern".to_string(),
             seq: p.as_bytes().to_vec(),
         }]
     } else if let Some(pattern_fasta) = &args.pattern_fasta {
         // Pull all sequences and ids from the FASTA file
         let mut reader = parse_fastx_file(pattern_fasta).expect("valid path/file");
-        let mut queries = Vec::new();
+        let mut patterns = Vec::new();
         while let Some(record) = reader.next() {
             let seqrec = record.expect("invalid record");
-            let id = String::from_utf8(seqrec.id().to_vec()).unwrap_or_else(|_| "query".into());
-            queries.push(Query {
+            // Fallback to default "pattern", label or just panic?
+            let id = String::from_utf8(seqrec.id().to_vec()).unwrap_or_else(|_| "pattern".into());
+            patterns.push(Pattern {
                 id,
                 seq: seqrec.seq().to_vec(),
             });
         }
-        queries
+        patterns
     } else {
         unreachable!("No pattern or pattern_fasta provided - clap should handle");
     }
@@ -144,19 +145,19 @@ enum SearchWrapper {
 }
 
 impl SearchWrapper {
-    fn search<I: SearchAble>(&mut self, query: &[u8], input: &I, k: usize) -> Vec<Match> {
+    fn search<I: SearchAble>(&mut self, pattern: &[u8], input: &I, k: usize) -> Vec<Match> {
         match self {
-            SearchWrapper::Ascii(s) => s.search(query, input, k),
-            SearchWrapper::Dna(s) => s.search(query, input, k),
-            SearchWrapper::Iupac(s) => s.search(query, input, k),
+            SearchWrapper::Ascii(s) => s.search(pattern, input, k),
+            SearchWrapper::Dna(s) => s.search(pattern, input, k),
+            SearchWrapper::Iupac(s) => s.search(pattern, input, k),
         }
     }
 }
 
 pub fn search(args: &mut SearchArgs) {
     // Get queries based on `pattern` or `pattern_fasta`
-    let queries = get_queries(args);
-    assert!(!queries.is_empty(), "No query sequences found");
+    let queries = get_patterns(args);
+    assert!(!queries.is_empty(), "No pattern sequences found");
 
     // Create output writer, stdout by default (or user provided), and share it safely across threads
     let output_writer = Arc::new(Mutex::new(get_output_writer(args)));
@@ -188,8 +189,8 @@ pub fn search(args: &mut SearchArgs) {
 
                 while let Some(batch) = it.next_batch() {
                     for item in batch {
-                        let pat_id = &item.query.id;
-                        let pat_seq = &item.query.seq;
+                        let pat_id = &item.pattern.id;
+                        let pat_seq = &item.pattern.seq;
                         let rec = item.record.as_ref();
                         // let thread_id = thread_id::get();
                         // eprintln!("Thread {thread_id} q: {pat_id}, against text id: {}", rec.0,);

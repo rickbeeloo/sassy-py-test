@@ -1,4 +1,4 @@
-use sassy::rec_iter::{Query as RecQuery, RecordIterator};
+use sassy::rec_iter::{Pattern, RecordIterator};
 use sassy::search::SearchAble;
 use sassy::{profiles::Iupac, profiles::Profile, search::Searcher, search::Strand};
 use std::fs::File;
@@ -160,16 +160,16 @@ pub fn crispr(args: CrisprArgs) {
     println!("[Threads] Using {num_threads} threads");
 
     // Build queries for RecordIterator (one per guide sequence)
-    let queries: Vec<RecQuery> = guide_sequences
+    let queries: Vec<Pattern> = guide_sequences
         .iter()
         .enumerate()
-        .map(|(i, seq)| RecQuery {
+        .map(|(i, seq)| Pattern {
             id: format!("guide_{}", i),
             seq: seq.clone(),
         })
         .collect();
 
-    // Shared iterator that pairs each query with every FASTA record in a batched fashion
+    // Shared iterator that pairs each pattern with every FASTA record in a batched fashion
     let record_iter = Arc::new(RecordIterator::new(&args.target, &queries, None));
 
     let start = Instant::now();
@@ -190,7 +190,7 @@ pub fn crispr(args: CrisprArgs) {
 
                 while let Some(batch) = record_iter.next_batch() {
                     for item in batch {
-                        let guide_sequence = &item.query.seq;
+                        let guide_sequence = &item.pattern.seq;
                         let id_text = &item.record;
 
                         let id = &id_text.0;

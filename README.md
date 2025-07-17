@@ -18,9 +18,8 @@ shorter texts.
 Usage: sassy <COMMAND>
 
 Commands:
-  search  Default search behavior
+  search  Search a single sequence or multi-fasta in a multi-fasta text
   crispr  CRISPR-specific search with PAM and edit-free region
-  query   Search multiple queries from a FASTA file against a target FASTA file
   help    Print this message or the help of the given subcommand(s)
 
 Options:

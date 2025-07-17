@@ -9,14 +9,14 @@ const DEFAULT_BATCH_BYTES: usize = 256 * 1024; // 256 KB
 pub type SharedRecord = Arc<(String, OwnedStaticText)>;
 
 #[derive(Clone, Debug)]
-pub struct Query {
+pub struct Pattern {
     pub id: String,
     pub seq: Vec<u8>,
 }
 
 #[derive(Clone, Debug)]
 pub struct BatchItem<'a> {
-    pub query: &'a Query,
+    pub pattern: &'a Pattern,
     pub record: SharedRecord,
 }
 
@@ -31,10 +31,10 @@ struct RecordState {
     current_record: Option<SharedRecord>,
 }
 
-/// Thread-safe iterator giving *batches* of ((query_id, query_seq), record) pairs.
+/// Thread-safe iterator giving *batches* of ((pattern_id, pattern_seq), record) pairs.
 /// each batch tries to "fill" the batch_byte_limit
 pub struct RecordIterator<'a> {
-    queries: &'a [Query],
+    queries: &'a [Pattern],
     state: Mutex<RecordState>,
     batch_byte_limit: usize,
 }
@@ -44,7 +44,7 @@ impl<'a> RecordIterator<'a> {
     /// `max_batch_bytes` controls how many texts are bundled together.
     pub fn new<P: AsRef<Path>>(
         fasta_path: P,
-        queries: &'a [Query],
+        queries: &'a [Pattern],
         max_batch_bytes: Option<usize>,
     ) -> Self {
         let reader = parse_fastx_file(fasta_path).expect("valid fasta");
@@ -100,9 +100,9 @@ impl<'a> RecordIterator<'a> {
             }
 
             // Add next pattern
-            let query = &self.queries[guard.next_pattern_idx];
+            let pattern = &self.queries[guard.next_pattern_idx];
             let item = BatchItem {
-                query,
+                pattern,
                 record: rec_arc.clone(),
             };
             batch.push(item);
@@ -167,8 +167,8 @@ mod tests {
         // Create 10 different random queries
         let mut queries = Vec::new();
         for i in 0..10 {
-            queries.push(Query {
-                id: format!("query_{}", i),
+            queries.push(Pattern {
+                id: format!("pattern_{}", i),
                 seq: random_dan_seq(rng.random_range(250..1000)),
             });
         }
@@ -188,7 +188,7 @@ mod tests {
             let text_len = unique_texts.iter().map(|text| text.len()).sum::<usize>();
             let n_queries = batch
                 .iter()
-                .map(|item| item.query.id.clone())
+                .map(|item| item.pattern.id.clone())
                 .collect::<std::collections::HashSet<_>>()
                 .len();
             let n_texts = unique_texts.len();
