@@ -160,7 +160,7 @@ pub struct Searcher<P: Profile> {
 impl<P: Profile> Searcher<P> {
     // The number of rows (query chars) we *at least*
     // mainly to avoid branching
-    pub const CHECK_AT_LEAST_ROWS: usize = 8;
+    const CHECK_AT_LEAST_ROWS: usize = 8;
 
     pub fn new_fwd() -> Self {
         Self::new(false, None)
