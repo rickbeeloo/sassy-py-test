@@ -29,7 +29,6 @@ mod trace;
 mod python;
 
 #[cfg(feature = "c")]
-#[allow(non_snake_case)]
 mod c;
 
 #[doc(hidden)]
