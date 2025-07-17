@@ -1,8 +1,9 @@
 use needletail::parse_fastx_file;
 use sassy::rec_iter::{PatternRecord, TaskIterator};
+use sassy::search::CachedRev;
 use sassy::{
     profiles::{Ascii, Dna, Iupac, Profile},
-    search::{Match, OwnedStaticText, SearchAble, Searcher, Strand},
+    search::{Match, SearchAble, Searcher, Strand},
 };
 use std::fs::File;
 use std::{
@@ -94,13 +95,13 @@ fn as_output_line(
     m: &Match,
     pat_id: &str,
     text_id: &str,
-    owned_static_text: &OwnedStaticText,
+    cached_text: &CachedRev<impl AsRef<[u8]>>,
     alphabet: &Alphabet,
 ) -> String {
     let cost = m.cost;
     let start = m.start.1 as usize;
     let end = m.end.1 as usize;
-    let slice = &owned_static_text.text[start..end];
+    let slice = &cached_text.text.as_ref()[start..end];
 
     // If we match reverse complement, reverse complement the slice to make it easier to read
     let slice_str = if m.strand == Strand::Rc {

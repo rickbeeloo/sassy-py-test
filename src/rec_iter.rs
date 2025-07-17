@@ -1,7 +1,8 @@
-use crate::search::OwnedStaticText;
 use needletail::{FastxReader, parse_fastx_file};
 use std::path::Path;
-use std::sync::{Arc, Mutex}; //Todo: could use parking_lot mutex - faster
+use std::sync::{Arc, Mutex};
+
+use crate::search::CachedRev; //Todo: could use parking_lot mutex - faster
 
 /// Each batch of text records will be at most this size if possible.
 const DEFAULT_BATCH_BYTES: usize = 256 * 1024; // 256 KB
@@ -20,7 +21,7 @@ pub struct PatternRecord {
 #[derive(Debug)]
 pub struct TextRecord {
     pub id: ID,
-    pub seq: OwnedStaticText,
+    pub seq: CachedRev<Vec<u8>>,
 }
 
 /// A single alignment task.
@@ -90,7 +91,7 @@ impl<'a> TaskIterator<'a> {
                     Some(Ok(rec)) => {
                         let id = String::from_utf8_lossy(rec.id()).to_string();
                         let seq = rec.seq().into_owned();
-                        let static_text = OwnedStaticText::new(seq);
+                        let static_text = CachedRev::new(seq, true); // FIXME
                         state.current_record = Some(Arc::new(TextRecord {
                             id,
                             seq: static_text,

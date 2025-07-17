@@ -223,7 +223,8 @@ pub fn crispr(args: CrisprArgs) {
                         for m in matches {
                             let start = m.start.1 as usize;
                             let end = m.end.1 as usize;
-                            let slice = &text.text()[start..end];
+                            let text = text.text();
+                            let slice = &text.as_ref()[start..end];
 
                             // Check if satisfies user max N cut off
                             let n_ok = if max_n_frac < 100.0 {

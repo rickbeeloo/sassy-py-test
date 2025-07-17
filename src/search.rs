@@ -7,7 +7,6 @@ use crate::{
     delta_encoding::{V, VEncoding},
 };
 use pa_types::{Cigar, CigarOp, Cost, Pos};
-use std::borrow::Cow;
 use std::simd::cmp::SimdPartialOrd;
 
 pub type Deltas = Vec<(Cost, V<u64>)>;
@@ -60,66 +59,44 @@ pub enum Strand {
 
 pub trait SearchAble {
     /// The forward text
-    fn text(&self) -> &[u8];
+    fn text(&self) -> impl AsRef<[u8]>;
     /// Produce the reverse‐complement (or reverse) when requested
-    fn rev_text(&'_ self) -> Cow<'_, [u8]>;
+    fn rev_text<'a>(&'a self) -> impl AsRef<[u8]>;
 }
 
 impl<T> SearchAble for T
 where
     T: AsRef<[u8]>,
 {
-    fn text(&self) -> &[u8] {
+    fn text(&self) -> impl AsRef<[u8]> {
         self.as_ref()
     }
 
-    fn rev_text(&'_ self) -> Cow<'_, [u8]> {
-        Cow::Owned(self.as_ref().iter().rev().copied().collect())
-    }
-}
-
-pub struct StaticText<'a> {
-    pub text: &'a [u8],
-    pub rev: Vec<u8>,
-}
-
-impl<'a> StaticText<'a> {
-    pub fn new(text: &'a [u8]) -> Self {
-        let rev = text.iter().rev().copied().collect();
-        StaticText { text, rev }
-    }
-}
-
-impl<'a> SearchAble for StaticText<'a> {
-    fn text(&self) -> &[u8] {
-        self.text
-    }
-    fn rev_text(&'_ self) -> Cow<'_, [u8]> {
-        // borrow stored, is free
-        Cow::Borrowed(&self.rev)
+    fn rev_text(&'_ self) -> impl AsRef<[u8]> {
+        let t: Vec<u8> = self.as_ref().iter().rev().copied().collect();
+        t
     }
 }
 
 #[derive(Debug)]
-pub struct OwnedStaticText {
-    pub text: Vec<u8>,
-    pub rev: Vec<u8>,
+pub struct CachedRev<T: AsRef<[u8]>> {
+    pub text: T,
+    pub rev: Option<Vec<u8>>,
 }
 
-impl OwnedStaticText {
-    pub fn new(text: Vec<u8>) -> Self {
-        let rev = text.iter().rev().copied().collect();
-        OwnedStaticText { text, rev }
+impl<T: AsRef<[u8]>> CachedRev<T> {
+    pub fn new(text: T, build_rev: bool) -> Self {
+        let rev = build_rev.then(|| text.as_ref().iter().rev().copied().collect());
+        CachedRev { text, rev }
     }
 }
 
-impl SearchAble for OwnedStaticText {
-    fn text(&self) -> &[u8] {
+impl<T: AsRef<[u8]>> SearchAble for CachedRev<T> {
+    fn text(&self) -> impl AsRef<[u8]> {
         &self.text
     }
-    fn rev_text(&'_ self) -> Cow<'_, [u8]> {
-        // borrow stored, is free
-        Cow::Borrowed(&self.rev)
+    fn rev_text(&self) -> impl AsRef<[u8]> {
+        self.rev.as_ref().unwrap()
     }
 }
 
@@ -269,12 +246,18 @@ impl<P: Profile> Searcher<P> {
         all_minima: bool,
         filter_fn: Option<impl Fn(&[u8], &[u8], Strand) -> bool>,
     ) -> Vec<Match> {
-        let mut matches =
-            self.search_one_strand(query, input.text(), k, all_minima, &filter_fn, Strand::Fwd);
+        let mut matches = self.search_one_strand(
+            query,
+            input.text().as_ref(),
+            k,
+            all_minima,
+            &filter_fn,
+            Strand::Fwd,
+        );
         if self.rc {
             let rc_matches = self.search_one_strand(
                 &P::complement(query),
-                &input.rev_text(),
+                input.rev_text().as_ref(),
                 k,
                 all_minima,
                 &filter_fn,
@@ -285,8 +268,8 @@ impl<P: Profile> Searcher<P> {
                 // Also adjust start and end positions to original text orientation
                 let org_start = m.start.1;
                 let org_end = m.end.1;
-                m.start.1 = input.text().len() as i32 - org_end;
-                m.end.1 = input.text().len() as i32 - org_start;
+                m.start.1 = input.text().as_ref().len() as i32 - org_end;
+                m.end.1 = input.text().as_ref().len() as i32 - org_start;
                 m.cigar.ops.reverse();
                 m
             }));
