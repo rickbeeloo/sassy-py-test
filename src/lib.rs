@@ -24,8 +24,12 @@
 //! assert_eq!(matches[2].start.1, 12);
 //! assert_eq!(matches[2].end.1, 15);
 //! assert_eq!(matches[2].strand, Rc);
-//! // NOTE: Cigar here is read in the direction of the input pattern.
+//! // FIXME: Cigar here is read in the direction of the input pattern.
 //! assert_eq!(matches[2].cigar.to_string(), "2=D=");
+//!
+//! // FIXME: Overhang example
+//! // FIXME: IUPAC example
+//! // FIXME: `match.start.1` is quite ugly; also rename to {pattern,text}_{start,end}?
 //! ```
 
 // INTERNAL MODS
@@ -141,7 +145,7 @@ pub fn test_throughput() {
     let _matches = searcher.search(&pattern, &text, k);
     let duration = start.elapsed();
     eprintln!(
-        "Search in GB/s: {}",
+        "Search throughput in GB/s: {}",
         text.len() as f32 / duration.as_secs_f32() / 1_000_000_000.0
     );
 }
