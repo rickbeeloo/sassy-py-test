@@ -28,6 +28,7 @@ env_logger = "0.11.8"
 num_cpus = "1.16.0"
 needletail = "0.6.3"
 once_cell = "1.19.0"
+thread-id = "5.0.0"
 
 pyo3 = { version = "0.25", features = ["extension-module"], optional = true }
 

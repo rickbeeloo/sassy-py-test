@@ -31,15 +31,19 @@ Options:
 
 ## Example
 
-### Search
-To search a single pattern (i.e. `ACTGCTACTGTACA`) in a fasta file
+### Search (single seq search)
+todo! update syntax
 
-To find matches of a pattern with up to 1 edit:
 
-``` rust
-cargo run -r -- search --alphabet dna ACTGCTACTGTACA 1 hg.fa
+### Crispr (off-target detection)
+To search a list of sgRNAs flanked by a PAM sequence. 
+
+```rust 
+cargo run -r -- sassy crispr --guide guides.fasta --k 1 --target target.fasta --output matches.fasta
 ```
 
+
+### Output
 Output is written as tab-separated values to stdout, containing the sequence id,
 distance, strand, start and end position, matched substring, and cigar string.
 (For matches to the reverse-complement strand, the query is reversed and matches
@@ -54,19 +58,12 @@ chr1	2	-	229999068	229999085	ATATCGATGACACCAGT	 X13=D3=
 chr1	2	-	231082126	231082144	ttatcaatgacaacgagt	 5=X6=X5=
 ```
 
-### Query
-When searching a multi-fasta against another (multi) fasta file. For example to search a list of protospacers in a contig collection.
-
-To find all spacer matches with up to 3 edits
-
-```rust
-cargo run -r --  query  --alphabet iupac spacers.fasta 3 contigs.fasta
-```
-
-
 ## Alphabets
 Three alphabets are supported:
 - *ASCII*: only equal characters match.
 - *DNA*: Only `ACTG` and `actg` characters are expected, and treated case-insensitively.
 - *IUPAC*: On top of the DNA characters, also supports `NYR` and furter
   characters (again, case insensitive), so that `A` matches `N`.
+
+### Benchmarks
+For the benchmarks see [benchmark readme](benchmarks/paper/README.md)

@@ -18,6 +18,7 @@ pub mod profiles {
 }
 
 mod minima;
+pub mod rec_iter;
 pub mod search;
 mod trace;
 
