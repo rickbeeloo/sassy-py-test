@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
-static void print_match(const sassy_CMatch* m, size_t idx) {
+static void print_match(const sassy_Match* m, size_t idx) {
 	printf("#%zu  pat[%d-%d]  txt[%d-%d]  cost=%d  strand=%c\n", idx, m->pattern_start,
 	       m->pattern_end, m->text_start, m->text_end, m->cost, m->strand == 0 ? '+' : '-');
 }
@@ -18,7 +18,7 @@ int main() {
 	const char* text    = "CCCCCCCCCAAGGGGACCCCCAAGGCGACCCCCCCCC";
 	const size_t k      = 1;
 
-	sassy_CMatch* out_matches = NULL;
+	sassy_Match* out_matches = NULL;
 
 	size_t n_matches = search(searcher, (const uint8_t*)pattern, strlen(pattern),
 	                          (const uint8_t*)text, strlen(text), k, &out_matches);

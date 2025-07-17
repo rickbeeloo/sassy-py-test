@@ -5,7 +5,7 @@ use std::os::raw::c_char;
 use std::slice;
 
 use crate::profiles::{Ascii, Dna, Iupac};
-use crate::search::{self, Match, Strand};
+use crate::search::{self, Strand};
 
 pub enum SearcherType {
     Ascii(search::Searcher<Ascii>),
@@ -15,7 +15,7 @@ pub enum SearcherType {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub struct CMatch {
+pub struct Match {
     pub pattern_start: i32,
     pub text_start: i32,
     pub pattern_end: i32,
@@ -25,9 +25,9 @@ pub struct CMatch {
     pub strand: u8,
 }
 
-impl From<Match> for CMatch {
-    fn from(m: Match) -> Self {
-        CMatch {
+impl From<search::Match> for Match {
+    fn from(m: search::Match) -> Self {
+        Match {
             pattern_start: m.start.0,
             text_start: m.start.1,
             pattern_end: m.end.0,
@@ -82,7 +82,7 @@ pub extern "C" fn sassy_searcher_free(ptr: *mut SearcherType) {
 
 /// Search for `pattern` in `text` allowing up to `k` edits.
 ///
-/// `out_matches` will point to a newly allocated rust `Vec` of `CMatch` results. The
+/// `out_matches` will point to a newly allocated rust `Vec` of `Match` results. The
 /// function returns the number of matches found.
 /// Matches should be freed using `sassy_matches_free`.
 #[unsafe(no_mangle)]
@@ -93,7 +93,7 @@ pub extern "C" fn search(
     text: *const u8,
     text_len: usize,
     k: usize,
-    out_matches: *mut *mut CMatch,
+    out_matches: *mut *mut Match,
 ) -> usize {
     if searcher.is_null() || pattern.is_null() || text.is_null() || out_matches.is_null() {
         panic!("Pointers in search() must not be null");
@@ -103,13 +103,13 @@ pub extern "C" fn search(
     let pattern = unsafe { slice::from_raw_parts(pattern, pattern_len) };
     let text = unsafe { slice::from_raw_parts(text, text_len) };
 
-    let matches_vec: Vec<Match> = match searcher {
+    let matches_vec: Vec<search::Match> = match searcher {
         SearcherType::Ascii(s) => s.search(pattern, &text, k),
         SearcherType::Dna(s) => s.search(pattern, &text, k),
         SearcherType::Iupac(s) => s.search(pattern, &text, k),
     };
 
-    let mut c_matches: Vec<CMatch> = matches_vec.into_iter().map(CMatch::from).collect();
+    let mut c_matches: Vec<Match> = matches_vec.into_iter().map(Match::from).collect();
     // Ensure len == capacity so our free routine is safe even if it assumes this.
     c_matches.shrink_to_fit();
     let len = c_matches.len();
@@ -123,7 +123,7 @@ pub extern "C" fn search(
 
 /// Free a match array previously obtained from `sassy_searcher_search`.
 #[unsafe(no_mangle)]
-pub extern "C" fn sassy_matches_free(ptr: *mut CMatch, len: usize) {
+pub extern "C" fn sassy_matches_free(ptr: *mut Match, len: usize) {
     assert!(!ptr.is_null(), "Pointer to matches must not be null");
     unsafe {
         Vec::from_raw_parts(ptr, len, len);
