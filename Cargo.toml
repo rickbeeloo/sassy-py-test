@@ -38,5 +38,5 @@ python = ["pyo3"]
 [workspace]
 members = [
     ".",
-    "benchmarks"
+    "evals"
 ]
