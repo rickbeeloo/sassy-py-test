@@ -162,6 +162,17 @@ pub fn search(args: &mut SearchArgs) {
     // Create output writer, stdout by default (or user provided), and share it safely across threads
     let output_writer = Arc::new(Mutex::new(get_output_writer(args)));
 
+    // Write header
+    let header = format!(
+        "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+        "pat_id", "text_id", "cost", "strand", "start", "end", "match_region", "cigar"
+    );
+    output_writer
+        .lock()
+        .unwrap()
+        .write_all(header.as_bytes())
+        .unwrap();
+
     // Auto-disable rc search for ASCII profile as it does not make sense, let the user know
     ensure_valid_profile(args);
 
@@ -191,7 +202,7 @@ pub fn search(args: &mut SearchArgs) {
                     for item in batch {
                         let pat_id = &item.pattern.id;
                         let pat_seq = &item.pattern.seq;
-                        let rec = item.record.as_ref();
+                        let rec: &(String, OwnedStaticText) = item.record.as_ref();
                         // let thread_id = thread_id::get();
                         // eprintln!("Thread {thread_id} q: {pat_id}, against text id: {}", rec.0,);
                         let matches = searcher.search(pat_seq, &rec.1, k);

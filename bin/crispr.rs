@@ -156,6 +156,14 @@ pub fn crispr(args: CrisprArgs) {
 
     // Read the first record from the FASTA file for benchmarking
     let writer = Arc::new(Mutex::new(get_output_writer(&args)));
+
+    // Write header
+    let header = format!(
+        "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+        "guide_id", "text_id", "cost", "strand", "start", "end", "match_region", "cigar"
+    );
+    writer.lock().unwrap().write_all(header.as_bytes()).unwrap();
+
     let (pam, max_n_frac) = print_and_check_params(&args, &guide_sequences);
     let pam = pam.as_bytes();
     let pam_compl = Iupac::complement(pam);
@@ -171,7 +179,7 @@ pub fn crispr(args: CrisprArgs) {
         .iter()
         .enumerate()
         .map(|(i, seq)| Pattern {
-            id: format!("guide_{}", i),
+            id: String::from_utf8_lossy(seq).into_owned(), // Just use sequence as identifier here
             seq: seq.clone(),
         })
         .collect();
@@ -231,7 +239,7 @@ pub fn crispr(args: CrisprArgs) {
 
                             total_found.fetch_add(1, Ordering::Relaxed);
 
-                            let matched_slice = if m.strand == Strand::Rc {
+                            let match_region = if m.strand == Strand::Rc {
                                 let rc = <Iupac as Profile>::reverse_complement(slice);
                                 String::from_utf8_lossy(&rc).into_owned()
                             } else {
@@ -245,7 +253,7 @@ pub fn crispr(args: CrisprArgs) {
                             };
                             writeln!(
                                 writer_guard,
-                                "{id}\t{cost}\t{strand}\t{start}\t{end}\t{matched_slice}\t{cigar}"
+                                "{id}\t{cost}\t{strand}\t{start}\t{end}\t{match_region}\t{cigar}"
                             )
                             .unwrap();
                         }
