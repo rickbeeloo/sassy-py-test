@@ -1,9 +1,8 @@
-use sassy::rec_iter::{Pattern, RecordIterator};
+use sassy::rec_iter::{PatternRecord, TaskIterator};
 use sassy::search::SearchAble;
 use sassy::{profiles::Iupac, profiles::Profile, search::Searcher, search::Strand};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 use std::{
@@ -155,7 +154,7 @@ pub fn crispr(args: CrisprArgs) {
     }
 
     // Read the first record from the FASTA file for benchmarking
-    let writer = Arc::new(Mutex::new(get_output_writer(&args)));
+    let ref writer = Mutex::new(get_output_writer(&args));
 
     // Write header
     let header = format!(
@@ -169,23 +168,23 @@ pub fn crispr(args: CrisprArgs) {
     let pam_compl = Iupac::complement(pam);
     let pam_compl = pam_compl.as_slice();
 
-    let total_found = Arc::new(AtomicUsize::new(0));
+    let total_found = AtomicUsize::new(0);
 
     let num_threads = args.threads.unwrap_or_else(num_cpus::get);
     println!("[Threads] Using {num_threads} threads");
 
     // Build queries for RecordIterator (one per guide sequence)
-    let queries: Vec<Pattern> = guide_sequences
+    let queries: Vec<PatternRecord> = guide_sequences
         .iter()
         .enumerate()
-        .map(|(i, seq)| Pattern {
-            id: String::from_utf8_lossy(seq).into_owned(), // Just use sequence as identifier here
+        .map(|(i, seq)| PatternRecord {
+            id: format!("guide_{}", i + 1),
             seq: seq.clone(),
         })
         .collect();
 
     // Shared iterator that pairs each query with every FASTA record in a batched fashion
-    let record_iter = Arc::new(RecordIterator::new(&args.path, &queries, None));
+    let task_iter = TaskIterator::new(&args.path, &queries, None);
 
     let start = Instant::now();
     std::thread::scope(|scope| {
@@ -203,13 +202,13 @@ pub fn crispr(args: CrisprArgs) {
                     }
                 };
 
-                while let Some(batch) = record_iter.next_batch() {
+                while let Some(batch) = task_iter.next_batch() {
                     for item in batch {
                         let guide_sequence = &item.pattern.seq;
-                        let id_text = &item.record;
+                        let id_text = &item.text;
 
-                        let id = &id_text.0;
-                        let text = &id_text.1;
+                        let id = &id_text.id;
+                        let text = &id_text.seq;
 
                         let matches = if !args.allow_pam_edits {
                             searcher.search_with_fn(guide_sequence, text, args.k, true, filter_fn)

@@ -3,48 +3,60 @@ use needletail::{FastxReader, parse_fastx_file};
 use std::path::Path;
 use std::sync::{Arc, Mutex}; //Todo: could use parking_lot mutex - faster
 
-/// Minimum number of reference bases to hold in batch
+/// Each batch of text records will be at most this size if possible.
 const DEFAULT_BATCH_BYTES: usize = 256 * 1024; // 256 KB
 
-pub type SharedRecord = Arc<(String, OwnedStaticText)>;
+/// Type alias for fasta record IDs.
+type ID = String;
 
+/// A search pattern (query), with ID from fasta file.
 #[derive(Clone, Debug)]
-pub struct Pattern {
-    pub id: String,
+pub struct PatternRecord {
+    pub id: ID,
     pub seq: Vec<u8>,
 }
 
-#[derive(Clone, Debug)]
-pub struct BatchItem<'a> {
-    pub pattern: &'a Pattern,
-    pub record: SharedRecord,
+/// A text to be searched, with ID from fasta file.
+#[derive(Debug)]
+pub struct TextRecord {
+    pub id: ID,
+    pub seq: OwnedStaticText,
 }
 
-pub type Batch<'a> = Vec<BatchItem<'a>>;
+/// A single alignment task.
+#[derive(Clone, Debug)]
+pub struct Task<'a> {
+    pub pattern: &'a PatternRecord,
+    pub text: Arc<TextRecord>,
+}
+
+/// A batch of alignment tasks, with total text size at least `DEFAULT_BATCH_BYTES`.
+/// This avoids lock contention of sending too small items across threads.
+pub type TaskBatch<'a> = Vec<Task<'a>>;
 
 struct RecordState {
+    /// The fasta reader.
     reader: Box<dyn FastxReader + Send>,
-    /// Index of the next pattern for the *current* record.
+    /// Current text record, that can be send to multiple threads.
+    current_record: Option<Arc<TextRecord>>,
+    /// Index of the next pattern for the current record.
     next_pattern_idx: usize,
-    /// Current reference record, reused for all patterns until we go to the next
-    /// That's cheaper than rewinding fasta in the opposite case (single pat vs multi text)
-    current_record: Option<SharedRecord>,
 }
 
-/// Thread-safe iterator giving *batches* of ((pattern_id, pattern_seq), record) pairs.
-/// each batch tries to "fill" the batch_byte_limit
-pub struct RecordIterator<'a> {
-    queries: &'a [Pattern],
+/// Thread-safe iterator giving *batches* of (pattern, text) pairs.
+/// Each batch fills at least `batch_byte_limit` bytes of text.
+pub struct TaskIterator<'a> {
+    patterns: &'a [PatternRecord],
     state: Mutex<RecordState>,
     batch_byte_limit: usize,
 }
 
-impl<'a> RecordIterator<'a> {
-    /// Create a new iterator over `fasta_path`, going through `queries`.
+impl<'a> TaskIterator<'a> {
+    /// Create a new iterator over `fasta_path`, going through `patterns`.
     /// `max_batch_bytes` controls how many texts are bundled together.
     pub fn new<P: AsRef<Path>>(
         fasta_path: P,
-        queries: &'a [Pattern],
+        patterns: &'a [PatternRecord],
         max_batch_bytes: Option<usize>,
     ) -> Self {
         let reader = parse_fastx_file(fasta_path).expect("valid fasta");
@@ -55,32 +67,35 @@ impl<'a> RecordIterator<'a> {
             current_record: None,
         };
         Self {
-            queries,
+            patterns,
             state: Mutex::new(state),
             batch_byte_limit: max_batch_bytes.unwrap_or(DEFAULT_BATCH_BYTES),
         }
     }
 
-    /// Pull the next batch, or returns None if empty
-    pub fn next_batch(&self) -> Option<Batch<'a>> {
-        let mut guard = self.state.lock().unwrap();
-        let mut batch: Batch<'a> = Vec::new();
+    /// Get the next batch, or returns None when done.
+    pub fn next_batch(&self) -> Option<TaskBatch<'a>> {
+        let mut state = self.state.lock().unwrap();
+        let mut batch: TaskBatch<'a> = Vec::new();
         let mut bytes_in_batch = 0usize;
 
-        // Effectively this gets a record, add all queries, then tries
+        // Effectively this gets a record, add all patterns, then tries
         // to push another text record, if possible. This way texts
         // are only 'read' from the Fasta file once.
 
         loop {
             // Make sure we have a current record, just so we can unwrap
-            if guard.current_record.is_none() {
-                match guard.reader.next() {
+            if state.current_record.is_none() {
+                match state.reader.next() {
                     Some(Ok(rec)) => {
                         let id = String::from_utf8_lossy(rec.id()).to_string();
                         let seq = rec.seq().into_owned();
                         let static_text = OwnedStaticText::new(seq);
-                        guard.current_record = Some(Arc::new((id, static_text)));
-                        guard.next_pattern_idx = 0; // fresh record -> pattern index reset
+                        state.current_record = Some(Arc::new(TextRecord {
+                            id,
+                            seq: static_text,
+                        }));
+                        state.next_pattern_idx = 0; // fresh record -> pattern index reset
                     }
                     Some(Err(e)) => panic!("Error reading FASTA record: {e}"),
                     None => {
@@ -91,38 +106,28 @@ impl<'a> RecordIterator<'a> {
             }
 
             // We get the ref to the current record we have available
-            let rec_arc = guard.current_record.as_ref().unwrap().clone();
-            let rec_len = rec_arc.1.text.len();
+            let record = state.current_record.as_ref().unwrap().clone();
+            let record_len = record.seq.text.len();
 
-            // If no sapce left for next record, we return current batch
-            if !batch.is_empty() && bytes_in_batch + rec_len > self.batch_byte_limit {
+            // If no space left for next record, we return current batch
+            if !batch.is_empty() && bytes_in_batch + record_len > self.batch_byte_limit {
                 break; // return current batch, keep state for next call
             }
 
             // Add next pattern
-            let pattern = &self.queries[guard.next_pattern_idx];
-            let item = BatchItem {
+            let pattern = &self.patterns[state.next_pattern_idx];
+            let task = Task {
                 pattern,
-                record: rec_arc.clone(),
+                text: record,
             };
-            batch.push(item);
+            batch.push(task);
+            bytes_in_batch += record_len;
 
-            // Only count the reference length once per batch, cause same text ref for multiple
-            // patterns
-            if guard.next_pattern_idx == 0 {
-                bytes_in_batch += rec_len;
-            }
-
-            // Advance pattern index, but if we dont have more queries we reset to empty
+            // Advance pattern index, but if we dont have more patterns we reset to empty
             // record so we pull new sequence in next batch (line 74)
-            guard.next_pattern_idx += 1;
-            if guard.next_pattern_idx == self.queries.len() {
-                guard.current_record = None;
-            }
-
-            // If byte limit reached exactly, finish batch.
-            if bytes_in_batch >= self.batch_byte_limit {
-                break;
+            state.next_pattern_idx += 1;
+            if state.next_pattern_idx == self.patterns.len() {
+                state.current_record = None;
             }
         }
 
@@ -164,17 +169,17 @@ mod tests {
         }
         file.flush().unwrap();
 
-        // Create 10 different random queries
-        let mut queries = Vec::new();
+        // Create 10 different random patterns
+        let mut patterns = Vec::new();
         for i in 0..10 {
-            queries.push(Pattern {
+            patterns.push(PatternRecord {
                 id: format!("pattern_{}", i),
                 seq: random_dan_seq(rng.random_range(250..1000)),
             });
         }
 
         // Create the iterator
-        let iter = RecordIterator::new(file.path(), &queries, Some(500));
+        let iter = TaskIterator::new(file.path(), &patterns, Some(500));
 
         // Pull 10 batches
         let mut batch_id = 0;
@@ -183,17 +188,17 @@ mod tests {
             // Get unique texts, and then their length sum
             let unique_texts = batch
                 .iter()
-                .map(|item| item.record.1.text.clone())
+                .map(|item| item.text.seq.text.clone())
                 .collect::<std::collections::HashSet<_>>();
             let text_len = unique_texts.iter().map(|text| text.len()).sum::<usize>();
-            let n_queries = batch
+            let n_patterns = batch
                 .iter()
                 .map(|item| item.pattern.id.clone())
                 .collect::<std::collections::HashSet<_>>()
                 .len();
             let n_texts = unique_texts.len();
             println!(
-                "Batch {batch_id} (tot_size: {text_len}, n_texts: {n_texts}): {n_queries} queries"
+                "Batch {batch_id} (tot_size: {text_len}, n_texts: {n_texts}): {n_patterns} patterns"
             );
         }
         drop(file);

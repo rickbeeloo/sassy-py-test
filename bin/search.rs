@@ -1,11 +1,10 @@
 use needletail::parse_fastx_file;
-use sassy::rec_iter::{Pattern, RecordIterator};
+use sassy::rec_iter::{PatternRecord, TaskIterator};
 use sassy::{
     profiles::{Ascii, Dna, Iupac, Profile},
     search::{Match, OwnedStaticText, SearchAble, Searcher, Strand},
 };
 use std::fs::File;
-use std::sync::Arc;
 use std::{
     io::{BufWriter, Write},
     path::PathBuf,
@@ -24,7 +23,7 @@ pub struct SearchArgs {
     pattern_fasta: Option<String>,
 
     /// Report matches up to (and including) this distance threshold.
-    #[arg(short, long)]
+    #[arg(short)]
     k: usize,
 
     // Flags
@@ -32,7 +31,7 @@ pub struct SearchArgs {
     #[arg(long, short = 'a', value_enum)]
     alphabet: Alphabet,
 
-    /// Disable reverse complement search
+    /// Disable reverse complement search (enabled by default for DNA and IUPAC)
     #[arg(long)]
     no_rc: bool,
 
@@ -50,7 +49,7 @@ pub struct SearchArgs {
     path: PathBuf,
 }
 
-#[derive(clap::ValueEnum, Default, Clone, PartialEq)]
+#[derive(clap::ValueEnum, Default, Clone, Copy, PartialEq)]
 pub enum Alphabet {
     Ascii,
     #[default]
@@ -58,10 +57,10 @@ pub enum Alphabet {
     Iupac,
 }
 
-fn get_patterns(args: &SearchArgs) -> Vec<Pattern> {
+fn get_patterns(args: &SearchArgs) -> Vec<PatternRecord> {
     if let Some(p) = &args.pattern {
         // Single inline pattern; give it a dummy id
-        vec![Pattern {
+        vec![PatternRecord {
             id: "pattern".to_string(),
             seq: p.as_bytes().to_vec(),
         }]
@@ -71,16 +70,15 @@ fn get_patterns(args: &SearchArgs) -> Vec<Pattern> {
         let mut patterns = Vec::new();
         while let Some(record) = reader.next() {
             let seqrec = record.expect("invalid record");
-            // Fallback to default "pattern", label or just panic?
-            let id = String::from_utf8(seqrec.id().to_vec()).unwrap_or_else(|_| "pattern".into());
-            patterns.push(Pattern {
+            let id = String::from_utf8(seqrec.id().to_vec()).unwrap();
+            patterns.push(PatternRecord {
                 id,
-                seq: seqrec.seq().to_vec(),
+                seq: seqrec.seq().into_owned(),
             });
         }
         patterns
     } else {
-        unreachable!("No pattern or pattern_fasta provided - clap should handle");
+        panic!("No --pattern or --pattern-fasta provided!");
     }
 }
 
@@ -89,15 +87,6 @@ fn get_output_writer(args: &SearchArgs) -> Box<dyn Write + Send> {
         Box::new(BufWriter::new(File::create(output_path).unwrap())) as Box<dyn Write + Send>
     } else {
         Box::new(std::io::stdout()) as Box<dyn Write + Send>
-    }
-}
-
-fn ensure_valid_profile(args: &mut SearchArgs) {
-    if args.alphabet == Alphabet::Ascii && !args.no_rc {
-        eprintln!(
-            "WARNING: Reverse complement search is not supported for ASCII profile, disabling"
-        );
-        args.no_rc = true;
     }
 }
 
@@ -154,13 +143,13 @@ impl SearchWrapper {
     }
 }
 
-pub fn search(args: &mut SearchArgs) {
+pub fn search(args: &SearchArgs) {
     // Get queries based on `pattern` or `pattern_fasta`
-    let queries = get_patterns(args);
-    assert!(!queries.is_empty(), "No pattern sequences found");
+    let patterns = get_patterns(args);
+    assert!(!patterns.is_empty(), "No pattern sequences found");
 
     // Create output writer, stdout by default (or user provided), and share it safely across threads
-    let output_writer = Arc::new(Mutex::new(get_output_writer(args)));
+    let ref output_writer = Mutex::new(get_output_writer(args));
 
     // Write header
     let header = format!(
@@ -173,24 +162,17 @@ pub fn search(args: &mut SearchArgs) {
         .write_all(header.as_bytes())
         .unwrap();
 
-    // Auto-disable rc search for ASCII profile as it does not make sense, let the user know
-    ensure_valid_profile(args);
-
     let k = args.k;
-    let rc_enabled = !args.no_rc;
-    let alphabet = args.alphabet.clone();
+    let rc_enabled =
+        (args.alphabet == Alphabet::Dna || args.alphabet == Alphabet::Iupac) && !args.no_rc;
 
     let num_threads = args.threads.unwrap_or_else(num_cpus::get);
-    let iter = Arc::new(RecordIterator::new(&args.path, &queries, None));
+    let ref task_iterator = TaskIterator::new(&args.path, &patterns, None);
     std::thread::scope(|s| {
         for _ in 0..num_threads {
-            let it = iter.clone();
-            let out = output_writer.clone();
-            let alphabet = alphabet.clone();
-
             s.spawn(move || {
                 // Each thread has own searcher here
-                let mut searcher: SearchWrapper = match alphabet {
+                let mut searcher: SearchWrapper = match args.alphabet {
                     Alphabet::Ascii => SearchWrapper::Ascii(Searcher::<Ascii>::new(false, None)),
                     Alphabet::Dna => SearchWrapper::Dna(Searcher::<Dna>::new(rc_enabled, None)),
                     Alphabet::Iupac => {
@@ -198,17 +180,18 @@ pub fn search(args: &mut SearchArgs) {
                     }
                 };
 
-                while let Some(batch) = it.next_batch() {
+                while let Some(batch) = task_iterator.next_batch() {
                     for item in batch {
-                        let pat_id = &item.pattern.id;
-                        let pat_seq = &item.pattern.seq;
-                        let rec: &(String, OwnedStaticText) = item.record.as_ref();
-                        // let thread_id = thread_id::get();
-                        // eprintln!("Thread {thread_id} q: {pat_id}, against text id: {}", rec.0,);
-                        let matches = searcher.search(pat_seq, &rec.1, k);
-                        let mut writer_guard = out.lock().unwrap();
+                        let matches = searcher.search(&item.pattern.seq, &item.text.seq, k);
+                        let mut writer_guard = output_writer.lock().unwrap();
                         for m in matches {
-                            let line = as_output_line(&m, pat_id, &rec.0, &rec.1, &alphabet);
+                            let line = as_output_line(
+                                &m,
+                                &item.pattern.id,
+                                &item.text.id,
+                                &item.text.seq,
+                                &args.alphabet,
+                            );
                             writer_guard.write_all(line.as_bytes()).unwrap();
                         }
                         drop(writer_guard);
