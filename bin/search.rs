@@ -164,21 +164,18 @@ pub fn search(args: &SearchArgs) {
         .unwrap();
 
     let k = args.k;
-    let rc_enabled =
-        (args.alphabet == Alphabet::Dna || args.alphabet == Alphabet::Iupac) && !args.no_rc;
+    let rc = (args.alphabet == Alphabet::Dna || args.alphabet == Alphabet::Iupac) && !args.no_rc;
 
     let num_threads = args.threads.unwrap_or_else(num_cpus::get);
-    let ref task_iterator = TaskIterator::new(&args.path, &patterns, None);
+    let ref task_iterator = TaskIterator::new(&args.path, &patterns, None, rc);
     std::thread::scope(|s| {
         for _ in 0..num_threads {
             s.spawn(move || {
                 // Each thread has own searcher here
                 let mut searcher: SearchWrapper = match args.alphabet {
                     Alphabet::Ascii => SearchWrapper::Ascii(Searcher::<Ascii>::new(false, None)),
-                    Alphabet::Dna => SearchWrapper::Dna(Searcher::<Dna>::new(rc_enabled, None)),
-                    Alphabet::Iupac => {
-                        SearchWrapper::Iupac(Searcher::<Iupac>::new(rc_enabled, None))
-                    }
+                    Alphabet::Dna => SearchWrapper::Dna(Searcher::<Dna>::new(rc, None)),
+                    Alphabet::Iupac => SearchWrapper::Iupac(Searcher::<Iupac>::new(rc, None)),
                 };
 
                 while let Some(batch) = task_iterator.next_batch() {

@@ -50,6 +50,7 @@ pub struct TaskIterator<'a> {
     patterns: &'a [PatternRecord],
     state: Mutex<RecordState>,
     batch_byte_limit: usize,
+    rev: bool,
 }
 
 impl<'a> TaskIterator<'a> {
@@ -59,6 +60,7 @@ impl<'a> TaskIterator<'a> {
         fasta_path: P,
         patterns: &'a [PatternRecord],
         max_batch_bytes: Option<usize>,
+        rev: bool,
     ) -> Self {
         let reader = parse_fastx_file(fasta_path).expect("valid fasta");
         // Just empty state when we create the iterator
@@ -71,6 +73,7 @@ impl<'a> TaskIterator<'a> {
             patterns,
             state: Mutex::new(state),
             batch_byte_limit: max_batch_bytes.unwrap_or(DEFAULT_BATCH_BYTES),
+            rev,
         }
     }
 
@@ -91,7 +94,7 @@ impl<'a> TaskIterator<'a> {
                     Some(Ok(rec)) => {
                         let id = String::from_utf8_lossy(rec.id()).to_string();
                         let seq = rec.seq().into_owned();
-                        let static_text = CachedRev::new(seq, true); // FIXME
+                        let static_text = CachedRev::new(seq, self.rev);
                         state.current_record = Some(Arc::new(TextRecord {
                             id,
                             seq: static_text,
@@ -180,7 +183,7 @@ mod tests {
         }
 
         // Create the iterator
-        let iter = TaskIterator::new(file.path(), &patterns, Some(500));
+        let iter = TaskIterator::new(file.path(), &patterns, Some(500), true);
 
         // Pull 10 batches
         let mut batch_id = 0;
