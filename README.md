@@ -30,7 +30,8 @@ Options:
 
 ## Examples
 
-#### Search single pattern (--pattern)
+### Search
+**Search single pattern (--pattern)**
 To search the pattern `ATGAGCA` in the fasta file `text.fasta` allowing up to `1` edit:
 ```bash 
 cargo run -r -- sassy search --pattern "ATGAGCA" --alphabet dna -k 1 text.fasta
@@ -38,13 +39,13 @@ cargo run -r -- sassy search --pattern "ATGAGCA" --alphabet dna -k 1 text.fasta
 This will print the output to `stdout`, if you want to save it to a file use `--output matches.txt`. 
 For alphabets see [alphabets section](#alphabets).
 
-#### Search with multi Fasta (--pattern-fasta)
+**Search with multi Fasta (--pattern-fasta)**
 If you have more than one pattern to search, you can use `--pattern-fasta` instead of `--pattern`:
 ```bash 
 cargo run -r -- sassy search --pattern-fasta patterns.fasta --alphabet dna -k 1 text.fasta
 ```
 
-### CRISPR off-target 
+### Off-target (CRISPR)
 To search a list of sgRNAs flanked by a PAM sequence. 
 
 ```bash 
@@ -55,21 +56,6 @@ guide per line.
 If you want to limit the matches with `N` charactres, you can use `--max-n-frac`, and if you 
 do allow edits in the PAM sequence you can use the `--allow-pam-edits` flag.
 
-
-### Output
-Output is written as tab-separated values to stdout, containing the sequence id,
-distance, strand, start and end position, matched substring, and cigar string.
-(For matches to the reverse-complement strand, the query is reversed and matches
-are reported in the forward direction.)
-
-```
-chr1	2	+	74462851	74462868	ATCGGTGTCATCAATAA	 =D11=X4=
-chr1	2	+	97381917	97381934	ACTCGGTGTCCTCATAA	 10=X2=D4=
-chr1	2	+	196285921	196285938	actggtgtcatcggtaa	 3=D10=X3=
-chr1	2	-	199471583	199471601	TTATCGATGACACTGAAT	 13=X2=X=
-chr1	2	-	229999068	229999085	ATATCGATGACACCAGT	 X13=D3=
-chr1	2	-	231082126	231082144	ttatcaatgacaacgagt	 5=X6=X5=
-```
 
 ## Alphabets
 Three alphabets are supported:
