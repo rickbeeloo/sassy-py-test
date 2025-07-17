@@ -1,15 +1,11 @@
+use crate::delta_encoding::H;
 use crate::minima::prefix_min;
 use crate::profiles::Profile;
 use crate::trace::{CostMatrix, fill, get_trace, simd_fill};
 use crate::{LANES, S};
-use crate::{
-    bitpacking::compute_block_simd,
-    delta_encoding::{V, VEncoding},
-};
+use crate::{bitpacking::compute_block_simd, delta_encoding::V};
 use pa_types::{Cigar, CigarOp, Cost, Pos};
 use std::simd::cmp::SimdPartialOrd;
-
-pub type Deltas = Vec<(Cost, V<u64>)>;
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "python", pyo3::pyclass)]
@@ -448,7 +444,7 @@ impl<P: Profile> Searcher<P> {
 
             // Save positions with cost <= k directly after processing each row
             for lane in 0..LANES {
-                let v = <V<u64> as VEncoding<u64>>::from(vp[lane], vm[lane]);
+                let v = V::from(vp[lane], vm[lane]);
                 let base_pos = self.lanes[lane].chunk_offset * 64 + 64 * i;
                 let cost = dist_to_start_of_lane.as_array()[lane] as Cost;
 
@@ -541,7 +537,7 @@ impl<P: Profile> Searcher<P> {
     #[inline(always)]
     fn find_minima_with_overhang(
         &mut self,
-        v: V<u64>,
+        v: V,
         cur_cost: Cost,
         k: Cost,
         text_len: usize,
@@ -768,7 +764,7 @@ impl<'a> MatchBatch<'a> {
 
 /// Assumes hp and hm are already the right size, hm=0 and hp=1.
 /// Then sets hp according to the given alpha, if needed.
-pub(crate) fn init_deltas_for_overshoot_scalar(h: &mut [(u64, u64)], alpha: Option<f32>) {
+pub(crate) fn init_deltas_for_overshoot_scalar(h: &mut [H], alpha: Option<f32>) {
     if let Some(alpha) = alpha {
         for i in 0..h.len() {
             // Alternate 0 and 1 costs at very left of the matrix.

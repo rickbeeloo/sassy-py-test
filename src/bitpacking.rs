@@ -2,7 +2,7 @@
 use std::simd::{LaneCount, Simd, SupportedLaneCount};
 
 use crate::{
-    delta_encoding::{HEncoding, VEncoding},
+    delta_encoding::{H, V},
     profiles::Profile,
 };
 
@@ -29,12 +29,7 @@ use crate::{
 /// 20 operations, excluding `eq`.
 #[inline(always)]
 #[allow(unused)] // TODO: Drop this
-pub fn compute_block<P: Profile, H: HEncoding<u64>, V: VEncoding<u64>>(
-    h0: &mut H,
-    v: &mut V,
-    ca: &P::A,
-    cb: &P::B,
-) {
+pub fn compute_block<P: Profile>(h0: &mut H, v: &mut V, ca: &P::A, cb: &P::B) {
     let eq = P::eq(ca, cb); // this one is not counted as an operation
     let (vp, vm) = v.pm();
     let vx = eq | vm;
@@ -65,8 +60,6 @@ pub fn compute_block<P: Profile, H: HEncoding<u64>, V: VEncoding<u64>>(
 }
 
 /// Simd version of `compute_block`.
-///
-/// This assumes HEncoding of `(u64,u64)`.
 #[inline(always)]
 pub fn compute_block_simd<const L: usize>(
     hp0: &mut Simd<u64, L>,

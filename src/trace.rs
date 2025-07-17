@@ -1,6 +1,6 @@
 use crate::bitpacking::compute_block;
+use crate::delta_encoding::H;
 use crate::delta_encoding::V;
-use crate::delta_encoding::VEncoding;
 use crate::profiles::Profile;
 use crate::search::init_deltas_for_overshoot_all_lanes;
 use crate::search::init_deltas_for_overshoot_scalar;
@@ -19,14 +19,14 @@ use std::array::from_fn;
 pub struct CostMatrix {
     /// Query length.
     q: usize,
-    deltas: Vec<V<u64>>,
+    deltas: Vec<V>,
     pub(crate) alpha: Option<f32>,
 }
 
 impl CostMatrix {
     /// i: text idx
     /// j: query idx
-    pub fn get(&self, i: usize, j: usize) -> Cost {
+    fn get(&self, i: usize, j: usize) -> Cost {
         let mut s = if let Some(alpha) = self.alpha {
             (j as f32 * alpha).floor() as Cost
         } else {
@@ -44,7 +44,6 @@ impl CostMatrix {
 
 /// Compute the full n*m matrix corresponding to the query * text alignment.
 /// TODO: SIMD variant that takes 1 query, and LANES text slices of the same length.
-#[allow(unused)] // FIXME
 pub fn fill<P: Profile>(
     query: &[u8],
     text: &[u8],
@@ -56,7 +55,7 @@ pub fn fill<P: Profile>(
     m.deltas.clear();
     m.deltas.reserve((m.q + 1) * len.div_ceil(64));
     let (profiler, query_profile) = P::encode_query(query);
-    let mut h = vec![(1, 0); query.len()];
+    let mut h = vec![H(1, 0); query.len()];
 
     init_deltas_for_overshoot_scalar(&mut h, alpha);
 
@@ -72,11 +71,11 @@ pub fn fill<P: Profile>(
         slice[..block.len()].copy_from_slice(block);
         profiler.encode_ref(&slice, &mut text_profile);
 
-        let mut v = V::<u64>::zero();
+        let mut v = V::zero();
 
         m.deltas.push(v);
         for j in 0..query.len() {
-            compute_block::<P, _, _>(&mut h[j], &mut v, &query_profile[j], &text_profile);
+            compute_block::<P>(&mut h[j], &mut v, &query_profile[j], &text_profile);
             m.deltas.push(v);
         }
     }
@@ -101,9 +100,6 @@ pub fn simd_fill<P: Profile>(
         m.deltas.reserve((m.q + 1) * num_chunks);
     }
 
-    type Base = u64;
-    type VV = V<Base>;
-
     let mut hp: Vec<S> = Vec::with_capacity(query.len());
     let mut hm: Vec<S> = Vec::with_capacity(query.len());
     hp.resize(query.len(), S::splat(1));
@@ -127,7 +123,7 @@ pub fn simd_fill<P: Profile>(
         let mut vp = S::splat(0);
         let mut vm = S::splat(0);
         for lane in 0..lanes {
-            let v = <VV as VEncoding<Base>>::from(vp[lane], vm[lane]);
+            let v = V::from(vp[lane], vm[lane]);
             m[lane].deltas.push(v);
         }
         // FIXME: for large queries, use the SIMD within this single block, rather than spreading it thin over LANES 'matches' when there is only a single candidate match.
@@ -135,7 +131,7 @@ pub fn simd_fill<P: Profile>(
             let eq = from_fn(|lane| P::eq(&query_profile[j], &text_profile[lane])).into();
             compute_block_simd(&mut hp[j], &mut hm[j], &mut vp, &mut vm, eq);
             for lane in 0..lanes {
-                let v = <VV as VEncoding<Base>>::from(vp[lane], vm[lane]);
+                let v = V::from(vp[lane], vm[lane]);
                 m[lane].deltas.push(v);
             }
         }

@@ -1,9 +1,9 @@
 #![feature(portable_simd)]
 
-use std::simd::Simd;
-
 mod bitpacking;
 mod delta_encoding;
+mod minima;
+mod trace;
 
 pub mod profiles {
     mod ascii;
@@ -16,24 +16,32 @@ pub mod profiles {
     pub use iupac::Iupac;
     pub use profile::Profile;
 }
+pub use search::Searcher;
 
-mod minima;
 pub mod rec_iter;
 pub mod search;
-mod trace;
 
-// Python bindings module
+// BINDINGS
+
 #[cfg(feature = "python")]
 mod python;
 
 #[cfg(feature = "c")]
 mod c;
 
+// TYPEDEFS
+
+use std::simd::Simd;
+
 #[cfg(feature = "avx512")]
 const LANES: usize = 8;
 #[cfg(not(feature = "avx512"))]
 const LANES: usize = 4;
+
 type S = Simd<u64, LANES>;
+
+// TESTS
+
 /// Print info on CPU features and speed of searching.
 pub fn test_cpu_features() {
     eprintln!("CPU features during compilation and runtime:");
