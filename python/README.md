@@ -21,11 +21,11 @@ pip install simd-sassy
 A simple usage is as follows:
 
 ``` python
-query = b"ATCGATCG"
+pattern = b"ATCGATCG"
 text = b"GGGGATCGATCGTTTT"
 # alphabet: ascii, dna, uipac
-searcher = sassy.PySearcher("dna")
-matches = searcher.search(query, text, k=1)
+searcher = sassy.Searcher("dna")
+matches = searcher.search(pattern, text, k=1)
 for i, match in enumerate(matches):
     print(f"Match {i+1}:")
     print(f"    Start: {match.text_start}")
@@ -58,8 +58,8 @@ Match 3:
     CIGAR: X7=
 ```
 
-Further options are `sassy.PySearcher(alpha=0.5)` to allow overhang alignments,
-and `sassy.PySearcher("dna", rc=False)` to disable reverse complements for DNA
+Further options are `sassy.Searcher(alpha=0.5)` to allow overhang alignments,
+and `sassy.Searcher("dna", rc=False)` to disable reverse complements for DNA
 or IUPAC strings.
 
 See [example.py](sassy/example.py) for a larger example.
