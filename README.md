@@ -74,7 +74,7 @@ Three alphabets are supported:
 - *ASCII*: only equal characters match.
 - *DNA*: Only `ACTG` and `actg` characters are expected, and treated case-insensitively.
 - *IUPAC*: On top of the DNA characters, also supports `NYR` and furter
-  characters (again, case insensitive), so that `A` matches `N`.
+  characters (again, case insensitive), so that `A` matches `N`. See [here](https://www.bioinformatics.org/sms/iupac.html) for full table of IUPAC codes. 
 
 ## Evals
 For the evals see [evals/README.md](evals/README.md).
