@@ -255,7 +255,6 @@ mod test {
             threads: Some(1),
             pattern_fasta: None,
             output: None,
-            all: false,
         };
 
         // FIXME: capture output and assert or write to file for easy check
