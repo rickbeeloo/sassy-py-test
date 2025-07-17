@@ -1,4 +1,5 @@
-use sassy::search::{OwnedStaticText, SearchAble};
+use sassy::rec_iter::{Query as RecQuery, RecordIterator};
+use sassy::search::SearchAble;
 use sassy::{profiles::Iupac, profiles::Profile, search::Searcher, search::Strand};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -136,7 +137,7 @@ pub fn matching_seq<P: Profile>(seq1: &[u8], seq2: &[u8]) -> bool {
 }
 
 pub fn crispr(args: CrisprArgs) {
-    let ref guide_sequences = read_guide_sequences(&args.guide);
+    let guide_sequences = read_guide_sequences(&args.guide);
     println!("[GUIDES] Found {} guides", guide_sequences.len());
 
     if guide_sequences.is_empty() {
@@ -148,7 +149,7 @@ pub fn crispr(args: CrisprArgs) {
     let file = File::create(&args.output).expect("Failed to create output file");
     let writer = Mutex::new(BufWriter::new(file));
 
-    let (pam, max_n_frac) = print_and_check_params(&args, guide_sequences);
+    let (pam, max_n_frac) = print_and_check_params(&args, &guide_sequences);
     let pam = pam.as_bytes();
     let pam_compl = Iupac::complement(pam);
     let pam_compl = pam_compl.as_slice();
@@ -158,29 +159,18 @@ pub fn crispr(args: CrisprArgs) {
     let num_threads = args.threads.unwrap_or_else(num_cpus::get);
     println!("[Threads] Using {num_threads} threads");
 
-    let generator = Mutex::new({
-        let mut reader = needletail::parse_fastx_file(args.target.clone()).unwrap();
-        let mut next_pattern_idx = 0;
-        let mut record = None;
-        move || -> Option<(&Vec<u8>, Arc<(String, OwnedStaticText)>)> {
-            if record.is_none() {
-                assert!(next_pattern_idx == 0);
-                let new_record = reader.next()?.unwrap();
-                let id = String::from_utf8(new_record.id().to_owned()).unwrap();
-                let text = new_record.seq().into_owned();
-                let static_text = OwnedStaticText::new(text);
-                record = Some(Arc::new((id, static_text)));
-            }
+    // Build queries for RecordIterator (one per guide sequence)
+    let queries: Vec<RecQuery> = guide_sequences
+        .iter()
+        .enumerate()
+        .map(|(i, seq)| RecQuery {
+            id: format!("guide_{}", i),
+            seq: seq.clone(),
+        })
+        .collect();
 
-            let result = (&guide_sequences[next_pattern_idx], record.clone().unwrap());
-            next_pattern_idx += 1;
-            if next_pattern_idx == guide_sequences.len() {
-                next_pattern_idx = 0;
-                record = None;
-            }
-            return Some(result);
-        }
-    });
+    // Shared iterator that pairs each query with every FASTA record in a batched fashion
+    let record_iter = Arc::new(RecordIterator::new(&args.target, queries, None));
 
     let start = Instant::now();
     std::thread::scope(|scope| {
@@ -198,63 +188,60 @@ pub fn crispr(args: CrisprArgs) {
                     }
                 };
 
-                while let mut guard = generator.lock().unwrap()
-                    && let Some((guide_sequence, id_text)) = guard()
-                {
-                    drop(guard);
-                    // Only used in loop if no edits are allowed, otherwise falls back to default report all search
-                    //
-                    let id = &id_text.0;
-                    let text = &id_text.1;
+                while let Some(batch) = record_iter.next_batch() {
+                    for item in batch {
+                        let guide_sequence = &item.query.seq;
+                        let id_text = &item.record;
 
-                    let matches = if !args.allow_pam_edits {
-                        searcher.search_with_fn(guide_sequence, text, args.k, true, filter_fn)
-                    } else {
-                        searcher.search_all(guide_sequence, text, args.k)
-                    };
+                        let id = &id_text.0;
+                        let text = &id_text.1;
 
-                    total_found.fetch_add(matches.len(), Ordering::Relaxed);
-
-                    let mut writer_guard = writer.lock().unwrap();
-
-                    for m in matches {
-                        let start = m.start.1 as usize;
-                        let end = m.end.1 as usize;
-                        let slice = &text.text()[start..end];
-
-                        // Check if satisfies user max N cut off
-                        let n_ok = if max_n_frac < 100.0 {
-                            check_n_frac(max_n_frac, slice)
+                        let matches = if !args.allow_pam_edits {
+                            searcher.search_with_fn(guide_sequence, text, args.k, true, filter_fn)
                         } else {
-                            true
+                            searcher.search_all(guide_sequence, text, args.k)
                         };
 
-                        if !n_ok {
-                            // println!("N-frac too high: {}", String::from_utf8_lossy(slice));
-                            continue;
+                        total_found.fetch_add(matches.len(), Ordering::Relaxed);
+
+                        let mut writer_guard = writer.lock().unwrap();
+
+                        for m in matches {
+                            let start = m.start.1 as usize;
+                            let end = m.end.1 as usize;
+                            let slice = &text.text()[start..end];
+
+                            // Check if satisfies user max N cut off
+                            let n_ok = if max_n_frac < 100.0 {
+                                check_n_frac(max_n_frac, slice)
+                            } else {
+                                true
+                            };
+
+                            if !n_ok {
+                                continue;
+                            }
+
+                            total_found.fetch_add(1, Ordering::Relaxed);
+
+                            let matched_slice = if m.strand == Strand::Rc {
+                                let rc = <Iupac as Profile>::reverse_complement(slice);
+                                String::from_utf8_lossy(&rc).into_owned()
+                            } else {
+                                String::from_utf8_lossy(slice).into_owned()
+                            };
+                            let cost = m.cost;
+                            let cigar = m.cigar.to_string();
+                            let strand = match m.strand {
+                                Strand::Fwd => "+",
+                                Strand::Rc => "-",
+                            };
+                            writeln!(
+                                writer_guard,
+                                "{id}\t{cost}\t{strand}\t{start}\t{end}\t{matched_slice}\t{cigar}"
+                            )
+                            .unwrap();
                         }
-
-                        total_found.fetch_add(1, Ordering::Relaxed);
-
-                        // If the match we found is in reverse complement, we also rc the matched text
-                        // to make it easier to spot the PAM in the output file
-                        let matched_slice = if m.strand == Strand::Rc {
-                            let rc = <Iupac as Profile>::reverse_complement(slice);
-                            String::from_utf8_lossy(&rc).into_owned()
-                        } else {
-                            String::from_utf8_lossy(slice).into_owned()
-                        };
-                        let cost = m.cost;
-                        let cigar = m.cigar.to_string();
-                        let strand = match m.strand {
-                            Strand::Fwd => "+",
-                            Strand::Rc => "-",
-                        };
-                        writeln!(
-                            writer_guard,
-                            "{id}\t{cost}\t{strand}\t{start}\t{end}\t{matched_slice}\t{cigar}"
-                        )
-                        .unwrap();
                     }
                 }
             });

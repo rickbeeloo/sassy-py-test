@@ -833,6 +833,7 @@ dependencies = [
  "pa-types",
  "pyo3",
  "rand",
+ "tempfile",
  "thread-id",
 ]
 

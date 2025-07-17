@@ -100,6 +100,7 @@ impl<'a> SearchAble for StaticText<'a> {
     }
 }
 
+#[derive(Debug)]
 pub struct OwnedStaticText {
     pub text: Vec<u8>,
     pub rev: Vec<u8>,

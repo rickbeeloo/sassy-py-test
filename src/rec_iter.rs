@@ -8,7 +8,7 @@ const DEFAULT_BATCH_BYTES: usize = 256 * 1024; // 256 KB
 
 pub type SharedRecord = Arc<(String, OwnedStaticText)>;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Query {
     pub id: String,
     pub seq: Vec<u8>,
@@ -16,7 +16,7 @@ pub struct Query {
 
 pub type QueryArc = Arc<Query>;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct BatchItem {
     pub query: QueryArc,
     pub record: SharedRecord,
@@ -29,6 +29,7 @@ struct RecordState {
     /// Index of the next pattern for the *current* record.
     next_pattern_idx: usize,
     /// Current reference record, reused for all patterns until we go to the next
+    /// That's cheaper than rewinding fasta in the opposite case (single pat vs multi text)
     current_record: Option<SharedRecord>,
 }
 
@@ -68,12 +69,16 @@ impl RecordIterator {
         let mut batch: Batch = Vec::new();
         let mut bytes_in_batch = 0usize;
 
+        // Effectively this gets a record, add all queries, then tries
+        // to push another text record, if possible. This way texts
+        // are only 'read' from the Fasta file once.
+
         loop {
             // Make sure we have a current record, just so we can unwrap
             if guard.current_record.is_none() {
                 match guard.reader.next() {
                     Some(Ok(rec)) => {
-                        let id = String::from_utf8(rec.id().to_owned()).expect("valid UTF-8 id");
+                        let id = String::from_utf8_lossy(rec.id()).to_string();
                         let seq = rec.seq().into_owned();
                         let static_text = OwnedStaticText::new(seq);
                         guard.current_record = Some(Arc::new((id, static_text)));
@@ -87,6 +92,7 @@ impl RecordIterator {
                 }
             }
 
+            // We get the ref to the current record we have available
             let rec_arc = guard.current_record.as_ref().unwrap().clone();
             let rec_len = rec_arc.1.text.len();
 
@@ -103,13 +109,14 @@ impl RecordIterator {
             };
             batch.push(item);
 
-            // Only count the reference length once per batch (we ignore pattern lengths)
+            // Only count the reference length once per batch, cause same text ref for multiple
+            // patterns
             if guard.next_pattern_idx == 0 {
                 bytes_in_batch += rec_len;
             }
 
             // Advance pattern index, but if we dont have more queries we reset to empty
-            // record so we pull new sequence in next batch
+            // record so we pull new sequence in next batch (line 74)
             guard.next_pattern_idx += 1;
             if guard.next_pattern_idx == self.queries.len() {
                 guard.current_record = None;
@@ -125,6 +132,72 @@ impl RecordIterator {
     }
 }
 
-// The iterator is `Send + Sync` because all its interior mutability is behind a mutex.
-unsafe impl Send for RecordIterator {}
-unsafe impl Sync for RecordIterator {}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::Rng;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    fn random_dan_seq(len: usize) -> Vec<u8> {
+        let mut rng = rand::rng();
+        let mut seq = Vec::new();
+        let bases = b"ACGT";
+        for _ in 0..len {
+            seq.push(bases[rng.random_range(0..bases.len())]);
+        }
+        seq
+    }
+
+    #[test]
+    fn test_record_iterator() {
+        // Create 100 different random sequences with length of 100-1000
+        let mut rng = rand::rng();
+        let mut seqs = Vec::new();
+        for _ in 0..100 {
+            seqs.push(random_dan_seq(rng.random_range(100..1000)));
+        }
+
+        // Create a temporary file to write the fasta file to
+        let mut file = NamedTempFile::new().unwrap();
+        for (i, seq) in seqs.iter().enumerate() {
+            file.write_all(format!(">seq_{}\n{}\n", i, String::from_utf8_lossy(seq)).as_bytes())
+                .unwrap();
+        }
+        file.flush().unwrap();
+
+        // Create 10 different random queries
+        let mut queries = Vec::new();
+        for i in 0..10 {
+            queries.push(Query {
+                id: format!("query_{}", i),
+                seq: random_dan_seq(rng.random_range(250..1000)),
+            });
+        }
+
+        // Create the iterator
+        let iter = RecordIterator::new(file.path(), queries, Some(500));
+
+        // Pull 10 batches
+        let mut batch_id = 0;
+        while let Some(batch) = iter.next_batch() {
+            batch_id += 1;
+            // Get unique texts, and then their length sum
+            let unique_texts = batch
+                .iter()
+                .map(|item| item.record.1.text.clone())
+                .collect::<std::collections::HashSet<_>>();
+            let text_len = unique_texts.iter().map(|text| text.len()).sum::<usize>();
+            let n_queries = batch
+                .iter()
+                .map(|item| item.query.id.clone())
+                .collect::<std::collections::HashSet<_>>()
+                .len();
+            let n_texts = unique_texts.len();
+            println!(
+                "Batch {batch_id} (tot_size: {text_len}, n_texts: {n_texts}): {n_queries} queries"
+            );
+        }
+        drop(file);
+    }
+}
