@@ -15,11 +15,11 @@ use std::{
 #[derive(clap::Parser, Clone)]
 pub struct SearchArgs {
     // Named args
-    /// Pattern to search for.
+    /// Pattern to search for (cannot be used with -f)
     #[arg(short = 'p', long, conflicts_with = "pattern_fasta")]
     pattern: Option<String>,
 
-    /// Pattern file
+    /// Fasta file with multiple patterns (cannot be used with -p)
     #[arg(short = 'f', long, conflicts_with = "pattern")]
     pattern_fasta: Option<String>,
 
