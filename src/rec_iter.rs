@@ -1,7 +1,7 @@
 use crate::search::OwnedStaticText;
 use needletail::{FastxReader, parse_fastx_file};
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex}; //Todo: could use parking_lot mutex - faster
 
 /// Minimum number of reference bases to hold in batch
 const DEFAULT_BATCH_BYTES: usize = 256 * 1024; // 256 KB
