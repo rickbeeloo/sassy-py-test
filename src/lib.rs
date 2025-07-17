@@ -1,6 +1,4 @@
 #![feature(portable_simd)]
-#![feature(register_tool)]
-#![register_tool(cbindgen)]
 
 use std::simd::Simd;
 

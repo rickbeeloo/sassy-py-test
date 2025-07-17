@@ -16,3 +16,11 @@ gcc -std=c11 -Wall -Wextra -I. example.c \
 ```bash
 LD_LIBRARY_PATH=../target/release ./sassy_example
 ```
+
+### Setup
+The rust source for the library is in `src/c.rs` when the `c` feature is
+enabled. `cbindgen` can be used to generate the corresponding [`sassy.h`](sassy.h) header:
+
+```bash
+cbindgen --config cbindgen.toml --crate sassy --output c/sassy.h
+```
