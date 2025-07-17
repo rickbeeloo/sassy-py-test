@@ -1,5 +1,5 @@
-use needletail::{FastxReader, Sequence, parse_fastx_file};
-use sassy::rec_iter::RecordIterator;
+use needletail::parse_fastx_file;
+use sassy::rec_iter::{Query, RecordIterator};
 use sassy::{
     profiles::{Ascii, Dna, Iupac, Profile},
     search::{Match, OwnedStaticText, SearchAble, Searcher, Strand},
@@ -62,12 +62,13 @@ pub enum Alphabet {
     Iupac,
 }
 
-type Query = (String, Vec<u8>);
-
 fn get_queries(args: &SearchArgs) -> Vec<Query> {
     if let Some(p) = &args.pattern {
         // Single inline pattern; give it a dummy id
-        vec![("query".to_string(), p.as_bytes().to_vec())]
+        vec![Query {
+            id: "query".to_string(),
+            seq: p.as_bytes().to_vec(),
+        }]
     } else if let Some(pattern_fasta) = &args.pattern_fasta {
         // Pull all sequences and ids from the FASTA file
         let mut reader = parse_fastx_file(pattern_fasta).expect("valid path/file");
@@ -75,7 +76,10 @@ fn get_queries(args: &SearchArgs) -> Vec<Query> {
         while let Some(record) = reader.next() {
             let seqrec = record.expect("invalid record");
             let id = String::from_utf8(seqrec.id().to_vec()).unwrap_or_else(|_| "query".into());
-            queries.push((id, seqrec.seq().to_vec()));
+            queries.push(Query {
+                id,
+                seq: seqrec.seq().to_vec(),
+            });
         }
         queries
     } else {
@@ -187,11 +191,10 @@ pub fn search(args: &mut SearchArgs) {
                 };
 
                 while let Some(batch) = it.next_batch() {
-                    for (pattern, record) in batch {
-                        let pat = pattern.as_ref();
-                        let pat_id = &pat.0;
-                        let pat_seq = &pat.1;
-                        let rec = record.as_ref();
+                    for item in batch {
+                        let pat_id = &item.query.id;
+                        let pat_seq = &item.query.seq;
+                        let rec = item.record.as_ref();
                         let thread_id = thread_id::get();
                         eprintln!("Thread {thread_id} q: {pat_id}, against text id: {}", rec.0,);
                         let matches = searcher.search(pat_seq, &rec.1, k);

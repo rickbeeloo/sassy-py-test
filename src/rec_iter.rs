@@ -8,6 +8,22 @@ const DEFAULT_BATCH_BYTES: usize = 256 * 1024; // 256 KB
 
 pub type SharedRecord = Arc<(String, OwnedStaticText)>;
 
+#[derive(Clone)]
+pub struct Query {
+    pub id: String,
+    pub seq: Vec<u8>,
+}
+
+pub type QueryArc = Arc<Query>;
+
+#[derive(Clone)]
+pub struct BatchItem {
+    pub query: QueryArc,
+    pub record: SharedRecord,
+}
+
+pub type Batch = Vec<BatchItem>;
+
 struct RecordState {
     reader: Box<dyn FastxReader + Send>,
     /// Index of the next pattern for the *current* record.
@@ -19,7 +35,7 @@ struct RecordState {
 /// Thread-safe iterator giving *batches* of ((query_id, query_seq), record) pairs.
 /// each batch tries to "fill" the batch_byte_limit
 pub struct RecordIterator {
-    queries: Vec<Arc<(String, Vec<u8>)>>, // store query id + sequence together
+    queries: Vec<QueryArc>,
     state: Mutex<RecordState>,
     batch_byte_limit: usize,
 }
@@ -29,7 +45,7 @@ impl RecordIterator {
     /// `max_batch_bytes` controls how many texts are bundled together.
     pub fn new<P: AsRef<Path>>(
         fasta_path: P,
-        queries: Vec<(String, Vec<u8>)>,
+        queries: Vec<Query>,
         max_batch_bytes: Option<usize>,
     ) -> Self {
         let reader = parse_fastx_file(fasta_path).expect("valid fasta");
@@ -47,9 +63,9 @@ impl RecordIterator {
     }
 
     /// Pull the next batch, or returns None if empty
-    pub fn next_batch(&self) -> Option<Vec<(Arc<(String, Vec<u8>)>, SharedRecord)>> {
+    pub fn next_batch(&self) -> Option<Batch> {
         let mut guard = self.state.lock().unwrap();
-        let mut batch: Vec<(Arc<(String, Vec<u8>)>, SharedRecord)> = Vec::new();
+        let mut batch: Batch = Vec::new();
         let mut bytes_in_batch = 0usize;
 
         loop {
@@ -81,11 +97,14 @@ impl RecordIterator {
 
             // Add next pattern
             let pat_arc = self.queries[guard.next_pattern_idx].clone();
-            let first_pattern_for_rec = guard.next_pattern_idx == 0;
-            batch.push((pat_arc, rec_arc));
+            let item = BatchItem {
+                query: pat_arc,
+                record: rec_arc.clone(),
+            };
+            batch.push(item);
 
             // Only count the reference length once per batch (we ignore pattern lengths)
-            if first_pattern_for_rec {
+            if guard.next_pattern_idx == 0 {
                 bytes_in_batch += rec_len;
             }
 
