@@ -307,7 +307,8 @@ impl<P: Profile> Searcher<P> {
                 let org_end = m.end.1;
                 m.start.1 = input.text().as_ref().len() as i32 - org_end;
                 m.end.1 = input.text().as_ref().len() as i32 - org_start;
-                m.cigar.ops.reverse();
+                // FIXME
+                // m.cigar.ops.reverse();
                 m
             }));
         }
@@ -1787,16 +1788,51 @@ mod tests {
     }
 
     #[test]
-    fn test_cigar_rc() {
-        let query = b"AAAAAAA";
+    fn test_cigar_invariant_under_rc_pattern() {
+        let pattern = b"AAAAAAA";
         let text = "GGGGAATAAAAGGG"; // 2 match, 1 sub, 4 match
         let mut searcher = Searcher::<Dna>::new_fwd();
-        let matches = searcher.search(query, &text, 1);
+        let matches = searcher.search(pattern, &text, 1);
         let fwd_cigar = matches[0].cigar.to_string();
-        // Now enabling rc search, and reverse complementing query should yield same cigar
+        // Now enabling rc search, and reverse complementing pattern should yield same cigar
         let mut searcher = Searcher::<Dna>::new_rc();
-        let query_rc = Iupac::reverse_complement(query);
-        let matches = searcher.search(&query_rc, &text, 1);
+        let pattern_rc = Iupac::reverse_complement(pattern);
+        let matches = searcher.search(&pattern_rc, &text, 1);
+        let rc_cigar = matches[0].cigar.to_string();
+        println!("FWD: {}", fwd_cigar);
+        println!("RC: {}", rc_cigar);
+        assert_eq!(fwd_cigar, rc_cigar);
+    }
+
+    #[test]
+    fn test_cigar_invariant_under_rc_text() {
+        let pattern = b"AAAAAAA";
+        let text = b"GGGGAATAAAAGGG"; // 2 match, 1 sub, 4 match
+        let mut searcher = Searcher::<Dna>::new_fwd();
+        let matches = searcher.search(pattern, &text, 1);
+        let fwd_cigar = matches[0].cigar.to_string();
+        // Now enabling rc search, and reverse complementing pattern should yield same cigar
+        let mut searcher = Searcher::<Dna>::new_rc();
+        let text_rc = Iupac::reverse_complement(text);
+        let matches = searcher.search(pattern, &text_rc, 1);
+        let rc_cigar = matches[0].cigar.to_string();
+        println!("FWD: {}", fwd_cigar);
+        println!("RC: {}", rc_cigar);
+        assert_eq!(fwd_cigar, rc_cigar);
+    }
+
+    #[test]
+    fn test_cigar_invariant_under_rc_pat_and_text() {
+        let pattern = b"AAAAAAA";
+        let text = b"GGGGAATAAAAGGG"; // 2 match, 1 sub, 4 match
+        let mut searcher = Searcher::<Dna>::new_fwd();
+        let matches = searcher.search(pattern, &text, 1);
+        let fwd_cigar = matches[0].cigar.to_string();
+        // Now enabling rc search, and reverse complementing pattern should yield same cigar
+        let mut searcher = Searcher::<Dna>::new_rc();
+        let pattern_rc = Iupac::reverse_complement(pattern);
+        let text_rc = Iupac::reverse_complement(text);
+        let matches = searcher.search(&pattern_rc, &text_rc, 1);
         let rc_cigar = matches[0].cigar.to_string();
         println!("FWD: {}", fwd_cigar);
         println!("RC: {}", rc_cigar);
