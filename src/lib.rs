@@ -29,11 +29,6 @@ mod python;
 #[cfg(feature = "c")]
 mod c;
 
-#[doc(hidden)]
-pub mod private {
-    pub use crate::minima::prefix_min;
-}
-
 #[cfg(feature = "avx512")]
 const LANES: usize = 8;
 #[cfg(not(feature = "avx512"))]
