@@ -19,13 +19,12 @@ path = 'bin/main.rs'
 
 [dependencies]
 rand = "0.9.0"
-pa-types.git = "https://github.com/pairwise-alignment/pa-types"
+pa-types = "1.0.0"
 clap = { version = "4.5.37", features = ["derive"] }
 log = "0.4.27"
 env_logger = "0.11.8"
 num_cpus = "1.16.0"
 needletail = "0.6.3"
-# thread-id = "5.0.0"
 pyo3 = { version = "0.25", features = ["extension-module"], optional = true }
 
 [dev-dependencies]
