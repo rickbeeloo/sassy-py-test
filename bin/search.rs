@@ -41,9 +41,9 @@ pub struct SearchArgs {
     #[arg(short = 'j', long)]
     threads: Option<usize>,
 
-    /// Output file
+    /// Output file, otherwise stdout
     #[arg(short = 'o', long)]
-    output: Option<String>,
+    output: Option<PathBuf>,
 
     // Positional
     /// Fasta file to search. May be gzipped.
@@ -195,10 +195,12 @@ pub fn search(args: &mut SearchArgs) {
                         // let thread_id = thread_id::get();
                         // eprintln!("Thread {thread_id} q: {pat_id}, against text id: {}", rec.0,);
                         let matches = searcher.search(pat_seq, &rec.1, k);
+                        let mut writer_guard = out.lock().unwrap();
                         for m in matches {
                             let line = as_output_line(&m, pat_id, &rec.0, &rec.1, &alphabet);
-                            out.lock().unwrap().write_all(line.as_bytes()).unwrap();
+                            writer_guard.write_all(line.as_bytes()).unwrap();
                         }
+                        drop(writer_guard);
                     }
                 }
             });

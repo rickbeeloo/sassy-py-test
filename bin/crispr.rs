@@ -14,37 +14,47 @@ use std::{
 
 #[derive(clap::Parser)]
 pub struct CrisprArgs {
+    // Named args
     /// Path to file with guide sequences (including PAM)
     #[arg(long, short = 'g')]
     guide: String,
 
     /// Report matches up to (and including) this distance threshold (excluding PAM).
-    #[arg(long, short = 'k')]
+    #[arg(short, long)]
     k: usize,
 
-    /// Fasta file to search. May be gzipped.
-    #[arg(long, short = 't')]
-    target: PathBuf,
+    // optional
+    /// Output file, otherwise stdout
+    #[arg(short = 'o', long)]
+    output: Option<PathBuf>,
 
-    /// Whether to include matches of the reverse-complement string.
-    #[arg(long, short = 'r')]
-    rc: bool,
-
-    /// Allow edits in PAM sequence
-    #[arg(long, short = 'e')]
-    allow_pam_edits: bool,
+    /// Allow at most max_n_frac of N characters in the target sequence.
+    #[arg(long)]
+    max_n_frac: Option<f32>,
 
     /// Number of threads to use. All CPUs by default.
     #[arg(short = 'j', long)]
     threads: Option<usize>,
 
-    /// Allow at most max_n_frac of N characters in the target sequence.
-    #[arg(long, short = 'n')]
-    max_n_frac: Option<f32>,
+    // Flags
+    /// Allow edits in PAM sequence
+    #[arg(long)]
+    allow_pam_edits: bool,
 
-    /// Output file path.
-    #[arg(short = 'o', long)]
-    output: PathBuf,
+    /// Disable reverse complement search”
+    #[arg(long)]
+    no_rc: bool,
+
+    /// Fasta file to search. May be gzipped.
+    path: PathBuf,
+}
+
+fn get_output_writer(args: &CrisprArgs) -> Box<dyn Write + Send> {
+    if let Some(output_path) = &args.output {
+        Box::new(BufWriter::new(File::create(output_path).unwrap())) as Box<dyn Write + Send>
+    } else {
+        Box::new(std::io::stdout()) as Box<dyn Write + Send>
+    }
 }
 
 fn check_n_frac(max_n_frac: f32, match_slice: &[u8]) -> bool {
@@ -145,10 +155,7 @@ pub fn crispr(args: CrisprArgs) {
     }
 
     // Read the first record from the FASTA file for benchmarking
-    println!("Creating output file with path: {}", args.output.display());
-    let file = File::create(&args.output).expect("Failed to create output file");
-    let writer = Mutex::new(BufWriter::new(file));
-
+    let writer = Arc::new(Mutex::new(get_output_writer(&args)));
     let (pam, max_n_frac) = print_and_check_params(&args, &guide_sequences);
     let pam = pam.as_bytes();
     let pam_compl = Iupac::complement(pam);
@@ -169,15 +176,15 @@ pub fn crispr(args: CrisprArgs) {
         })
         .collect();
 
-    // Shared iterator that pairs each pattern with every FASTA record in a batched fashion
-    let record_iter = Arc::new(RecordIterator::new(&args.target, &queries, None));
+    // Shared iterator that pairs each query with every FASTA record in a batched fashion
+    let record_iter = Arc::new(RecordIterator::new(&args.path, &queries, None));
 
     let start = Instant::now();
     std::thread::scope(|scope| {
         for _ in 0..num_threads {
             scope.spawn(|| {
                 // Searcher, IUPAC and always reverse complement
-                let mut searcher = Searcher::<Iupac>::new_rc();
+                let mut searcher = Searcher::<Iupac>::new(args.no_rc, None);
 
                 let filter_fn = |_q: &[u8], text_up_to_end: &[u8], strand: Strand| {
                     let pam_slice = &text_up_to_end[text_up_to_end.len() - 3..];
@@ -242,6 +249,7 @@ pub fn crispr(args: CrisprArgs) {
                             )
                             .unwrap();
                         }
+                        drop(writer_guard);
                     }
                 }
             });
