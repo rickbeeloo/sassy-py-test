@@ -36,10 +36,6 @@ pub struct SearchArgs {
     #[arg(long)]
     no_rc: bool,
 
-    /// Report all matches, not just local minima
-    #[arg(long)]
-    all: bool,
-
     // Optional
     /// Number of threads to use. All CPUs by default.
     #[arg(short = 'j', long)]
