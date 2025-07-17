@@ -34,6 +34,7 @@ Options:
 ### Search
 
 **Search single pattern (--pattern)**
+
 ---
 To search the pattern `ATGAGCA` in the fasta file `text.fasta` allowing up to `1` edit:
 ```bash 
@@ -47,6 +48,7 @@ For alphabets see [alphabets section](#alphabets).
 
 
 **Search with multi Fasta (--pattern-fasta)**
+
 ---
 If you have more than one pattern to search, you can use `--pattern-fasta` instead of `--pattern`:
 ```bash 
