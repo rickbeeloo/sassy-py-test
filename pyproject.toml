@@ -3,7 +3,8 @@ requires = ["maturin>=1.0,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "simd-sassy"
+# sassy is already taken in pypi.
+name = "sassy-rs"
 version = "0.1.0"
 description = "Fast approximate string searching using SIMD"
 readme = "python/README.md"
@@ -11,8 +12,6 @@ requires-python = ">=3.7"
 license = "MIT"
 classifiers = [
     "Programming Language :: Rust",
-    "Programming Language :: Python :: Implementation :: CPython",
-    "Programming Language :: Python :: Implementation :: PyPy",
 ]
 authors = [
     { name = "Rick beeloo", email = "biobeeloo@gmail.com"},
@@ -22,7 +21,7 @@ authors = [
 [project.urls]
 Homepage = "https://github.com/RagnarGrootKoerkamp/sassy"
 Repository = "https://github.com/RagnarGrootKoerkamp/sassy"
-Documentation = "https://github.com/RagnarGrootKoerkamp/python/README"
+Documentation = "https://github.com/RagnarGrootKoerkamp/sassy/blob/master/python/README.md"
 
 [tool.maturin]
 python-source = "python"
