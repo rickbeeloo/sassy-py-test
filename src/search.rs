@@ -13,6 +13,7 @@ use std::simd::cmp::SimdPartialOrd;
 pub type Deltas = Vec<(Cost, V<u64>)>;
 
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "python", pyo3::pyclass)]
 pub struct Match {
     pub start: Pos,
     pub end: Pos,
