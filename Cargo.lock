@@ -1062,7 +1062,6 @@ dependencies = [
  "arrayvec",
  "clap",
  "criterion",
- "edlib_rs",
  "env_logger",
  "log",
  "needletail",
@@ -1071,10 +1070,7 @@ dependencies = [
  "pa-types",
  "pyo3",
  "rand",
- "serde",
- "tempfile",
  "thread-id",
- "toml",
 ]
 
 [[package]]

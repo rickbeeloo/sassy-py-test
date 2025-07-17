@@ -1240,16 +1240,6 @@ mod tests {
         }
     }
 
-    use serde::{Deserialize, Serialize};
-
-    #[derive(Copy, Clone, Debug, PartialEq, Deserialize, Serialize)]
-    #[serde(rename_all = "lowercase")]
-    pub enum Alphabet {
-        Dna,
-        Iupac,
-        Ascii,
-    }
-
     #[test]
     fn test_fixed_matches() {
         let query = b"ATCGATCA";
