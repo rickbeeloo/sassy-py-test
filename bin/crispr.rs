@@ -170,7 +170,7 @@ pub fn crispr(args: CrisprArgs) {
         .collect();
 
     // Shared iterator that pairs each query with every FASTA record in a batched fashion
-    let record_iter = Arc::new(RecordIterator::new(&args.target, queries, None));
+    let record_iter = Arc::new(RecordIterator::new(&args.target, &queries, None));
 
     let start = Instant::now();
     std::thread::scope(|scope| {

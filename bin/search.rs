@@ -169,7 +169,7 @@ pub fn search(args: &mut SearchArgs) {
     let alphabet = args.alphabet.clone();
 
     let num_threads = args.threads.unwrap_or_else(num_cpus::get);
-    let iter = Arc::new(RecordIterator::new(&args.path, queries, None));
+    let iter = Arc::new(RecordIterator::new(&args.path, &queries, None));
     std::thread::scope(|s| {
         for _ in 0..num_threads {
             let it = iter.clone();
@@ -191,8 +191,8 @@ pub fn search(args: &mut SearchArgs) {
                         let pat_id = &item.query.id;
                         let pat_seq = &item.query.seq;
                         let rec = item.record.as_ref();
-                        let thread_id = thread_id::get();
-                        eprintln!("Thread {thread_id} q: {pat_id}, against text id: {}", rec.0,);
+                        // let thread_id = thread_id::get();
+                        // eprintln!("Thread {thread_id} q: {pat_id}, against text id: {}", rec.0,);
                         let matches = searcher.search(pat_seq, &rec.1, k);
                         for m in matches {
                             let line = as_output_line(&m, pat_id, &rec.0, &rec.1, &alphabet);

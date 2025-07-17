@@ -14,15 +14,13 @@ pub struct Query {
     pub seq: Vec<u8>,
 }
 
-pub type QueryArc = Arc<Query>;
-
 #[derive(Clone, Debug)]
-pub struct BatchItem {
-    pub query: QueryArc,
+pub struct BatchItem<'a> {
+    pub query: &'a Query,
     pub record: SharedRecord,
 }
 
-pub type Batch = Vec<BatchItem>;
+pub type Batch<'a> = Vec<BatchItem<'a>>;
 
 struct RecordState {
     reader: Box<dyn FastxReader + Send>,
@@ -35,18 +33,18 @@ struct RecordState {
 
 /// Thread-safe iterator giving *batches* of ((query_id, query_seq), record) pairs.
 /// each batch tries to "fill" the batch_byte_limit
-pub struct RecordIterator {
-    queries: Vec<QueryArc>,
+pub struct RecordIterator<'a> {
+    queries: &'a [Query],
     state: Mutex<RecordState>,
     batch_byte_limit: usize,
 }
 
-impl RecordIterator {
+impl<'a> RecordIterator<'a> {
     /// Create a new iterator over `fasta_path`, going through `queries`.
     /// `max_batch_bytes` controls how many texts are bundled together.
     pub fn new<P: AsRef<Path>>(
         fasta_path: P,
-        queries: Vec<Query>,
+        queries: &'a [Query],
         max_batch_bytes: Option<usize>,
     ) -> Self {
         let reader = parse_fastx_file(fasta_path).expect("valid fasta");
@@ -57,16 +55,16 @@ impl RecordIterator {
             current_record: None,
         };
         Self {
-            queries: queries.into_iter().map(Arc::new).collect(),
+            queries,
             state: Mutex::new(state),
             batch_byte_limit: max_batch_bytes.unwrap_or(DEFAULT_BATCH_BYTES),
         }
     }
 
     /// Pull the next batch, or returns None if empty
-    pub fn next_batch(&self) -> Option<Batch> {
+    pub fn next_batch(&self) -> Option<Batch<'a>> {
         let mut guard = self.state.lock().unwrap();
-        let mut batch: Batch = Vec::new();
+        let mut batch: Batch<'a> = Vec::new();
         let mut bytes_in_batch = 0usize;
 
         // Effectively this gets a record, add all queries, then tries
@@ -98,13 +96,13 @@ impl RecordIterator {
 
             // If no sapce left for next record, we return current batch
             if !batch.is_empty() && bytes_in_batch + rec_len > self.batch_byte_limit {
-                break; // return current batch – keep state for next call
+                break; // return current batch, keep state for next call
             }
 
             // Add next pattern
-            let pat_arc = self.queries[guard.next_pattern_idx].clone();
+            let query = &self.queries[guard.next_pattern_idx];
             let item = BatchItem {
-                query: pat_arc,
+                query,
                 record: rec_arc.clone(),
             };
             batch.push(item);
@@ -176,7 +174,7 @@ mod tests {
         }
 
         // Create the iterator
-        let iter = RecordIterator::new(file.path(), queries, Some(500));
+        let iter = RecordIterator::new(file.path(), &queries, Some(500));
 
         // Pull 10 batches
         let mut batch_id = 0;
