@@ -1,4 +1,4 @@
-#![feature(portable_simd, int_roundings, let_chains)]
+#![feature(portable_simd)]
 
 use std::simd::Simd;
 

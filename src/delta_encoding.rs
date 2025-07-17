@@ -88,7 +88,7 @@ macro_rules! impl_vencoding {
                     if j % 64 != 0 {
                         s += v[j as usize / 64].value_of_suffix(64 - j % 64);
                     }
-                    for vj in &v[j.div_ceil(64) as usize..] {
+                    for vj in &v[(j as usize).div_ceil(64) ..] {
                         s += vj.value();
                     }
                     s
