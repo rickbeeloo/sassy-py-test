@@ -7,7 +7,7 @@ Then create your C file, see [example.c](example.c):
 ### Compile executable
 Make sure `-L` points to the `target/release/` where the `.so` file is.
 ```bash
-gcc -std=c11 -Wall -Wextra -I. example.c \
+gcc -std=c11 -I. example.c \
     -L ../target/release -lsassy -lm \
     -o sassy_example
 ```

@@ -45,7 +45,7 @@ impl From<Match> for CMatch {
 ///
 /// `alphabet`: one of "ascii", "dna", "iupac" (case-insensitive).
 /// `rc`: whether to also search the reverse-complement strand.
-/// `alpha`: overhang parameter. Pass `NAN` or -1 to disable.
+/// `alpha`: overhang parameter. Pass `NAN` to disable.
 ///
 /// Returns a pointer to an opaque `Searcher` object, or panics on error.
 #[unsafe(no_mangle)]
