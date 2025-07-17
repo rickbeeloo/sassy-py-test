@@ -62,7 +62,7 @@ cargo run -r -- sassy crispr --guide guides.txt --k 1 text.fasta
 ```
 *Note* to stick to common format the input for `--guide` is a .txt file, not a fasta file, with a 
 guide per line.
-If you want to limit the matches with `N` charactres, you can use `--max-n-frac`, and if you 
+If you want to limit the matches with `N` characters, you can use `--max-n-frac`, and if you 
 do allow edits in the PAM sequence you can use the `--allow-pam-edits` flag.
 
 
