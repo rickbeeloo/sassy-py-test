@@ -65,5 +65,8 @@ Three alphabets are supported:
 - *IUPAC*: On top of the DNA characters, also supports `NYR` and furter
   characters (again, case insensitive), so that `A` matches `N`.
 
-### Benchmarks
-For the benchmarks see [benchmark readme](benchmarks/paper/README.md)
+## Evals
+For the evals see [evals/README.md](evals/README.md).
+
+## Python bindings
+For python bindings see [python/README.md](python/README.md).
