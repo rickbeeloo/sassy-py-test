@@ -81,3 +81,6 @@ For the evals see [evals/README.md](evals/README.md).
 
 ## Python bindings
 For python bindings see [python/README.md](python/README.md).
+
+## C bindings
+for C bindings see [c/README.md](c/README.md).

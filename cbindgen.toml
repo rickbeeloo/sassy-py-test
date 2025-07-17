@@ -1,0 +1,14 @@
+language = "C"
+
+cpp_compat = true
+
+include_guard = "SASSY_H"
+
+[export]
+prefix = "sassy_"
+include = ["CMatch"]
+exclude = ["PyInit_sassy"]
+item_types = ["functions", "opaque", "typedefs", "structs", "constants"]
+
+[parse]
+expand = ["sassy"] 

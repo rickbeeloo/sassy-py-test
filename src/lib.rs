@@ -1,4 +1,6 @@
 #![feature(portable_simd)]
+#![feature(register_tool)]
+#![register_tool(cbindgen)]
 
 use std::simd::Simd;
 
@@ -25,6 +27,10 @@ mod trace;
 // Python bindings module
 #[cfg(feature = "python")]
 mod python;
+
+#[cfg(feature = "c")]
+#[allow(non_snake_case)]
+mod c;
 
 #[doc(hidden)]
 pub mod private {
