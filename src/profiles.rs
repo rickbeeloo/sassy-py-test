@@ -13,7 +13,7 @@ pub trait Profile: Clone + std::fmt::Debug {
     type A;
     /// Encoding for 64 characters in `b`.
     type B: Index<usize, Output = u64> + IndexMut<usize, Output = u64> + Copy;
-    fn encode_query(a: &[u8]) -> (Self, Vec<Self::A>);
+    fn encode_pattern(a: &[u8]) -> (Self, Vec<Self::A>);
     fn encode_ref(&self, b: &[u8; 64], out: &mut Self::B);
     /// Given the encoding of an `a` and the encoding for 64 `b`s,
     /// return a bitmask of which characters of `b` equal the corresponding character of `a`.

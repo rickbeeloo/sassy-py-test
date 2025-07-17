@@ -13,7 +13,7 @@ impl Profile for Dna {
     type A = u8;
     type B = [u64; 4];
 
-    fn encode_query(a: &[u8]) -> (Self, Vec<Self::A>) {
+    fn encode_pattern(a: &[u8]) -> (Self, Vec<Self::A>) {
         let bases = vec![b'A', b'C', b'T', b'G'];
         let query_profile = a.iter().map(|c| (c >> 1) & 3).collect();
         (Dna { bases }, query_profile)

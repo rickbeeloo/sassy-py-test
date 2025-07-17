@@ -19,7 +19,7 @@ impl<const CASE_SENSITIVE: bool> Profile for Ascii<CASE_SENSITIVE> {
     type A = usize;
     type B = [u64; 256]; // Maximum number of ASCII characters
 
-    fn encode_query(a: &[u8]) -> (Self, Vec<Self::A>) {
+    fn encode_pattern(a: &[u8]) -> (Self, Vec<Self::A>) {
         let mut bases = Vec::new();
         let mut query_profile = Vec::with_capacity(a.len());
         for &c in a {

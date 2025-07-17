@@ -154,6 +154,8 @@ impl<P: Profile> LaneState<P> {
 /// - `Ascii`/`Dna`/`Iupac` profiles.
 /// - Searching only forward or also the reverse complement text.
 /// - Overhang cost, for `Iupac` profile.
+///
+/// See the library documentation for examples.
 pub struct Searcher<P: Profile> {
     // Config
     /// Search reverse complement text?
@@ -172,7 +174,7 @@ pub struct Searcher<P: Profile> {
 }
 
 impl<P: Profile> Searcher<P> {
-    // The number of rows (query chars) we *at least*
+    // The number of rows (pattern chars) we *at least*
     // mainly to avoid branching
     const CHECK_AT_LEAST_ROWS: usize = 8;
 
@@ -223,10 +225,12 @@ impl<P: Profile> Searcher<P> {
         }
     }
 
-    /// Returns matches for *only local minima* end positions with score <=k.
-    pub fn search<I: RcSearchAble>(&mut self, query: &[u8], input: &I, k: usize) -> Vec<Match> {
+    /// Returns a match for each *rightmost local minimum* end position with score <=k.
+    ///
+    /// Searches the forward text, and optionally the reverse complement of the text.
+    pub fn search<I: RcSearchAble>(&mut self, pattern: &[u8], input: &I, k: usize) -> Vec<Match> {
         self.search_handle_rc(
-            query,
+            pattern,
             input,
             k,
             false,
@@ -234,10 +238,17 @@ impl<P: Profile> Searcher<P> {
         )
     }
 
-    /// Returns matches for *all* end positions with score <=k.
-    pub fn search_all<I: RcSearchAble>(&mut self, query: &[u8], input: &I, k: usize) -> Vec<Match> {
+    /// Returns a match for *all* end positions with score <=k.
+    ///
+    /// Searches the forward text, and optionally the reverse complement of the text.
+    pub fn search_all<I: RcSearchAble>(
+        &mut self,
+        pattern: &[u8],
+        input: &I,
+        k: usize,
+    ) -> Vec<Match> {
         self.search_handle_rc(
-            query,
+            pattern,
             input,
             k,
             true,
@@ -248,25 +259,25 @@ impl<P: Profile> Searcher<P> {
     /// Returns matches for *all* end positions where end_filter_fn returns true
     pub fn search_with_fn<I: RcSearchAble>(
         &mut self,
-        query: &[u8],
+        pattern: &[u8],
         input: &I,
         k: usize,
         all_minima: bool,
         filter_fn: impl Fn(&[u8], &[u8], Strand) -> bool,
     ) -> Vec<Match> {
-        self.search_handle_rc(query, input, k, all_minima, Some(filter_fn))
+        self.search_handle_rc(pattern, input, k, all_minima, Some(filter_fn))
     }
 
     fn search_handle_rc<I: RcSearchAble>(
         &mut self,
-        query: &[u8],
+        pattern: &[u8],
         input: &I,
         k: usize,
         all_minima: bool,
         filter_fn: Option<impl Fn(&[u8], &[u8], Strand) -> bool>,
     ) -> Vec<Match> {
         let mut matches = self.search_one_strand(
-            query,
+            pattern,
             input.text().as_ref(),
             k,
             all_minima,
@@ -275,7 +286,7 @@ impl<P: Profile> Searcher<P> {
         );
         if self.rc {
             let rc_matches = self.search_one_strand(
-                &P::complement(query),
+                &P::complement(pattern),
                 input.rev_text().as_ref(),
                 k,
                 all_minima,
@@ -298,24 +309,24 @@ impl<P: Profile> Searcher<P> {
 
     fn search_one_strand(
         &mut self,
-        query: &[u8],
+        pattern: &[u8],
         text: &[u8],
         k: usize,
         all_minima: bool,
         filter_fn: &Option<impl Fn(&[u8], &[u8], Strand) -> bool>,
         strand: Strand,
     ) -> Vec<Match> {
-        self.search_positions_bounded(query, text, k as Cost, all_minima);
+        self.search_positions_bounded(pattern, text, k as Cost, all_minima);
         // If there is a filter fn, filter end positions based on function before processing matches
         if let Some(filter_fn) = filter_fn {
             self.lanes.iter_mut().for_each(|lane| {
                 lane.matches.retain(|(end_pos, _)| {
                     let text_till_end = &text[..*end_pos];
-                    filter_fn(query, text_till_end, strand)
+                    filter_fn(pattern, text_till_end, strand)
                 });
             });
         }
-        self.process_matches(query, text, k as Cost)
+        self.process_matches(pattern, text, k as Cost)
     }
 
     #[inline(always)]
@@ -351,23 +362,23 @@ impl<P: Profile> Searcher<P> {
         None
     }
 
-    fn search_positions_bounded(&mut self, query: &[u8], text: &[u8], k: Cost, all_minima: bool) {
-        let (profiler, query_profile) = P::encode_query(query);
+    fn search_positions_bounded(&mut self, pattern: &[u8], text: &[u8], k: Cost, all_minima: bool) {
+        let (profiler, pattern_profile) = P::encode_pattern(pattern);
 
         // Terminology:
         // - chunk: roughly 1/4th of the input text, with small overlaps.
         // - block: 64 bytes of text.
         // - lane: a u64 of a SIMD vec.
 
-        // The query will match a pattern of length at most query.len() + k.
+        // The pattern will match a pattern of length at most pattern.len() + k.
         // We round that up to a multiple of 64 to find the number of blocks overlap between chunks.
-        let max_overlap_blocks = (query.len() + k as usize).next_multiple_of(64) / 64;
+        let max_overlap_blocks = (pattern.len() + k as usize).next_multiple_of(64) / 64;
         let overlap_blocks = 0;
 
         // Total number of blocks to be processed, including overlaps.
         let text_blocks = if self.alpha.is_some() {
             // When allowing overlaps, for simplicity we 'extend' the text a bit more with N.
-            (text.len() + query.len()).div_ceil(64)
+            (text.len() + pattern.len()).div_ceil(64)
         } else {
             text.len().div_ceil(64)
         };
@@ -388,15 +399,15 @@ impl<P: Profile> Searcher<P> {
         }
 
         // State tracking for early termination optimization:
-        // - prev_max_j: tracks the highest query row we've computed so far
+        // - prev_max_j: tracks the highest pattern row we've computed so far
         // - prev_end_last_below: tracks the highest row where any lane had cost <= k
         let mut prev_max_j = 0;
         let mut prev_end_last_below = 0;
 
         self.hp.clear();
         self.hm.clear();
-        self.hp.resize(query.len(), S::splat(1));
-        self.hm.resize(query.len(), S::splat(0));
+        self.hp.resize(pattern.len(), S::splat(1));
+        self.hm.resize(pattern.len(), S::splat(0));
 
         init_deltas_for_overshoot(&mut self.hp, self.alpha);
 
@@ -413,14 +424,14 @@ impl<P: Profile> Searcher<P> {
             let mut dist_to_end_of_lane = S::splat(0);
             let mut cur_end_last_below = 0;
 
-            // Iterate over query chars (rows in the DP matrix)
-            for j in 0..query.len() {
+            // Iterate over pattern chars (rows in the DP matrix)
+            for j in 0..pattern.len() {
                 dist_to_start_of_lane += self.hp[j];
                 dist_to_start_of_lane -= self.hm[j];
 
-                let query_char = unsafe { query_profile.get_unchecked(j) };
+                let pattern_char = unsafe { pattern_profile.get_unchecked(j) };
                 let eq: std::simd::Simd<u64, 4> = S::from(std::array::from_fn(|lane| {
-                    P::eq(query_char, &self.lanes[lane].text_profile)
+                    P::eq(pattern_char, &self.lanes[lane].text_profile)
                 }));
 
                 compute_block_simd(&mut self.hp[j], &mut self.hm[j], &mut vp, &mut vm, eq);
@@ -476,7 +487,7 @@ impl<P: Profile> Searcher<P> {
                     cost,
                     k,
                     text.len(),
-                    query.len(),
+                    pattern.len(),
                     base_pos,
                     lane,
                     all_minima,
@@ -484,7 +495,7 @@ impl<P: Profile> Searcher<P> {
             }
 
             prev_end_last_below = cur_end_last_below.max(Self::CHECK_AT_LEAST_ROWS);
-            prev_max_j = query.len() - 1;
+            prev_max_j = pattern.len() - 1;
         }
 
         // Clean up any remaining rows that weren't reset
@@ -564,14 +575,14 @@ impl<P: Profile> Searcher<P> {
         cur_cost: Cost,
         k: Cost,
         text_len: usize,
-        query_len: usize,
+        pattern_len: usize,
         base_pos: usize,
         lane: usize,
         all_minima: bool,
     ) {
         let (p, m) = v.pm();
         let max_pos = if self.alpha.is_some() {
-            text_len + query_len
+            text_len + pattern_len
         } else {
             text_len
         };
@@ -638,9 +649,9 @@ impl<P: Profile> Searcher<P> {
         }
     }
 
-    fn process_matches(&mut self, query: &[u8], text: &[u8], k: Cost) -> Vec<Match> {
+    fn process_matches(&mut self, pattern: &[u8], text: &[u8], k: Cost) -> Vec<Match> {
         let mut traces = Vec::new();
-        let fill_len = query.len() + k as usize;
+        let fill_len = pattern.len() + k as usize;
 
         for m in &mut self.cost_matrices {
             m.alpha = self.alpha;
@@ -658,7 +669,7 @@ impl<P: Profile> Searcher<P> {
 
                 if batch.is_full() {
                     traces.extend(batch.process::<P>(
-                        query,
+                        pattern,
                         fill_len,
                         &mut self.cost_matrices,
                         self.alpha,
@@ -671,7 +682,7 @@ impl<P: Profile> Searcher<P> {
 
         if !batch.is_empty() {
             traces.extend(batch.process::<P>(
-                query,
+                pattern,
                 fill_len,
                 &mut self.cost_matrices,
                 self.alpha,
@@ -726,7 +737,7 @@ impl<'a> MatchBatch<'a> {
 
     fn process<P: Profile>(
         &self,
-        query: &[u8],
+        pattern: &[u8],
         fill_len: usize,
         cost_matrices: &mut [CostMatrix; LANES],
         alpha: Option<f32>,
@@ -734,7 +745,7 @@ impl<'a> MatchBatch<'a> {
     ) -> Vec<Match> {
         if self.count > 1 {
             simd_fill::<P>(
-                query,
+                pattern,
                 &self.slices[..self.count],
                 fill_len,
                 cost_matrices,
@@ -742,7 +753,7 @@ impl<'a> MatchBatch<'a> {
             );
         } else {
             fill::<P>(
-                query,
+                pattern,
                 self.slices[0],
                 fill_len,
                 &mut cost_matrices[0],
@@ -754,7 +765,7 @@ impl<'a> MatchBatch<'a> {
 
         for i in 0..self.count {
             let m = get_trace::<P>(
-                query,
+                pattern,
                 self.offsets[i],
                 self.ends[i],
                 self.slices[i],
@@ -836,10 +847,10 @@ mod tests {
 
     #[test]
     fn overhang_test() {
-        let query = b"CTTAAGCACTACCGGCTAAT";
+        let pattern = b"CTTAAGCACTACCGGCTAAT";
         let text = b"AGTCGTCCTTTGCGAGCTCGGACATCTCCAGGCGAACCTGCAAGTTTTAATGTTCCCACAGTCCCTCATATGTTCTGAATTTCGTGATGTTTGTTTACCG";
         let mut s = Searcher::<Iupac>::new_fwd_with_overhang(0.0);
-        let _matches = s.search_all(query, text, 100);
+        let _matches = s.search_all(pattern, text, 100);
     }
 
     #[test]
@@ -850,11 +861,11 @@ mod tests {
 
     #[test]
     fn overshoot() {
-        let query = b"CCCTTTCCCGGG";
+        let pattern = b"CCCTTTCCCGGG";
         let text = b"AAAAAAAAACCCTTT";
         let mut s = Searcher::<Iupac>::new_fwd();
         s.alpha = Some(0.5);
-        s.search_positions_bounded(query, text, 10, true);
+        s.search_positions_bounded(pattern, text, 10, true);
         for l in s.lanes {
             println!("Matches: {:?}", l.matches);
         }
@@ -862,11 +873,11 @@ mod tests {
 
     #[test]
     fn overshoot_test_prefix_trace() {
-        let query = b"CCCTTTCCCGGG";
+        let pattern = b"CCCTTTCCCGGG";
         let text = b"AAAAAAAAACCCTTT";
         let mut s = Searcher::<Iupac>::new_fwd();
         s.alpha = Some(0.5);
-        s.search_all(query, text, 10);
+        s.search_all(pattern, text, 10);
         // First not error
     }
 
@@ -972,9 +983,9 @@ mod tests {
 
     #[test]
     fn test_case1() {
-        let query = b"AGATGTGTCC";
+        let pattern = b"AGATGTGTCC";
         let text = b"GAGAGATAACCGTGCGCTCACTGTTACAGTTTATGTGTCGAATTCTTTTAGGGCTGGTCACTGCCCATGCGTAGGAATGAATAGCGGTTGCGGATAACTAAGCAGTGCTTGTCGCTATTAAAGTTAGACCCCGCTCCCACCTTGCCACTCCTAGATGTCGACGAGATTCTCACCGCCAAGGGATCAGGCATATCATAGTAGCTGGCGCAGCCCGTCGTTTAAGGAGGCCCATATACTAATTCAAACGATGGGGTGGGCACATCCCCTAGAAGCACTTGTCCCTTGAGTCACGACTGATGCGTGGTCTCTCGCTAAATGTTCCGGCCTCTCGGACATTTAAAGGGTGGCATGTGACCATGGAGGATTAGTGAATGAGAGGTGTCCGCCTTTGTTCGCCAGAACTCTTATAGCGTAGGGGAGTGTACTCACCGCGAACCCGTATCAGCAATCTTGTCAGTGGCTCCTGACTCAAACATCGATGCGCTGCACATGGCCTTAGAATGAAGCAGCCCCTTTCTATTGTGGCCGGGCTGATTCTTTGTTTTGTTGAATGGTCGGGCCTGTCTGCCTTTTCCTAGTGTTGAAACTCCGAACCGCATGAACTGCGTTGCTAGCGAGCTATCACTGGACTGGCCGGGGGACGAAAGTTCGCGGGACCCACTACCCGCGCCCAGAAGACCACACTAGGGAGAAGGATTCTATCGGCATAGCCGTC";
-        let matches = Searcher::<Dna>::new_rc().search(query, &text, 2);
+        let matches = Searcher::<Dna>::new_rc().search(pattern, &text, 2);
         println!("Matches: {:?}", matches);
     }
 
@@ -982,9 +993,9 @@ mod tests {
     fn no_extra_matches() {
         let edits = 6;
         let expected_idx = 277;
-        let query = b"TAAGCAGAAGGGAGGTATAAAGTCTGTCAGCGGTGCTTAAG";
+        let pattern = b"TAAGCAGAAGGGAGGTATAAAGTCTGTCAGCGGTGCTTAAG";
         let text = b"ACCGTAACCGCTTGGTACCATCCGGCCAGTCGCTCGTTGCGCCCCACTATCGGGATCGACGCGCAGTAATTAAACACCACCCACGCCACGAGGTAGAACGAGAGCGGGGGGCTAGCAAATAATAGTGAGAGTGCGTTCAAAGGGTCTTTCGTAACCTCAGCGGGCGGGTACGGGGGAAATATCGCACCAATTTTGGAGATGCGATTAGCTCAGCGTAACGCGAATTCCCTATAACTTGCCTAGTGTGTGTGAATGGACAATTCGTTTTACAGTTTCAAGGTAGCAGAAGGGCAGGATAAGTCTGTCGCGGTGCTTAAGGCTTTCCATCCATGTTGCCCCCTACATGAATCGGATCGCCAGCCAGAATATCACATGGTTCCAAAAGTTGCAAGCTTCCCCGTACCGCTACTTCACCTCACGCCAGAGGCCTATCGCCGCTCGGCCGTTCCGTTTTGGGGAAGAATCTGCCTGTTCTCGTCACAAGCTTCTTAGTCCTTCCACCATGGTGCTGTTACTCATGCCATCAAATATTCGAGCTCTTGCCTAGGGGGGTTATACCTGTGCGATAGATACACCCCCTATGACCGTAGGTAGAGAGCCTATTTTCAACGTGTCGATCGTTTAATGACACCAACTCCCGGTGTCGAGGTCCCCAAGTTTCGTAGATCTACTGAGCGGGGGAATATTTGACGGTAAGGCATCGCTTGTAGGATCGTATCGCGACGGTAGATACCCATAAGCGTTGCTAACCTGCCAATAACTGTCTCGCGATCCCAATTTAGCACAAGTCGGTGGCCTTGATAAGGCTAACCAGTTTCGCACCGCTTCCGTTCCATTTTACGATCTACCGCTCGGATGGATCCGAAATACCGAGGTAGTAATATCAACACGTACCCAATGTCC";
-        let matches = Searcher::<Dna>::new_fwd().search(query, &text, edits);
+        let matches = Searcher::<Dna>::new_fwd().search(pattern, &text, edits);
         let m = matches
             .iter()
             .find(|m| (m.start.1 as usize).abs_diff(expected_idx) <= edits);
@@ -1001,9 +1012,9 @@ mod tests {
     fn random_big_search() {
         let mut total_matches = 0;
         for _ in 0..1000 {
-            let query = random_dna_string(random_range(10..100));
+            let pattern = random_dna_string(random_range(10..100));
             let text = random_dna_string(1_000_000);
-            let matches = Searcher::<Dna>::new_fwd().search(&query, &text, 5);
+            let matches = Searcher::<Dna>::new_fwd().search(&pattern, &text, 5);
             total_matches += matches.len();
         }
         println!("total matches: {total_matches}");
@@ -1011,33 +1022,34 @@ mod tests {
 
     #[test]
     fn test_fwd_rc_search() {
-        let query = b"ATCGATCA";
-        let rc = Dna::reverse_complement(query);
+        let pattern = b"ATCGATCA";
+        let rc = Dna::reverse_complement(pattern);
         let text = [b"GGGGGGGG".as_ref(), &rc, b"GGGGGGGG"].concat();
-        let matches = Searcher::<Dna>::new_rc().search(query, &text, 0);
+        let matches = Searcher::<Dna>::new_rc().search(pattern, &text, 0);
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].start.1, 8);
-        assert_eq!(matches[0].end.1, 8 + query.len() as i32);
+        assert_eq!(matches[0].end.1, 8 + pattern.len() as i32);
         // Now disableing rc search should yield no matches
-        let matches = Searcher::<Dna>::new_fwd().search(query, &text, 0);
+        let matches = Searcher::<Dna>::new_fwd().search(pattern, &text, 0);
         assert_eq!(matches.len(), 0);
     }
 
     #[test]
     fn test_filter_fn_simple() {
-        let query = b"ATCGATCA";
+        let pattern = b"ATCGATCA";
         let mut text = vec![b'G'; 100];
 
         // Insert match once before 10 and once after 10
-        text.splice(10..10, query.iter().copied());
-        text.splice(50..50, query.iter().copied());
+        text.splice(10..10, pattern.iter().copied());
+        text.splice(50..50, pattern.iter().copied());
         let end_filter = |q: &[u8], text: &[u8], _strand: Strand| text.len() > 10 + q.len();
-        let matches = Searcher::<Dna>::new_fwd().search_with_fn(query, &text, 0, false, end_filter);
+        let matches =
+            Searcher::<Dna>::new_fwd().search_with_fn(pattern, &text, 0, false, end_filter);
         assert_eq!(matches.len(), 1); // First match *ending* at 10 should be discarded
         assert_eq!(matches[0].start.1, 50);
 
         // Sanity check, run the same without filter
-        let matches = Searcher::<Dna>::new_fwd().search(query, &text, 0);
+        let matches = Searcher::<Dna>::new_fwd().search(pattern, &text, 0);
         assert_eq!(matches.len(), 2);
         assert_eq!(matches[0].start.1, 10);
         assert_eq!(matches[1].start.1, 50);
@@ -1074,23 +1086,23 @@ mod tests {
 
     #[test]
     fn test_filter_fn_rc() {
-        let query_fwd = b"ATCGATCA";
-        let query_rc = rc(query_fwd);
+        let pattern_fwd = b"ATCGATCA";
+        let pattern_rc = rc(pattern_fwd);
         let mut text = vec![b'G'; 100];
 
         // Insert match once before 10 and once after 10
-        text.splice(10..10, query_fwd.iter().copied()); // FWD
-        text.splice(50..50, query_rc.iter().copied()); // RC
+        text.splice(10..10, pattern_fwd.iter().copied()); // FWD
+        text.splice(50..50, pattern_rc.iter().copied()); // RC
 
         let end_filter = |q: &[u8], text: &[u8], strand: Strand| match strand {
-            Strand::Fwd => text[text.len() - q.len()..] == *query_fwd,
+            Strand::Fwd => text[text.len() - q.len()..] == *pattern_fwd,
             Strand::Rc => {
-                complement(&text[text.len() - q.len()..]) == *query_fwd // NOTE complement call 
+                complement(&text[text.len() - q.len()..]) == *pattern_fwd // NOTE complement call
             }
         };
 
         let matches =
-            Searcher::<Dna>::new_rc().search_with_fn(query_fwd, &text, 0, false, end_filter);
+            Searcher::<Dna>::new_rc().search_with_fn(pattern_fwd, &text, 0, false, end_filter);
         assert_eq!(matches.len(), 2); // Both matches should be found
         assert_eq!(matches[0].start.1, 10);
         assert_eq!(matches[1].start.1, 50);
@@ -1098,7 +1110,7 @@ mod tests {
 
     #[test]
     fn search_fuzz() {
-        let mut query_lens = (10..20)
+        let mut pattern_lens = (10..20)
             .chain((0..10).map(|_| random_range(10..100)))
             .chain((0..10).map(|_| random_range(100..1000)))
             .collect::<Vec<_>>();
@@ -1109,23 +1121,23 @@ mod tests {
             .chain((0..10).map(|_| random_range(1000..10000)))
             .collect::<Vec<_>>();
 
-        // let mut query_lens = [3, 4, 5, 8, 10].repeat(1000);
+        // let mut pattern_lens = [3, 4, 5, 8, 10].repeat(1000);
         // let mut text_lens = [10, 15, 20, 30].repeat(1000);
 
-        // let mut query_lens = [1000, 2000, 5000, 10_000].repeat(1);
+        // let mut pattern_lens = [1000, 2000, 5000, 10_000].repeat(1);
         // let mut text_lens = [10_000, 100_000, 1_000_000].repeat(1);
 
-        query_lens.sort();
+        pattern_lens.sort();
         text_lens.sort();
 
         // Create single searcher for all tests to check proper resetting of internal states
         // let mut searcher = Searcher::<Dna>::new_fwd();
         let mut rc_searcher = Searcher::<Dna>::new_rc();
 
-        for q in query_lens {
+        for q in pattern_lens {
             for t in text_lens.clone() {
                 println!("q {q} t {t}");
-                let query = (0..q)
+                let pattern = (0..q)
                     .map(|_| b"ACGT"[random_range(0..4)])
                     .collect::<Vec<_>>();
                 let mut text = (0..t)
@@ -1133,7 +1145,7 @@ mod tests {
                     .collect::<Vec<_>>();
 
                 let edits = random_range(0..q / 3);
-                let mut p = query.clone();
+                let mut p = pattern.clone();
                 for _ in 0..edits {
                     let tp = random_range(0..3);
                     match tp {
@@ -1159,7 +1171,7 @@ mod tests {
                 fn show(x: &[u8]) -> &str {
                     str::from_utf8(x).unwrap()
                 }
-                //  eprintln!("query q={q} {}", show(&query));
+                //  eprintln!("pattern q={q} {}", show(&pattern));
                 //  eprintln!("pattern {}", show(&p));
                 if p.len() > text.len() {
                     continue;
@@ -1175,7 +1187,7 @@ mod tests {
                 //eprintln!("text {}", show(&text));
 
                 // // Just fwd
-                // let matches = searcher.search(&query, &text, edits);
+                // let matches = searcher.search(&pattern, &text, edits);
                 // eprintln!("matches {matches:?}");
                 // let m = matches
                 //     .iter()
@@ -1183,7 +1195,7 @@ mod tests {
                 // assert!(m.is_some());
 
                 // // Also rc search, should still find the same match
-                let matches = rc_searcher.search(&query, &text, edits);
+                let matches = rc_searcher.search(&pattern, &text, edits);
 
                 // eprintln!("matches {matches:?}");
                 // let m = matches
@@ -1192,16 +1204,16 @@ mod tests {
                 // assert!(m.is_some());
 
                 // Check if fwd and rev give the same
-                let query_rev = query.iter().rev().copied().collect::<Vec<_>>();
+                let pattern_rev = pattern.iter().rev().copied().collect::<Vec<_>>();
                 let text_rev = text.iter().rev().copied().collect::<Vec<_>>();
-                let matches_rev = rc_searcher.search(&query_rev, &text_rev, edits);
+                let matches_rev = rc_searcher.search(&pattern_rev, &text_rev, edits);
                 assert_eq!(
                     matches.len(),
                     matches_rev.len(),
-                    "error: fwd matches {} vs rev {}\nQuery: {}\nText: {}\nEdits: {}",
+                    "error: fwd matches {} vs rev {}\npattern: {}\nText: {}\nEdits: {}",
                     matches.len(),
                     matches_rev.len(),
-                    show(&query),
+                    show(&pattern),
                     show(&text),
                     edits,
                 );
@@ -1212,11 +1224,11 @@ mod tests {
     #[test]
     // #[ignore = "for plotting only"]
     fn print_matches() {
-        let query = b"GCCGT";
+        let pattern = b"GCCGT";
         let text = b"AGCGCGTA";
         let k = 1;
-        let matches = Searcher::<Dna>::new_rc().search_all(query, text, k);
-        let match_local = Searcher::<Dna>::new_rc().search(query, text, k);
+        let matches = Searcher::<Dna>::new_rc().search_all(pattern, text, k);
+        let match_local = Searcher::<Dna>::new_rc().search(pattern, text, k);
         //   println!("matches: {:?}", matches);
         println!("fwd matches (ALL): {}", matches.len());
         for m in matches {
@@ -1226,10 +1238,10 @@ mod tests {
         for m in match_local {
             println!("m: {:?}", m.without_cigar());
         }
-        let query_rev = query.iter().rev().copied().collect::<Vec<_>>();
+        let pattern_rev = pattern.iter().rev().copied().collect::<Vec<_>>();
         let text_rev = text.iter().rev().copied().collect::<Vec<_>>();
-        let matches_rev = Searcher::<Dna>::new_rc().search_all(&query_rev, &text_rev, k);
-        let match_rev_local = Searcher::<Dna>::new_rc().search(&query_rev, &text_rev, k);
+        let matches_rev = Searcher::<Dna>::new_rc().search_all(&pattern_rev, &text_rev, k);
+        let match_rev_local = Searcher::<Dna>::new_rc().search(&pattern_rev, &text_rev, k);
         println!("rev matches (ALL): {}", matches_rev.len());
         for m in matches_rev {
             println!("m: {:?}", m.without_cigar());
@@ -1242,7 +1254,7 @@ mod tests {
 
     #[test]
     fn test_fixed_matches() {
-        let query = b"ATCGATCA";
+        let pattern = b"ATCGATCA";
         let mut text = vec![b'G'; 1000]; // Create a text of 1000 G's
 
         // Insert 5 matches at fixed positions
@@ -1250,17 +1262,17 @@ mod tests {
         let mut expected_matches = Vec::new();
 
         for &pos in &positions {
-            // Insert the query at each position
-            text.splice(pos..pos + query.len(), query.iter().copied());
+            // Insert the pattern at each position
+            text.splice(pos..pos + pattern.len(), pattern.iter().copied());
 
             // Record expected match position
-            let expected_idx = (pos + query.len()).saturating_sub(query.len());
+            let expected_idx = (pos + pattern.len()).saturating_sub(pattern.len());
             expected_matches.push(expected_idx);
         }
 
         // Test forward search
         let mut searcher = Searcher::<Dna>::new_fwd();
-        let matches = searcher.search_all(query, &text, 1);
+        let matches = searcher.search_all(pattern, &text, 1);
 
         // Verify all matches are found
         for expected_idx in expected_matches {
@@ -1305,17 +1317,17 @@ mod tests {
         for _ in 0..iter {
             eprintln!("\n\n============================\n\n");
 
-            // Random query (short for testing)
-            let query_len = rng.random_range(1..=100);
-            let query = rand_dna_w_seed(query_len, &mut rng);
+            // Random pattern (short for testing)
+            let pattern_len = rng.random_range(1..=100);
+            let pattern = rand_dna_w_seed(pattern_len, &mut rng);
 
             // Random text (short for testing)
             let text_len = rng.random_range(1..=1000);
             let mut text = rand_dna_w_seed(text_len, &mut rng);
 
             // generate overlap at the prefix and suffix of the text
-            let prefix_overlap = rng.random_range(1..=query_len.min(text_len));
-            let suffix_overlap = rng.random_range(1..=query_len.min(text_len));
+            let prefix_overlap = rng.random_range(1..=pattern_len.min(text_len));
+            let suffix_overlap = rng.random_range(1..=pattern_len.min(text_len));
 
             // Ensure there's at least one character spacing between prefix and suffix
             if prefix_overlap + suffix_overlap >= text_len {
@@ -1325,23 +1337,25 @@ mod tests {
 
             text.splice(
                 0..prefix_overlap,
-                query[query_len - prefix_overlap..].iter().copied(),
+                pattern[pattern_len - prefix_overlap..].iter().copied(),
             );
 
-            let expected_prefix_cost = ((query.len() as f32 - prefix_overlap as f32) * 0.5).floor();
+            let expected_prefix_cost =
+                ((pattern.len() as f32 - prefix_overlap as f32) * 0.5).floor();
             let expected_prefix_end_pos = prefix_overlap;
 
-            // suffix overlap means we insert "suffix_overlap" start of the query at the end of the text
+            // suffix overlap means we insert "suffix_overlap" start of the pattern at the end of the text
             text.splice(
                 text_len - suffix_overlap..text_len,
-                query[..suffix_overlap].iter().copied(),
+                pattern[..suffix_overlap].iter().copied(),
             );
-            let expected_suffix_cost = ((query.len() as f32 - suffix_overlap as f32) * 0.5).floor();
+            let expected_suffix_cost =
+                ((pattern.len() as f32 - suffix_overlap as f32) * 0.5).floor();
             let expected_suffix_end_pos = text_len;
 
-            eprintln!("Q: {}", String::from_utf8_lossy(&query));
+            eprintln!("Q: {}", String::from_utf8_lossy(&pattern));
             eprintln!("T: {}", String::from_utf8_lossy(&text));
-            eprintln!("Query len {query_len}");
+            eprintln!("pattern len {pattern_len}");
             eprintln!("Text len {text_len}");
             eprintln!("[prefix] overlap {prefix_overlap}");
             eprintln!("[suffix] overlap {suffix_overlap}");
@@ -1352,7 +1366,7 @@ mod tests {
             eprintln!("--------------------------------");
 
             // Allow all k for now but later should be k
-            let matches = searcher.search_all(&query, &text, query_len);
+            let matches = searcher.search_all(&pattern, &text, pattern_len);
             // Check if matches are found with expected cost at expected positions
             let mut found = [false, false];
             let expected_locs = [expected_prefix_end_pos, expected_suffix_end_pos];
@@ -1372,16 +1386,16 @@ mod tests {
     }
 
     #[test]
-    fn test_query_trace_path_0_edits() {
+    fn test_pattern_trace_path_0_edits() {
         /*
            Q:     ATGC
            T: GGGGATGCGGG
               0123456789*
         */
-        let query = b"ATGC";
+        let pattern = b"ATGC";
         let text = b"GGGGATGCGGG";
         let mut searcher = Searcher::<Dna>::new_fwd();
-        let matches = searcher.search(query, text, 0);
+        let matches = searcher.search(pattern, text, 0);
         let path = matches[0].to_path();
         assert_eq!(path, vec![Pos(0, 4), Pos(1, 5), Pos(2, 6), Pos(3, 7)]);
         // Ends are exclusive
@@ -1389,11 +1403,11 @@ mod tests {
     }
 
     #[test]
-    fn test_query_trace_path_1_edits() {
-        let query = b"ATGC";
+    fn test_pattern_trace_path_1_edits() {
+        let pattern = b"ATGC";
         let text = b"GGGGATTGCGGG";
         let mut searcher = Searcher::<Dna>::new_fwd();
-        let matches = searcher.search(query, text, 1);
+        let matches = searcher.search(pattern, text, 1);
         let path = matches[0].to_path();
         assert_eq!(
             path,
@@ -1404,26 +1418,26 @@ mod tests {
     }
 
     #[test]
-    fn test_query_trace_path_with_overhang_prefix() {
-        let query = b"ATCGATCG";
-        let text = b"ATCGGGGGGGGGG"; // half of query removed at start
+    fn test_pattern_trace_path_with_overhang_prefix() {
+        let pattern = b"ATCGATCG";
+        let text = b"ATCGGGGGGGGGG"; // half of pattern removed at start
         let mut searcher = Searcher::<Iupac>::new_fwd_with_overhang(0.5);
         searcher.alpha = Some(0.5);
-        let matches = searcher.search(query, text, 2);
+        let matches = searcher.search(pattern, text, 2);
         let path = matches[0].to_path();
-        // This "skips" the first 4 character of the query as they are in the overhang
+        // This "skips" the first 4 character of the pattern as they are in the overhang
         assert_eq!(path, vec![Pos(4, 0), Pos(5, 1), Pos(6, 2), Pos(7, 3)]);
         // Ends are exclusive
         assert_eq!(matches[0].end, *path.last().unwrap() + Pos(1, 1));
     }
 
     #[test]
-    fn test_query_trace_path_with_overhang_suffix() {
-        let query = b"ATCGATCG";
-        let text = b"GGGGGGGATCG"; // half of query removed at end
+    fn test_pattern_trace_path_with_overhang_suffix() {
+        let pattern = b"ATCGATCG";
+        let text = b"GGGGGGGATCG"; // half of pattern removed at end
         let mut searcher = Searcher::<Iupac>::new_fwd_with_overhang(0.5);
         searcher.alpha = Some(0.5);
-        let matches = searcher.search(query, text, 2);
+        let matches = searcher.search(pattern, text, 2);
         println!("matches: {:?}", matches);
         let path = matches[0].to_path();
         assert_eq!(path, vec![Pos(0, 7), Pos(1, 8), Pos(2, 9), Pos(3, 10)]);
@@ -1440,8 +1454,8 @@ mod tests {
         for _ in 0..10000 {
             let mut searcher = Searcher::<Iupac>::new_rc_with_overhang(0.4);
 
-            // Generate random query of length 126
-            let query: Vec<u8> = (0..126).map(|_| b"ACGT"[rng.random_range(0..4)]).collect();
+            // Generate random pattern of length 126
+            let pattern: Vec<u8> = (0..126).map(|_| b"ACGT"[rng.random_range(0..4)]).collect();
 
             // Generate random text length between 62-90
             let text_len = rng.random_range(62..91);
@@ -1449,21 +1463,21 @@ mod tests {
                 .map(|_| b"ACGT"[rng.random_range(0..4)])
                 .collect();
 
-            // Use k as half of query length
-            let k = query.len() / 2;
+            // Use k as half of pattern length
+            let k = pattern.len() / 2;
 
-            let matches = searcher.search(&query, &text, k);
+            let matches = searcher.search(&pattern, &text, k);
 
             // Print every 1000 iterations
             i += 1;
             println!(
-                "Iteration {}: Q={}, T={}, k={}, matches={}\nQuery: {}\nText: {}",
+                "Iteration {}: Q={}, T={}, k={}, matches={}\npattern: {}\nText: {}",
                 i,
-                query.len(),
+                pattern.len(),
                 text.len(),
                 k,
                 matches.len(),
-                String::from_utf8_lossy(&query),
+                String::from_utf8_lossy(&pattern),
                 String::from_utf8_lossy(&text)
             );
 
@@ -1471,10 +1485,10 @@ mod tests {
             for m in matches {
                 assert!(
                     m.cost <= k as Cost,
-                    "Match has cost {} > {}: {m:?}\nQuery: {}\nText: {}\n",
+                    "Match has cost {} > {}: {m:?}\npattern: {}\nText: {}\n",
                     m.cost,
                     k,
-                    String::from_utf8_lossy(&query),
+                    String::from_utf8_lossy(&pattern),
                     String::from_utf8_lossy(&text)
                 );
             }
@@ -1483,10 +1497,10 @@ mod tests {
 
     #[test]
     fn test_case3() {
-        let query = b"GTCTTTCATTCTCTCATCATAATCTCTAATACGACACATTGTACATCTGCTTGCGAGCCGGTGTAGCGCCGTCCTGTTATTTCAAGGCTATAATTACGAATTCAATTCCTCCTCTTCCAAAACACG";
+        let pattern = b"GTCTTTCATTCTCTCATCATAATCTCTAATACGACACATTGTACATCTGCTTGCGAGCCGGTGTAGCGCCGTCCTGTTATTTCAAGGCTATAATTACGAATTCAATTCCTCCTCTTCCAAAACACG";
         let text = b"AGTGATATCTCAAGGGGCCCTATTGGAAGGAAAGCCGCGATGGGTTCAACGTCAAGTGGATCATTCGATATTCATTAGCCCAACAGAAAC";
         let mut searcher = Searcher::<Iupac>::new_fwd_with_overhang(0.4);
-        let matches = searcher.search(query, &text, 63);
+        let matches = searcher.search(pattern, &text, 63);
         println!("Matches: {:?}", matches);
     }
 
@@ -1494,11 +1508,11 @@ mod tests {
     fn test_case4() {
         let expected_end_pos = 1;
         let expected_cost = 1;
-        let query = b"ATC";
+        let pattern = b"ATC";
         let text = b"CGGGGGG";
         let mut searcher = Searcher::<Iupac>::new_fwd_with_overhang(0.5);
-        let matches = searcher.search(query, &text, query.len());
-        let all_matches = searcher.search_all(query, &text, query.len());
+        let matches = searcher.search(pattern, &text, pattern.len());
+        let all_matches = searcher.search_all(pattern, &text, pattern.len());
 
         println!("[ALL MATCHES]");
         let mut all_found = false;
@@ -1532,23 +1546,23 @@ mod tests {
 
     #[test]
     fn test_match_exact_at_end() {
-        let query = b"ATAC".to_vec();
+        let pattern = b"ATAC".to_vec();
         let text = b"CCCCCCATAC";
         let mut searcher = Searcher::<Iupac>::new_fwd_with_overhang(0.5);
-        let matches = searcher.search(&query, &text, 0);
+        let matches = searcher.search(&pattern, &text, 0);
         println!("Matches: {:?}", matches);
-        let all_matches = searcher.search_all(&query, &text, 0);
+        let all_matches = searcher.search_all(&pattern, &text, 0);
         println!("All matches: {:?}", all_matches)
     }
 
     #[test]
     fn fwd_rc_test_simple() {
-        let query = b"ATCATGCTAGC".to_vec();
+        let pattern = b"ATCATGCTAGC".to_vec();
         let text = b"GGGGGGGGGGATCATGCTAGCGGGGGGGGGGG".to_vec();
-        let rc = Iupac::reverse_complement(&query);
+        let rc = Iupac::reverse_complement(&pattern);
 
         let mut searcher = Searcher::<Iupac>::new_rc_with_overhang(0.5);
-        let fwd_matches = searcher.search(&query, &text, 0);
+        let fwd_matches = searcher.search(&pattern, &text, 0);
         let rc_matches = searcher.search(&rc, &text, 0);
 
         assert_eq!(
@@ -1629,7 +1643,7 @@ mod tests {
     fn search_fuzz_bug() {
         /*
         edits 2
-        query q=11 AGCTAGCTCTC
+        pattern q=11 AGCTAGCTCTC
         pattern    GCTAGCTGCTC
         text len 8843
         planted idx 151
@@ -1639,7 +1653,7 @@ mod tests {
         -GCTAGCTGCTC
         */
 
-        let query = b"AGCTAGCTCTC";
+        let pattern = b"AGCTAGCTCTC";
         let text = b"TATCCGGAAAAGAGCTTTAACAGTAAGTGCTTGTAGTACTATACGAATCTAATGGTGCGTCTTGTCCAATATGTTATATGCAGGTACTTAGTCTTCCCAATGTGTCTTAAAGTCTAGGCACATCTTTCTACTACAGCGAATGAACCGCGAATGCTAGCTGCTCTTAACGCCTTAAAGGATCTACTATATTTGGGGTTTGCTTAGACCGCCTTGCCGAGCATAATTAGTTCTAAATTCAGCGACCACTATTCCCCCGACAGGGTCAACCCAACTTAGCAAACTGTCATTCTATTTCTTGGAATGCAAGATCGGTACAT";
         //  ==============
         //      ^        ^ match, c = 2
@@ -1651,7 +1665,7 @@ mod tests {
         let mut searcher = Searcher::<Dna>::new_fwd();
 
         // NOTE: does pass with search_all as all in minima plateau are then reported
-        let matches = searcher.search(query, &text, edits);
+        let matches = searcher.search(pattern, &text, edits);
         for fw_m in matches.iter() {
             println!("fw_m: {:?}", fw_m.without_cigar());
             let (text_start, text_end) = (fw_m.start, fw_m.end);
@@ -1672,7 +1686,7 @@ mod tests {
         /*
         edits 2
         edits 1
-        query q=12 TACACAGTCAAG
+        pattern q=12 TACACAGTCAAG
         pattern TACGACAGTCAAG
         text len 560
         planted idx 435
@@ -1680,7 +1694,7 @@ mod tests {
         matches []
         */
 
-        let query = b"TACACAGTCAAG";
+        let pattern = b"TACACAGTCAAG";
         let text = b"GAAGTGTCACGACTGTAGGATTGTTCGTTTGTGTGGTCATATTAAGAATATGCGTCCTGGCATTTACTCCGCAATATGATAACCCACTAACGCCTGGCTAAACTAATAAAATTCTTGCGTATGCCAGTGGGTATTGTCCACCTCACTCCTGAGTCTACGCGCGACCAATAACTTAGTTACGAACTTCCGGAACACATATTACCAGAAAAAGCGCACGATGTTACGTATCGTTATGGGCAGCCTCCGTAACCCCGTCTCTAGGGTTTCGCCCTTCGTAGTCCTAACACCCCCTGATTTTTTAATACAGACGGACGCTCTCCAAAGTCCGCTGACTAGTTTCCTAATACTCTCTTTGTCATATAACACCCTCGTTTTCGACAGGCCATCTAGAATTTTATGGATCCTTAGGGTATTCAGGGCGGTCAAATCTAGCCTTACGACAGTCAAGTCACATGTGAATACTCCTTCTTCCACGGACGTCTTTATAAATTCCCCCTATTGCCTCTCACTAGGGGTTTCCATGGGGCTTGATCGCACAATAGGAATGTCTAGGAGGCAAG";
 
         let edits = 1;
@@ -1688,7 +1702,7 @@ mod tests {
         let mut searcher = Searcher::<Dna>::new_fwd();
 
         // NOTE: does pass with search_all as all in minima plateau are then reported
-        let matches = searcher.search(query, &text, edits);
+        let matches = searcher.search(pattern, &text, edits);
         for fw_m in matches.iter() {
             println!("fw_m: {:?}", fw_m.without_cigar());
             let (text_start, text_end) = (fw_m.start, fw_m.end);
@@ -1708,7 +1722,7 @@ mod tests {
     fn search_fuzz_bug_3() {
         /*
         edits 18
-        query q=61 CGATCGGAATCTCTTTGTTCATGATCCAAAGCCCAGCCATCAGCCCGAACGGTGGTTCGCG
+        pattern q=61 CGATCGGAATCTCTTTGTTCATGATCCAAAGCCCAGCCATCAGCCCGAACGGTGGTTCGCG
         pattern TGATCGAATCTTTTTTTTTGTACTCCAAAGCCCTCATCAGCTCCGACAGTGGTTCGCG
         text len 64
         planted idx 6
@@ -1717,7 +1731,7 @@ mod tests {
         matches []
         */
 
-        let query = b"CGATCGGAATCTCTTTGTTCATGATCCAAAGCCCAGCCATCAGCCCGAACGGTGGTTCGCG";
+        let pattern = b"CGATCGGAATCTCTTTGTTCATGATCCAAAGCCCAGCCATCAGCCCGAACGGTGGTTCGCG";
         let text = b"ACAGGGTGATCGAATCTTTTTTTTTGTACTCCAAAGCCCTCATCAGCTCCGACAGTGGTTCGCG";
 
         let edits = 18;
@@ -1725,7 +1739,7 @@ mod tests {
         let mut searcher = Searcher::<Dna>::new_fwd();
 
         // NOTE: does pass with search_all as all in minima plateau are then reported
-        let matches = searcher.search(query, &text, edits);
+        let matches = searcher.search(pattern, &text, edits);
         for fw_m in matches.iter() {
             println!("fw_m: {:?}", fw_m.without_cigar());
             let (text_start, text_end) = (fw_m.start, fw_m.end);
@@ -1785,15 +1799,15 @@ mod tests {
     #[test]
     #[ignore = "expected fail; local minima flip, see search all results"]
     fn test_cigar_rc_at_overhang_beging() {
-        let query = b"TTTTAAAAAA";
+        let pattern = b"TTTTAAAAAA";
         let text: &'static str = "AAAAAAGGGGGGGGGGGGGGGGGGGGGGGGGGGG"; // 5 matches
-        let query_rc = Iupac::reverse_complement(query);
+        let pattern_rc = Iupac::reverse_complement(pattern);
 
         println!("[MANUAL Reversing]");
-        println!("- RC(q):\t{:?}", String::from_utf8_lossy(&query_rc));
+        println!("- RC(q):\t{:?}", String::from_utf8_lossy(&pattern_rc));
         println!(
             "- compl(RC(q)):\t{:?}",
-            String::from_utf8_lossy(&Iupac::complement(&query_rc))
+            String::from_utf8_lossy(&Iupac::complement(&pattern_rc))
         );
         let mut reversed_text = text.as_bytes().to_vec();
         reversed_text.reverse();
@@ -1805,11 +1819,11 @@ mod tests {
 
         let mut searcher = Searcher::<Iupac>::new_rc_with_overhang(0.5);
 
-        let fwd_matches = searcher.search(query, &text, 2);
-        let rc_matches = searcher.search(&query_rc, &text, 2);
+        let fwd_matches = searcher.search(pattern, &text, 2);
+        let rc_matches = searcher.search(&pattern_rc, &text, 2);
 
-        let fwd_matches_all = searcher.search_all(query, &text, 2);
-        let rc_matches_all = searcher.search_all(&query_rc, &text, 2);
+        let fwd_matches_all = searcher.search_all(pattern, &text, 2);
+        let rc_matches_all = searcher.search_all(&pattern_rc, &text, 2);
 
         for m in fwd_matches_all.iter() {
             println!("fwd: {:?}", m);
@@ -1826,12 +1840,12 @@ mod tests {
 
     #[test]
     fn test_cigar_rc_at_overhang_end() {
-        let query = b"TTTTAAA";
-        let query_rc = Iupac::reverse_complement(query);
+        let pattern = b"TTTTAAA";
+        let pattern_rc = Iupac::reverse_complement(pattern);
         let text = b"GGGGGGGGGTTTTAAA"; // 2 match, 1 sub, 4 match
         let mut searcher = Searcher::<Iupac>::new_rc_with_overhang(0.5);
         // Fwd search
-        let matches = searcher.search(query, &text, 1);
+        let matches = searcher.search(pattern, &text, 1);
         let fwd_cigar = matches[0].cigar.to_string();
         println!(
             "start - end: {} - {}",
@@ -1839,7 +1853,7 @@ mod tests {
         );
         println!("FWD: {}", fwd_cigar);
         // RC search
-        let matches = searcher.search(&query_rc, &text, 1);
+        let matches = searcher.search(&pattern_rc, &text, 1);
         let rc_cigar = matches[0].cigar.to_string();
         println!(
             "start - end: {} - {}",
@@ -1850,10 +1864,10 @@ mod tests {
 
     #[test]
     fn real_data_bug() {
-        let query = b"TTTTTTTTCCTGTACTTCGTTCAGTTACGTATTGCTGCTTGGGTGTTTAACCNNNNNNNNNNNNNNNNNNNNNNNNGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA";
+        let pattern = b"TTTTTTTTCCTGTACTTCGTTCAGTTACGTATTGCTGCTTGGGTGTTTAACCNNNNNNNNNNNNNNNNNNNNNNNNGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCGTGCGCCGCTTCA";
         let text = b"TTATGTATACCTTGGCATTGAAGCCGATATTGACAACTAGGCACAGCGAGTCTTGGTTGTTTTCGCATTTATCGTGAAACGCTTTCGCGTTTTTCTGCCGCTTCACTGGCATTGATTGAAAATCTGCAACGCGAAGATTTGACACCAATCGAAGAAGCAGAAGCCTATGAGCGCTTGCTTGCGTTTACAAGACATCACGCAGAAGTGTTAGCTCGTAAGCTCGGACGTAGTCAATCGACGATTGCTAACAAATTGCGTTTGCTTCGATTGCCAACGGATGTCCGGGGAAACGTGAAGCAACGCAAATAACGGAGCGTCATGCCCGTGCGTTATTGCCGCTCAAGGATGAAGCGCTACAAGTAACGGTACTCGCTGAAATTCTGGAACGGGAATGGAACGTCAAGGAGACGGAGCGCCGGGTGGAACGATTGATGACACCACAGCCACCGAAGAAAAAACGTCATAAGAGCTTTGCTCGGGATACACGGATTGCGTTAAATACCCTTCGCGATTCCGTCGATATGATCGAGCAAACCGGATTGACGATTGAAAAAGAAGAAGTCGATTGTGAAGAATATGTAGAGGTGCGGATTCGCATCGTGAAGGCACGTCCGGAATAAGCGGTCGTGCCTTCCGCTACGTTTAGGAGAGAAGGCAAGTGAACGAATTACCTGTTCGGGCAATTAGCCAATCCGACTCAACCCCGGAAACGATTCAATGAAAAAGCATTAGAGACTCGCCCAATCACTCGTTCGGCACGGGATTAGTCGGACCATCGTCGTCCGACCATGTGATGGCTATTATGAAATCATCGCCGGCGAACGACGGTATCAAGCAGCGAGTCGCGCAGGATTCGAACGTGTACCGGTCCTCGTCGTCGAAGACGACGAGACACGCGTGATGGAGCTCGCTTTGATCGAAAACATCCAACGGGCGGATTTATCCGCGATTGGAAGAGGCGATGGCGTATGCGGAGATGATTCGAGGAATTCGGTATCACGCAAGCAGAGCTTGCGCAGCGTGTCGCAGAAAGTCGTTCGCACATCACGAACAGTCTTGGGTTACTACAATTGCCGTTACTCGTTCAACAAGCGGTCATAGATAGCGTCTATCGATGGGACATGCCCGCGCGCTCCTGTCGCTGAAACATCCAAAGAAGATGAACAGATGGCAGAGGGGGCATGGCGGAGAACTGGAACGTCCGTCAGTCAGTTCAGGCCACACTCTGGGAACGTAAGGAAGCCGCCCGTCCGCAACAAGCGACCGCTGTTCAATTCGTCGAGGAATCACTTCGCGAAAAATACGGGGCGACCGTTCGGATTAAACAAGGAAAACAAGCAGGGAAACTCGAGATCGATTTTATAGACGAAGACGACCTCAATCGGTTGCTCGACTTGTTATTACCTGAATCGGATCACTAAAAAGAAGCGATCCGGGCGACGGTCCGCTCTTTTGCTTACATCGAGCGTGGCGTGAAAGAAATCGTCGTCCGTGTGGATTCGGCGGAAGCTCGCATCAAGTAAGTGGAAGCTGTTCGCGACGAGTTCCGCTAGTTCATAAACAAGGTGTAACCGTGTGTTCTGGAGAATCATCATCTCCATGAATCCACTGACGTTGACGACAGCCTTAATGTTGAAGTCACCGACCGCAGGTAACTCTTTTTGGACGCCGGCGCCGGGTGCGAGTGGACCTTCCGAGAAAAAGGCATGTCCGACACTTGAAAGGCGACC";
         let mut searcher = Searcher::<Iupac>::new_rc_with_overhang(0.5);
-        let matches = searcher.search(query, &text, 45);
+        let matches = searcher.search(pattern, &text, 45);
         for m in matches.iter() {
             println!("m: {:?}", m.without_cigar());
         }
@@ -1862,10 +1876,10 @@ mod tests {
     #[test]
     fn test_simple_ascii() {
         use crate::profiles::Ascii;
-        let query = b"hello";
+        let pattern = b"hello";
         let text = b"heeloo world";
         let mut searcher = Searcher::<Ascii>::new_fwd();
-        let matches = searcher.search(query, &text, 1);
+        let matches = searcher.search(pattern, &text, 1);
         for m in matches.iter() {
             println!("m: {:?}", m.without_cigar());
         }
@@ -1873,8 +1887,8 @@ mod tests {
 
     #[test]
     fn test_reported_start_end() {
-        let query = b"AGTCGACTAC";
-        let query_rc = Iupac::reverse_complement(query);
+        let pattern = b"AGTCGACTAC";
+        let pattern_rc = Iupac::reverse_complement(pattern);
 
         let mutated_ins = b"AGTGACTTC";
         let mutated_ins_rc = Iupac::reverse_complement(mutated_ins);
@@ -1886,7 +1900,7 @@ mod tests {
         // Fwd search
         println!("Fwd search");
         let mut searcher = Searcher::<Iupac>::new_fwd();
-        let matches = searcher.search(query, &text, 2);
+        let matches = searcher.search(pattern, &text, 2);
 
         for m in matches {
             let start = m.start.1 as usize;
@@ -1901,7 +1915,7 @@ mod tests {
         // Rc search
         println!("Rc search");
         let mut searcher = Searcher::<Iupac>::new_rc();
-        let matches = searcher.search(&query_rc, &text, 2);
+        let matches = searcher.search(&pattern_rc, &text, 2);
         for m in matches {
             let start = m.start.1 as usize;
             let end = m.end.1 as usize;
@@ -1926,17 +1940,17 @@ mod tests {
     #[test]
     #[ignore = "Example of rc(q) vs t != compl(q) vs rev(t)"]
     fn diff_rc_method() {
-        let query = b"AATGCTCCAATGGATGTCACTGCAAGCTCTT".to_vec();
+        let pattern = b"AATGCTCCAATGGATGTCACTGCAAGCTCTT".to_vec();
         let text = b"ATAGAGAGCTTGCAGTGACATCCATTGGAGCATTGCG";
-        let query_rc = Iupac::reverse_complement(query.as_slice());
-        println!("Query: {:?}", String::from_utf8_lossy(&query));
+        let pattern_rc = Iupac::reverse_complement(pattern.as_slice());
+        println!("pattern: {:?}", String::from_utf8_lossy(&pattern));
         println!(
-            "Query rc: {:?}",
-            String::from_utf8_lossy(&query_rc.as_slice())
+            "pattern rc: {:?}",
+            String::from_utf8_lossy(&pattern_rc.as_slice())
         );
         println!("Sub text: {:?}", String::from_utf8_lossy(text));
         let mut searcher = Searcher::<Iupac>::new_rc();
-        let matches = searcher.search_all(&query, &text, 3);
+        let matches = searcher.search_all(&pattern, &text, 3);
         for m in matches {
             println!(
                 "m start {} end {} cost {}, cigar: {}",
@@ -1947,9 +1961,9 @@ mod tests {
             );
         }
 
-        println!("Using RC as query fwd only");
+        println!("Using RC as pattern fwd only");
         let mut searcher = Searcher::<Iupac>::new_fwd();
-        let matches = searcher.search_all(&query_rc, &text, 3);
+        let matches = searcher.search_all(&pattern_rc, &text, 3);
         for m in matches {
             println!(
                 "m start {} end {} cost {}, cigar: {}",
@@ -2013,13 +2027,13 @@ mod tests {
 
     #[test]
     fn not_rev_invariant() {
-        let query = b"GCC";
+        let pattern = b"GCC";
         let text = b"AGCGCTA";
         let mut searcher = Searcher::<Dna>::new_fwd();
-        let matches = searcher.search(query, &text, 1);
-        let query_rev = query.iter().rev().copied().collect::<Vec<_>>();
+        let matches = searcher.search(pattern, &text, 1);
+        let pattern_rev = pattern.iter().rev().copied().collect::<Vec<_>>();
         let text_rev = text.iter().rev().copied().collect::<Vec<_>>();
-        let matches_rev = searcher.search(&query_rev, &text_rev, 1);
+        let matches_rev = searcher.search(&pattern_rev, &text_rev, 1);
         assert!(
             matches.len() != matches_rev.len(),
             "error: fwd matches {} vs rev {}",

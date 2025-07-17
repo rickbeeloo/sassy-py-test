@@ -54,7 +54,7 @@ pub fn fill<P: Profile>(
     m.q = query.len();
     m.deltas.clear();
     m.deltas.reserve((m.q + 1) * len.div_ceil(64));
-    let (profiler, query_profile) = P::encode_query(query);
+    let (profiler, query_profile) = P::encode_pattern(query);
     let mut h = vec![H(1, 0); query.len()];
 
     init_deltas_for_overshoot_scalar(&mut h, alpha);
@@ -91,7 +91,7 @@ pub fn simd_fill<P: Profile>(
     assert!(texts.len() <= LANES);
     let lanes = texts.len();
 
-    let (profiler, query_profile) = P::encode_query(query);
+    let (profiler, query_profile) = P::encode_pattern(query);
     let num_chunks = max_len.div_ceil(64);
 
     for m in &mut *m {

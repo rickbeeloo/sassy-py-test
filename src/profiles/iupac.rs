@@ -14,7 +14,7 @@ impl Profile for Iupac {
     type A = usize;
     type B = [u64; 16];
 
-    fn encode_query(a: &[u8]) -> (Self, Vec<Self::A>) {
+    fn encode_pattern(a: &[u8]) -> (Self, Vec<Self::A>) {
         let mut bases = vec![b'A', b'C', b'T', b'G'];
         let mut query_profile = Vec::with_capacity(a.len());
         for &c in a {
@@ -327,7 +327,7 @@ mod test {
         let mut seq = [b'g'; 64];
         seq[0] = b'a';
         seq[1] = b'y'; // C or T
-        let profiler = Iupac::encode_query(b"").0;
+        let profiler = Iupac::encode_pattern(b"").0;
         let mut result = Iupac::alloc_out();
         profiler.encode_ref(&seq, &mut result);
         let positions = get_match_positions_u64(&result);
@@ -347,7 +347,7 @@ mod test {
         seq[0] = b'a'; // Does not match Y
         seq[1] = b'y'; // Matches Y
         seq[2] = b'C'; // Matches Y
-        let profiler = Iupac::encode_query(b"NY").0;
+        let profiler = Iupac::encode_pattern(b"NY").0;
         let mut result = Iupac::alloc_out();
         profiler.encode_ref(&seq, &mut result);
         let positions = get_match_positions_u64(&result);
@@ -365,7 +365,7 @@ mod test {
         seq[0] = b'a';
         seq[1] = b'y'; // C or T
         seq[34] = b'y'; // C or T
-        let profiler = Iupac::encode_query(b"").0;
+        let profiler = Iupac::encode_pattern(b"").0;
         let mut result = Iupac::alloc_out();
         profiler.encode_ref(&seq, &mut result);
         let positions = get_match_positions_u64(&result);
@@ -394,7 +394,7 @@ mod test {
         seq[2] = b'C'; // Matches Y
         seq[50] = b'y'; // Matches Y
         seq[63] = b'y'; // Matches Y
-        let profiler = Iupac::encode_query(b"NY").0;
+        let profiler = Iupac::encode_pattern(b"NY").0;
         let mut result = Iupac::alloc_out();
         profiler.encode_ref(&seq, &mut result);
         let positions = get_match_positions_u64(&result);
@@ -412,7 +412,7 @@ mod test {
         seq[1] = b'A';
         seq[3] = b'r';
         seq[4] = b'W';
-        let profiler = Iupac::encode_query(b"").0;
+        let profiler = Iupac::encode_pattern(b"").0;
         let mut result = Iupac::alloc_out();
         profiler.encode_ref(&seq, &mut result);
         let positions = get_match_positions_u64(&result);
