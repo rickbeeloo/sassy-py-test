@@ -18,58 +18,48 @@ pip install simd-sassy
 
 ## Usage
 
-```python
-import sassy 
+A simple usage is as follows:
 
-# Example 1: Simple DNA search
-print("=== DNA Search Example ===")
+``` python
 query = b"ATCGATCG"
 text = b"GGGGATCGATCGTTTT"
-
-# Search with DNA alphabet
-matches = sassy.search_sequence(query, text, k=0, alphabet="dna", no_rc=False, alpha=0.5)
-
-print(f"Query: {query.decode()}")
-print(f"Text:  {text.decode()}")
-print(f"Found {len(matches)} matches:")
-
+# alphabet: ascii, dna, uipac
+searcher = sassy.PySearcher("dna")
+matches = searcher.search(query, text, k=1)
 for i, match in enumerate(matches):
-    print(f"  Match {i+1}:")
-    print(f"    Start: {match.start}")
-    print(f"    End: {match.end}")
+    print(f"Match {i+1}:")
+    print(f"    Start: {match.text_start}")
+    print(f"    End: {match.text_end}")
     print(f"    Cost: {match.cost}")
     print(f"    Strand: {match.strand}")
     print(f"    CIGAR: {match.cigar}")
-
-# Example 2: Using the Searcher class
-print("\n=== Searcher Class Example ===")
-searcher = sassy.PySearcher("dna", no_rc=False)
-
-query2 = b"GCTAGCTA"
-text2 = b"AAAAAGCTAGCTAAAAA"
-
-matches2 = searcher.search(query2, text2, k=1)
-
-print(f"Query: {query2.decode()}")
-print(f"Text:  {text2.decode()}")
-print(f"Found {len(matches2)} matches with k=1:")
-
-for i, match in enumerate(matches2):
-    print(f"  Match {i+1}: cost={match.cost}, strand={match.strand}")
-
-# Example 3: ASCII search
-print("\n=== ASCII Search Example ===")
-query3 = b"hello"
-text3 = b"world hello there"
-
-matches3 = sassy.search_sequence(query3, text3, k=0, alphabet="ascii", no_rc=True)
-
-print(f"Query: {query3.decode()}")
-print(f"Text:  {text3.decode()}")
-print(f"Found {len(matches3)} matches:")
-
-for i, match in enumerate(matches3):
-    print(f"  Match {i+1}: start={match.start}, end={match.end}, cost={match.cost}")
 ```
 
-See the main project README for more details and advanced usage. 
+This finds 3 matches:
+
+``` text
+Match 1:
+    Start: 4
+    End: 12
+    Cost: 0
+    Strand: +
+    CIGAR: 8=
+Match 2:
+    Start: 6
+    End: 14
+    Cost: 1
+    Strand: -
+    CIGAR: 6=X=
+Match 3:
+    Start: 2
+    End: 10
+    Cost: 1
+    Strand: -
+    CIGAR: X7=
+```
+
+Further options are `sassy.PySearcher(alpha=0.5)` to allow overhang alignments,
+and `sassy.PySearcher("dna", rc=False)` to disable reverse complements for DNA
+or IUPAC strings.
+
+See [example.py](sassy/example.py) for a larger example.
