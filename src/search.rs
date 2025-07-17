@@ -2008,27 +2008,6 @@ mod tests {
             matches_rev.len()
         );
     }
-
-    #[test]
-    fn test_throughput() {
-        use rand::Rng;
-
-        let mut rng = rand::rng();
-        let n = 100000;
-        let m = std::hint::black_box(20);
-        let k = std::hint::black_box(1);
-        let text: Vec<u8> = (0..n).map(|_| b"ACGT"[rng.random_range(0..4)]).collect();
-        let pattern: Vec<u8> = (0..m).map(|_| b"ACGT"[rng.random_range(0..4)]).collect();
-
-        let mut searcher = Searcher::<Dna>::new(false, None);
-        let start = std::time::Instant::now();
-        let _matches = searcher.search(&pattern, &text, k);
-        let duration = start.elapsed();
-        eprintln!(
-            "Search in GB/s: {}",
-            text.len() as f32 / duration.as_secs_f32() / 1_000_000_000.0
-        );
-    }
 }
 
 /*

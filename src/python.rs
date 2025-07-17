@@ -27,30 +27,8 @@ pub struct Searcher {
 
 #[pyfunction]
 fn features() {
-    #[cfg(target_feature = "sse")]
-    {
-        eprintln!("SSE +");
-    }
-    #[cfg(not(target_feature = "sse"))]
-    {
-        eprintln!("SSE -");
-    }
-    #[cfg(target_feature = "avx")]
-    {
-        eprintln!("AVX +");
-    }
-    #[cfg(not(target_feature = "avx"))]
-    {
-        eprintln!("AVX -");
-    }
-    #[cfg(target_feature = "bmi2")]
-    {
-        eprintln!("BMI2 +");
-    }
-    #[cfg(not(target_feature = "bmi2"))]
-    {
-        eprintln!("BMI2 -");
-    }
+    test_cpu_features();
+    test_throughput();
 }
 
 #[pymethods]

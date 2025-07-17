@@ -14,6 +14,8 @@ enum Args {
     Search(SearchArgs),
     /// CRISPR-specific search with PAM and edit-free region
     Crispr(CrisprArgs),
+    /// Test CPU features and search throughput
+    Test,
 }
 
 fn main() {
@@ -23,5 +25,9 @@ fn main() {
     match args {
         Args::Search(search_args) => search(&mut search_args.clone()),
         Args::Crispr(crispr_args) => crispr(crispr_args),
+        Args::Test => {
+            sassy::test_cpu_features();
+            sassy::test_throughput();
+        }
     }
 }
