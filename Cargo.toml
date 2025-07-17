@@ -10,7 +10,7 @@ crate-type = ["cdylib", "rlib"]
 [profile.release]
 incremental = true
 opt-level = 3
-debug = true
+# debug = true
 
 [[bin]]
 name = 'sassy'
@@ -36,7 +36,7 @@ pyo3 = { version = "0.25", features = ["extension-module"], optional = true }
 avx512 = []
 python = ["pyo3"]
 # default = ["avx512"]
-default = ["python"]
+# default = ["python"]
 
 [workspace]
 members = [
