@@ -10,7 +10,7 @@ const DEFAULT_BATCH_BYTES: usize = 256 * 1024; // 256 KB
 /// Type alias for fasta record IDs.
 type ID = String;
 
-/// A search pattern (query), with ID from fasta file.
+/// A search pattern, with ID from fasta file.
 #[derive(Clone, Debug)]
 pub struct PatternRecord {
     pub id: ID,
@@ -24,14 +24,14 @@ pub struct TextRecord {
     pub seq: CachedRev<Vec<u8>>,
 }
 
-/// A single alignment task.
+/// A single alignment task, consisting of a pattern and text.
 #[derive(Clone, Debug)]
 pub struct Task<'a> {
     pub pattern: &'a PatternRecord,
     pub text: Arc<TextRecord>,
 }
 
-/// A batch of alignment tasks, with total text size at least `DEFAULT_BATCH_BYTES`.
+/// A batch of alignment tasks, with total text size around `DEFAULT_BATCH_BYTES`.
 /// This avoids lock contention of sending too small items across threads.
 pub type TaskBatch<'a> = Vec<Task<'a>>;
 
@@ -45,7 +45,9 @@ struct RecordState {
 }
 
 /// Thread-safe iterator giving *batches* of (pattern, text) pairs.
-/// Each batch fills at least `batch_byte_limit` bytes of text.
+/// Each batch searches at least `batch_byte_limit` bytes of text.
+///
+/// Created using `TaskIterator::new` from a list of patterns and a path to a Fasta file to be searched.
 pub struct TaskIterator<'a> {
     patterns: &'a [PatternRecord],
     state: Mutex<RecordState>,

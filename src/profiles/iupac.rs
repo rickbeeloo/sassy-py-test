@@ -5,6 +5,9 @@ use std::{
     simd::{cmp::SimdPartialOrd, u8x32},
 };
 
+/// IUPAC alphabet: ACGT + NYR...
+///
+/// [https://www.bioinformatics.org/sms/iupac.html]
 #[derive(Clone, Debug)]
 pub struct Iupac {
     bases: Vec<u8>,

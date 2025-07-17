@@ -9,9 +9,9 @@ pub use iupac::Iupac;
 use std::ops::{Index, IndexMut};
 
 pub trait Profile: Clone + std::fmt::Debug {
-    /// Encoding for a single character in `a`.
+    /// Encoding for a single character in the pattern.
     type A;
-    /// Encoding for 64 characters in `b`.
+    /// Encoding for 64 characters in the text.
     type B: Index<usize, Output = u64> + IndexMut<usize, Output = u64> + Copy;
     fn encode_pattern(a: &[u8]) -> (Self, Vec<Self::A>);
     fn encode_ref(&self, b: &[u8; 64], out: &mut Self::B);
@@ -21,9 +21,9 @@ pub trait Profile: Clone + std::fmt::Debug {
     /// Allocate a buffer of at most n_bases in search (and reuse)
     fn alloc_out() -> Self::B;
     fn n_bases(&self) -> usize;
-    /// Verify whether a seqeunce matching the profile characters
+    /// Verify whether a sequence matching the profile characters
     fn valid_seq(seq: &[u8]) -> bool;
-    /// Return true if the two characters are a match accroding to profile
+    /// Return true if the two characters are a match according to profile
     fn is_match(char1: u8, char2: u8) -> bool;
     /// Reverse-complement the input string.
     fn reverse_complement(_query: &[u8]) -> Vec<u8> {

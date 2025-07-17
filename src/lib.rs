@@ -1,7 +1,34 @@
 #![feature(portable_simd)]
+//! # Sassy: fast approximate string matching
+//!
+//! Usage example:
+//! ```
+//! use sassy::{Searcher, Match, profiles::Dna, Strand::*};
+//! let mut searcher = Searcher::<Dna>::new_rc();
+//! let pattern = b"ATCG"; // ATCG k=1
+//! let text = b"AAAATCGGGGGGCATGGG";
+//! // rc = CGAT         rc: CAT k=1
+//! let matches = searcher.search(pattern, &text, 1);
+//! eprintln!("{:?}", matches);
+//! assert_eq!(matches.len(), 3);
+//! assert_eq!(matches[0].start.1, 3);
+//! assert_eq!(matches[0].end.1, 7);
+//! assert_eq!(matches[0].strand, Fwd);
+//! assert_eq!(matches[0].cigar.to_string(), "4=");
+//!
+//! assert_eq!(matches[1].start.1, 13);
+//! assert_eq!(matches[1].end.1, 17);
+//! assert_eq!(matches[1].strand, Fwd);
+//! assert_eq!(matches[1].cigar.to_string(), "2=X=");
+//!
+//! assert_eq!(matches[2].start.1, 12);
+//! assert_eq!(matches[2].end.1, 15);
+//! assert_eq!(matches[2].strand, Rc);
+//! // NOTE: Cigar here is read in the direction of the input pattern.
+//! assert_eq!(matches[2].cigar.to_string(), "2=D=");
+//! ```
 
 // INTERNAL MODS
-
 mod bitpacking;
 mod delta_encoding;
 mod minima;
@@ -13,7 +40,9 @@ pub mod profiles;
 pub mod rec_iter;
 pub mod search;
 
+pub use search::Match;
 pub use search::Searcher;
+pub use search::Strand;
 
 // BINDINGS
 

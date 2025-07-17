@@ -7,6 +7,7 @@ use std::{
     },
 };
 
+/// Compare two sequences using the stancard ASCII alphabet.
 #[derive(Clone, Debug)]
 pub struct Ascii<const CASE_SENSITIVE: bool = true> {
     bases: Vec<u8>,

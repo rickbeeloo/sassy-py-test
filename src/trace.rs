@@ -236,6 +236,7 @@ pub fn get_trace<P: Profile>(
 
     assert_eq!(g, 0, "Remaining cost after the trace must be 0.");
 
+    // Reverse the cigar, because the trace goes from end to start.
     cigar.reverse();
 
     Match {

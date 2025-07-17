@@ -4,6 +4,10 @@ use std::{
     simd::{Simd, u8x32},
 };
 
+/// DNA alphabet: ACGT.
+///
+/// Input sequences are assuming to only consist of these bases.
+/// This can be verified using [`Dna::valid_seq`].
 #[derive(Clone, Debug)]
 pub struct Dna {
     bases: Vec<u8>,

@@ -256,7 +256,14 @@ impl<P: Profile> Searcher<P> {
         )
     }
 
-    /// Returns matches for *all* end positions where end_filter_fn returns true
+    /// Returns matches for *all* end positions where `end_filter_fn` returns true.
+    ///
+    /// Used in CRISPR search to filter for only those end positions where the
+    /// PAM (last three characters) matches exactly.
+    ///
+    /// `filter_fn` is passed the pattern, the (rc) text up to the end position, and the strand.
+    /// Note that due to the implementation, for rc searches,
+    /// both the pattern and text are complemented from what you would expect.
     pub fn search_with_fn<I: RcSearchAble>(
         &mut self,
         pattern: &[u8],
