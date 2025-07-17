@@ -1096,7 +1096,6 @@ mod tests {
 
     #[test]
     fn search_fuzz() {
-        // loop {
         let mut query_lens = (10..20)
             .chain((0..10).map(|_| random_range(10..100)))
             .chain((0..10).map(|_| random_range(100..1000)))
@@ -1108,8 +1107,8 @@ mod tests {
             .chain((0..10).map(|_| random_range(1000..10000)))
             .collect::<Vec<_>>();
 
-        let mut query_lens = [3, 4, 5, 8, 10].repeat(1000);
-        let mut text_lens = [10, 15, 20, 30].repeat(1000);
+        // let mut query_lens = [3, 4, 5, 8, 10].repeat(1000);
+        // let mut text_lens = [10, 15, 20, 30].repeat(1000);
 
         // let mut query_lens = [1000, 2000, 5000, 10_000].repeat(1);
         // let mut text_lens = [10_000, 100_000, 1_000_000].repeat(1);
@@ -1158,8 +1157,7 @@ mod tests {
                 fn show(x: &[u8]) -> &str {
                     str::from_utf8(x).unwrap()
                 }
-                ///eprintln!("");
-                ////  eprintln!("query q={q} {}", show(&query));
+                //  eprintln!("query q={q} {}", show(&query));
                 //  eprintln!("pattern {}", show(&p));
                 if p.len() > text.len() {
                     continue;
@@ -1168,7 +1166,7 @@ mod tests {
                 let idx = random_range(0..=text.len().saturating_sub(p.len()));
                 //  eprintln!("text len {}", text.len());
                 // eprintln!("planted idx {idx}");
-                let expected_idx = (idx + p.len()).saturating_sub(q);
+                // let expected_idx = (idx + p.len()).saturating_sub(q);
                 // eprintln!("expected idx {expected_idx}");
 
                 text.splice(idx..idx + p.len(), p);
@@ -1207,7 +1205,6 @@ mod tests {
                 );
             }
         }
-        // }
     }
 
     #[test]
@@ -2042,7 +2039,7 @@ mod tests {
 
         let mut searcher = Searcher::<Dna>::new(false, None);
         let start = std::time::Instant::now();
-        let matches = searcher.search(&pattern, &text, k);
+        let _matches = searcher.search(&pattern, &text, k);
         let duration = start.elapsed();
         eprintln!(
             "Search in GB/s: {}",
