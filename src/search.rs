@@ -10,14 +10,19 @@ use std::simd::cmp::SimdPartialOrd;
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "python", pyo3::pyclass)]
 pub struct Match {
+    /// Start position in pattern and text.
     pub start: Pos,
+    /// (Exclusive) end position in pattern and text.
     pub end: Pos,
     pub cost: Cost,
+    /// Forward pattern matches text in this direction.
     pub strand: Strand,
+    /// CIGAR representation in the direction of the forward pattern.
     pub cigar: Cigar,
 }
 
 impl Match {
+    /// Convert the match to a list of (pattern pos, text pos) positions.
     pub fn to_path(&self) -> Vec<Pos> {
         let mut pos = self.start;
         let mut path = vec![pos];
@@ -36,7 +41,9 @@ impl Match {
         path
     }
 
-    pub fn without_cigar(&self) -> Match {
+    /// Drop the cigar from the match. Convenient for debug printing.
+    #[cfg(test)]
+    pub(crate) fn without_cigar(&self) -> Match {
         Match {
             start: self.start,
             end: self.end,
@@ -47,33 +54,35 @@ impl Match {
     }
 }
 
+/// Strand of a match. If Rc, pattern matches the reverse complement text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Strand {
     Fwd,
     Rc,
 }
 
-pub trait SearchAble {
+/// A trait for sequences that can cache their reverse.
+pub trait RcSearchAble {
     /// The forward text
     fn text(&self) -> impl AsRef<[u8]>;
-    /// Produce the reverse‐complement (or reverse) when requested
+    /// The reverse text
     fn rev_text<'a>(&'a self) -> impl AsRef<[u8]>;
 }
 
-impl<T> SearchAble for T
+/// Any text can be reversed on the fly.
+impl<T> RcSearchAble for T
 where
     T: AsRef<[u8]>,
 {
     fn text(&self) -> impl AsRef<[u8]> {
         self.as_ref()
     }
-
     fn rev_text(&'_ self) -> impl AsRef<[u8]> {
-        let t: Vec<u8> = self.as_ref().iter().rev().copied().collect();
-        t
+        self.as_ref().iter().rev().copied().collect::<Vec<_>>()
     }
 }
 
+/// Struct that computes the reverse once on construction.
 #[derive(Debug)]
 pub struct CachedRev<T: AsRef<[u8]>> {
     pub text: T,
@@ -87,7 +96,7 @@ impl<T: AsRef<[u8]>> CachedRev<T> {
     }
 }
 
-impl<T: AsRef<[u8]>> SearchAble for CachedRev<T> {
+impl<T: AsRef<[u8]>> RcSearchAble for CachedRev<T> {
     fn text(&self) -> impl AsRef<[u8]> {
         &self.text
     }
@@ -136,9 +145,18 @@ impl<P: Profile> LaneState<P> {
     }
 }
 
-#[derive(Clone)]
+/// The main entry point for searching.
+///
+/// Construct using one of the `new_*` methods.
+/// Then call `search` (giving local minima) or `search_all` (giving all minima).
+///
+/// Supports:
+/// - `Ascii`/`Dna`/`Iupac` profiles.
+/// - Searching only forward or also the reverse complement text.
+/// - Overhang cost, for `Iupac` profile.
 pub struct Searcher<P: Profile> {
     // Config
+    /// Search reverse complement text?
     rc: bool,
     /// overhang cost
     /// If set, must satisfy `0.0 <= alpha <= 1.0`
@@ -158,10 +176,12 @@ impl<P: Profile> Searcher<P> {
     // mainly to avoid branching
     const CHECK_AT_LEAST_ROWS: usize = 8;
 
+    /// Forward search only.
     pub fn new_fwd() -> Self {
         Self::new(false, None)
     }
 
+    /// Forward and reverse complement search.
     pub fn new_rc() -> Self {
         Self::new(true, None)
     }
@@ -178,16 +198,19 @@ impl<P: Profile> Searcher<P> {
         }
     }
 
+    /// Forward search with overhang cost `0<=alpha<=1`.
     pub fn new_fwd_with_overhang(alpha: f32) -> Self {
         Self::_overhang_check(alpha);
         Self::new(false, Some(alpha))
     }
 
+    /// Forward and reverse complement search with overhang cost `0<=alpha<=1`.
     pub fn new_rc_with_overhang(alpha: f32) -> Self {
         Self::_overhang_check(alpha);
         Self::new(true, Some(alpha))
     }
 
+    /// Create a new `Searcher`.
     pub fn new(rc: bool, alpha: Option<f32>) -> Self {
         Self {
             rc,
@@ -201,7 +224,7 @@ impl<P: Profile> Searcher<P> {
     }
 
     /// Returns matches for *only local minima* end positions with score <=k.
-    pub fn search<I: SearchAble>(&mut self, query: &[u8], input: &I, k: usize) -> Vec<Match> {
+    pub fn search<I: RcSearchAble>(&mut self, query: &[u8], input: &I, k: usize) -> Vec<Match> {
         self.search_handle_rc(
             query,
             input,
@@ -212,7 +235,7 @@ impl<P: Profile> Searcher<P> {
     }
 
     /// Returns matches for *all* end positions with score <=k.
-    pub fn search_all<I: SearchAble>(&mut self, query: &[u8], input: &I, k: usize) -> Vec<Match> {
+    pub fn search_all<I: RcSearchAble>(&mut self, query: &[u8], input: &I, k: usize) -> Vec<Match> {
         self.search_handle_rc(
             query,
             input,
@@ -223,7 +246,7 @@ impl<P: Profile> Searcher<P> {
     }
 
     /// Returns matches for *all* end positions where end_filter_fn returns true
-    pub fn search_with_fn<I: SearchAble>(
+    pub fn search_with_fn<I: RcSearchAble>(
         &mut self,
         query: &[u8],
         input: &I,
@@ -234,7 +257,7 @@ impl<P: Profile> Searcher<P> {
         self.search_handle_rc(query, input, k, all_minima, Some(filter_fn))
     }
 
-    fn search_handle_rc<I: SearchAble>(
+    fn search_handle_rc<I: RcSearchAble>(
         &mut self,
         query: &[u8],
         input: &I,

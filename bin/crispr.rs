@@ -1,5 +1,5 @@
 use sassy::rec_iter::{PatternRecord, TaskIterator};
-use sassy::search::SearchAble;
+use sassy::search::RcSearchAble;
 use sassy::{profiles::Iupac, profiles::Profile, search::Searcher, search::Strand};
 use std::fs::File;
 use std::io::{BufRead, BufReader};

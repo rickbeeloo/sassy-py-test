@@ -3,7 +3,7 @@ use sassy::rec_iter::{PatternRecord, TaskIterator};
 use sassy::search::CachedRev;
 use sassy::{
     profiles::{Ascii, Dna, Iupac, Profile},
-    search::{Match, SearchAble, Searcher, Strand},
+    search::{Match, RcSearchAble, Searcher, Strand},
 };
 use std::fs::File;
 use std::{
@@ -127,7 +127,6 @@ fn as_output_line(
 }
 
 // To create a fixed type, cost of match should be neglible
-#[derive(Clone)]
 enum SearchWrapper {
     Ascii(Searcher<Ascii>),
     Dna(Searcher<Dna>),
@@ -135,7 +134,7 @@ enum SearchWrapper {
 }
 
 impl SearchWrapper {
-    fn search<I: SearchAble>(&mut self, pattern: &[u8], input: &I, k: usize) -> Vec<Match> {
+    fn search<I: RcSearchAble>(&mut self, pattern: &[u8], input: &I, k: usize) -> Vec<Match> {
         match self {
             SearchWrapper::Ascii(s) => s.search(pattern, input, k),
             SearchWrapper::Dna(s) => s.search(pattern, input, k),

@@ -1,9 +1,13 @@
 #![feature(portable_simd)]
 
+// INTERNAL MODS
+
 mod bitpacking;
 mod delta_encoding;
 mod minima;
 mod trace;
+
+// (PARTIALLY) PUBLIC MODS
 
 pub mod profiles;
 pub mod rec_iter;
