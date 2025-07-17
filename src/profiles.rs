@@ -1,3 +1,11 @@
+mod ascii;
+mod dna;
+mod iupac;
+
+pub use ascii::{Ascii, CaseInsensitiveAscii, CaseSensitiveAscii};
+pub use dna::Dna;
+pub use iupac::Iupac;
+
 use std::ops::{Index, IndexMut};
 
 pub trait Profile: Clone + std::fmt::Debug {

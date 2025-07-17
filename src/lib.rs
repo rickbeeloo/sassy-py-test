@@ -5,21 +5,11 @@ mod delta_encoding;
 mod minima;
 mod trace;
 
-pub mod profiles {
-    mod ascii;
-    mod dna;
-    mod iupac;
-    mod profile;
-
-    pub use ascii::{Ascii, CaseInsensitiveAscii, CaseSensitiveAscii};
-    pub use dna::Dna;
-    pub use iupac::Iupac;
-    pub use profile::Profile;
-}
-pub use search::Searcher;
-
+pub mod profiles;
 pub mod rec_iter;
 pub mod search;
+
+pub use search::Searcher;
 
 // BINDINGS
 
