@@ -63,6 +63,12 @@
 //! assert_eq!(matches[1].strand, Strand::Fwd);
 //! assert_eq!(matches[1].cigar.to_string(), "3=");
 //! ```
+#![cfg_attr(
+    not(any(doc, all(target_feature = "avx2", target_feature = "bmi2",))),
+    deprecated(
+        note = "Sassy currently requires x86-64 with AVX2 and BMI2 instructions. Compile using `-C target-cpu=x64-64-v3`."
+    )
+)]
 
 // INTERNAL MODS
 mod bitpacking;
