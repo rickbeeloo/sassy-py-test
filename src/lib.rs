@@ -130,6 +130,8 @@ pub fn test_cpu_features() {
 
 pub fn test_throughput() {
     eprintln!("Running a little test: aligning a 23bp pattern against 100kb text, with 1 error.");
+    eprintln!("With AVX2, this is typically around 2GB/s. Without, closer to 1.3GB/s.");
+    eprintln!("If you see 0.02GB/s, that means you're on a debug rather than release build.");
 
     use rand::Rng;
     let n = 100000;
