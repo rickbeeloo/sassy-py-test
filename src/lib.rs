@@ -24,7 +24,6 @@
 //! assert_eq!(matches[2].start.1, 12);
 //! assert_eq!(matches[2].end.1, 15);
 //! assert_eq!(matches[2].strand, Rc);
-//! // FIXME: Cigar here is read in the direction of the input pattern.
 //! assert_eq!(matches[2].cigar.to_string(), "2=D=");
 //!
 //! // FIXME: Overhang example
@@ -36,15 +35,17 @@
 mod bitpacking;
 mod delta_encoding;
 mod minima;
+mod search;
 mod trace;
 
 // (PARTIALLY) PUBLIC MODS
 
 pub mod profiles;
 pub mod rec_iter;
-pub mod search;
 
+pub use search::CachedRev;
 pub use search::Match;
+pub use search::RcSearchAble;
 pub use search::Searcher;
 pub use search::Strand;
 

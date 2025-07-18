@@ -1,7 +1,7 @@
 use crate::edlib_bench::edlib::*;
 use crate::edlib_bench::grid::*;
 use crate::edlib_bench::sim_data::*;
-use sassy::search::{Match, Searcher};
+use sassy::{Match, Searcher};
 use std::fs::OpenOptions;
 use std::io::{BufWriter, Write};
 

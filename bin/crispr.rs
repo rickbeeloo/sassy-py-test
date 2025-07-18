@@ -1,6 +1,8 @@
-use sassy::rec_iter::{PatternRecord, TaskIterator};
-use sassy::search::RcSearchAble;
-use sassy::{profiles::Iupac, profiles::Profile, search::Searcher, search::Strand};
+use sassy::{
+    RcSearchAble, Searcher, Strand,
+    profiles::{Iupac, Profile},
+    rec_iter::{PatternRecord, TaskIterator},
+};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::sync::atomic::{AtomicUsize, Ordering};

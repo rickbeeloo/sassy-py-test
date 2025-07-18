@@ -1,5 +1,5 @@
 use rand::Rng;
-use sassy::search::Searcher;
+use sassy::Searcher;
 use serde::Deserialize;
 use std::fs;
 use std::time::Instant;

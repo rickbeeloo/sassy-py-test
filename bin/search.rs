@@ -1,9 +1,9 @@
 use needletail::parse_fastx_file;
+use sassy::CachedRev;
 use sassy::rec_iter::{PatternRecord, TaskIterator};
-use sassy::search::CachedRev;
 use sassy::{
+    Match, RcSearchAble, Searcher, Strand,
     profiles::{Ascii, Dna, Iupac, Profile},
-    search::{Match, RcSearchAble, Searcher, Strand},
 };
 use std::fs::File;
 use std::{
