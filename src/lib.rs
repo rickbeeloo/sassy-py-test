@@ -3,32 +3,65 @@
 //!
 //! Usage example:
 //! ```
-//! use sassy::{Searcher, Match, profiles::Dna, Strand::*};
-//! let mut searcher = Searcher::<Dna>::new_rc();
-//! let pattern = b"ATCG"; // ATCG k=1
+//! use sassy::{Searcher, Match, profiles::{Dna, Iupac}, Strand};
+//!
+//!
+//! let pattern = b"ATCG"; // ATCG dist=1
 //! let text = b"AAAATCGGGGGGCATGGG";
-//! // rc = CGAT         rc: CAT k=1
-//! let matches = searcher.search(pattern, &text, 1);
-//! eprintln!("{:?}", matches);
+//! let k = 1;
+//! // rc = CGAT         rc: CAT dist=1
+//!
+//! let mut searcher = Searcher::<Dna>::new_rc();
+//! let matches = searcher.search(pattern, &text, k);
+//!
 //! assert_eq!(matches.len(), 3);
-//! assert_eq!(matches[0].start.1, 3);
-//! assert_eq!(matches[0].end.1, 7);
-//! assert_eq!(matches[0].strand, Fwd);
+//!
+//! assert_eq!(matches[0].text_start, 3);
+//! assert_eq!(matches[0].text_end, 7);
+//! assert_eq!(matches[0].cost, 0);
+//! assert_eq!(matches[0].strand, Strand::Fwd);
 //! assert_eq!(matches[0].cigar.to_string(), "4=");
 //!
-//! assert_eq!(matches[1].start.1, 13);
-//! assert_eq!(matches[1].end.1, 17);
-//! assert_eq!(matches[1].strand, Fwd);
+//! assert_eq!(matches[1].text_start, 13);
+//! assert_eq!(matches[1].text_end, 17);
+//! assert_eq!(matches[1].cost, 1);
+//! assert_eq!(matches[1].strand, Strand::Fwd);
 //! assert_eq!(matches[1].cigar.to_string(), "2=X=");
 //!
-//! assert_eq!(matches[2].start.1, 12);
-//! assert_eq!(matches[2].end.1, 15);
-//! assert_eq!(matches[2].strand, Rc);
+//! assert_eq!(matches[2].text_start, 12);
+//! assert_eq!(matches[2].text_end, 15);
+//! assert_eq!(matches[2].cost, 1);
+//! assert_eq!(matches[2].strand, Strand::Rc);
 //! assert_eq!(matches[2].cigar.to_string(), "2=D=");
 //!
-//! // FIXME: Overhang example
-//! // FIXME: IUPAC example
-//! // FIXME: `match.start.1` is quite ugly; also rename to {pattern,text}_{start,end}?
+//! // Search with overhang and IUPAC.
+//!
+//! let pattern = b"ACGT";
+//! let text =      b"GTXXXNNN";
+//! //                     ACGT
+//! let alpha = 0.5;
+//! let k = 1;
+//!
+//! let mut searcher = Searcher::<Iupac>::new_fwd_with_overhang(alpha);
+//! let matches = searcher.search(pattern, &text, k);
+//!
+//! eprintln!("{:?}", matches);
+//!
+//! assert_eq!(matches[0].pattern_start, 2);
+//! assert_eq!(matches[0].pattern_end, 4);
+//! assert_eq!(matches[0].text_start, 0);
+//! assert_eq!(matches[0].text_end, 2);
+//! assert_eq!(matches[0].cost, 1);
+//! assert_eq!(matches[0].strand, Strand::Fwd);
+//! assert_eq!(matches[0].cigar.to_string(), "2=");
+//!
+//! assert_eq!(matches[1].pattern_start, 0);
+//! assert_eq!(matches[1].pattern_end, 3);
+//! assert_eq!(matches[1].text_start, 5);
+//! assert_eq!(matches[1].text_end, 8);
+//! assert_eq!(matches[1].cost, 0);
+//! assert_eq!(matches[1].strand, Strand::Fwd);
+//! assert_eq!(matches[1].cigar.to_string(), "3=");
 //! ```
 
 // INTERNAL MODS

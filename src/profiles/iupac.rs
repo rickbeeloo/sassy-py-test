@@ -7,7 +7,7 @@ use std::{
 
 /// IUPAC alphabet: ACGT + NYR...
 ///
-/// [https://www.bioinformatics.org/sms/iupac.html]
+/// <https://www.bioinformatics.org/sms/iupac.html>
 #[derive(Clone, Debug)]
 pub struct Iupac {
     bases: Vec<u8>,
