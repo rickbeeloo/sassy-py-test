@@ -1,6 +1,6 @@
 use needletail::parse_fastx_file;
 use sassy::CachedRev;
-use sassy::rec_iter::{PatternRecord, TaskIterator};
+use sassy::input_iterator::{InputIterator, PatternRecord};
 use sassy::{
     Match, RcSearchAble, Searcher, Strand,
     profiles::{Ascii, Dna, Iupac, Profile},
@@ -166,7 +166,7 @@ pub fn search(args: &SearchArgs) {
     let rc = (args.alphabet == Alphabet::Dna || args.alphabet == Alphabet::Iupac) && !args.no_rc;
 
     let num_threads = args.threads.unwrap_or_else(num_cpus::get);
-    let ref task_iterator = TaskIterator::new(&args.path, &patterns, None, rc);
+    let ref task_iterator = InputIterator::new(&args.path, &patterns, None, rc);
     std::thread::scope(|s| {
         for _ in 0..num_threads {
             s.spawn(move || {

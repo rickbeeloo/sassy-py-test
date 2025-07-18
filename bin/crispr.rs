@@ -1,7 +1,7 @@
 use sassy::{
     RcSearchAble, Searcher, Strand,
+    input_iterator::{InputIterator, PatternRecord},
     profiles::{Iupac, Profile},
-    rec_iter::{PatternRecord, TaskIterator},
 };
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -186,7 +186,7 @@ pub fn crispr(args: CrisprArgs) {
         .collect();
 
     // Shared iterator that pairs each query with every FASTA record in a batched fashion
-    let task_iter = TaskIterator::new(&args.path, &queries, None, true);
+    let task_iter = InputIterator::new(&args.path, &queries, None, true);
 
     let start = Instant::now();
     std::thread::scope(|scope| {

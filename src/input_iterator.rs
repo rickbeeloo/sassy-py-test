@@ -8,7 +8,7 @@ use crate::search::CachedRev; //Todo: could use parking_lot mutex - faster
 const DEFAULT_BATCH_BYTES: usize = 256 * 1024; // 256 KB
 
 /// Type alias for fasta record IDs.
-type ID = String;
+pub type ID = String;
 
 /// A search pattern, with ID from fasta file.
 #[derive(Clone, Debug)]
@@ -48,14 +48,14 @@ struct RecordState {
 /// Each batch searches at least `batch_byte_limit` bytes of text.
 ///
 /// Created using `TaskIterator::new` from a list of patterns and a path to a Fasta file to be searched.
-pub struct TaskIterator<'a> {
+pub struct InputIterator<'a> {
     patterns: &'a [PatternRecord],
     state: Mutex<RecordState>,
     batch_byte_limit: usize,
     rev: bool,
 }
 
-impl<'a> TaskIterator<'a> {
+impl<'a> InputIterator<'a> {
     /// Create a new iterator over `fasta_path`, going through `patterns`.
     /// `max_batch_bytes` controls how many texts are bundled together.
     pub fn new<P: AsRef<Path>>(
@@ -185,7 +185,7 @@ mod tests {
         }
 
         // Create the iterator
-        let iter = TaskIterator::new(file.path(), &patterns, Some(500), true);
+        let iter = InputIterator::new(file.path(), &patterns, Some(500), true);
 
         // Pull 10 batches
         let mut batch_id = 0;

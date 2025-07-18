@@ -40,8 +40,8 @@ mod trace;
 
 // (PARTIALLY) PUBLIC MODS
 
+pub mod input_iterator;
 pub mod profiles;
-pub mod rec_iter;
 
 pub use search::CachedRev;
 pub use search::Match;
