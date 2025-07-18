@@ -517,8 +517,8 @@ impl<P: Profile> Searcher<P> {
         }
         for lane in 1..LANES {
             let prev_lane_end = self.lanes[lane - 1].lane_end;
-            log::debug!("End of lane {}: {prev_lane_end}", lane - 1);
-            log::debug!(
+            log::trace!("End of lane {}: {prev_lane_end}", lane - 1);
+            log::trace!(
                 "Last match of lane {}: {:?}",
                 lane - 1,
                 self.lanes[lane - 1].matches.last()
@@ -602,7 +602,7 @@ impl<P: Profile> Searcher<P> {
         if base_pos >= max_pos {
             if base_pos == max_pos {
                 if self.lanes[lane].decreasing && prev_cost <= k {
-                    log::debug!("lane {lane} push {prev_pos} {prev_cost} <last>");
+                    log::trace!("lane {lane} push {prev_pos} {prev_cost} <last>");
                     self.lanes[lane].matches.push((prev_pos, prev_cost));
                 }
             }
@@ -617,7 +617,7 @@ impl<P: Profile> Searcher<P> {
             let pos: usize = base_pos + bit;
             if pos > max_pos {
                 if !all_minima && self.lanes[lane].decreasing && prev_cost <= k {
-                    log::debug!("lane {lane} push {prev_pos} {prev_cost} <last>");
+                    log::trace!("lane {lane} push {prev_pos} {prev_cost} <last>");
                     self.lanes[lane].matches.push((prev_pos, prev_cost));
                 }
                 break;
@@ -640,7 +640,7 @@ impl<P: Profile> Searcher<P> {
 
                 // Found a local minimum if we were decreasing and now costs are increasing
                 if self.lanes[lane].decreasing && costs_are_increasing && prev_cost <= k {
-                    log::debug!("lane {lane} push {prev_pos} {prev_cost}");
+                    log::trace!("lane {lane} push {prev_pos} {prev_cost}");
                     self.lanes[lane].matches.push((prev_pos, prev_cost));
                 }
 
