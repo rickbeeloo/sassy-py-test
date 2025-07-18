@@ -94,7 +94,7 @@ impl<'a> InputIterator<'a> {
             if state.current_record.is_none() {
                 match state.reader.next() {
                     Some(Ok(rec)) => {
-                        let id = String::from_utf8_lossy(rec.id()).to_string();
+                        let id = String::from_utf8(rec.id().to_vec()).unwrap().to_string();
                         let seq = rec.seq().into_owned();
                         let static_text = CachedRev::new(seq, self.rev);
                         state.current_record = Some(Arc::new(TextRecord {
@@ -169,8 +169,8 @@ mod tests {
 
         // Create a temporary file to write the fasta file to
         let mut file = NamedTempFile::new().unwrap();
-        for (i, seq) in seqs.iter().enumerate() {
-            file.write_all(format!(">seq_{}\n{}\n", i, String::from_utf8_lossy(seq)).as_bytes())
+        for (i, seq) in seqs.into_iter().enumerate() {
+            file.write_all(format!(">seq_{}\n{}\n", i, String::from_utf8(seq).unwrap()).as_bytes())
                 .unwrap();
         }
         file.flush().unwrap();

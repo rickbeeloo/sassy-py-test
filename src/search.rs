@@ -7,24 +7,48 @@ use crate::{bitpacking::compute_block_simd, delta_encoding::V};
 use pa_types::{Cigar, CigarOp, Cost, Pos};
 use std::simd::cmp::SimdPartialOrd;
 
+/// A match of the pattern against the text.
+///
+/// All indices are 0-based.
+///
+/// The `pattern_start` and `pattern_end` are usually just `0` and `m` to cover the entire pattern,
+/// unless overhang alignments are enabled.
+///
+/// For matches against the reverse complement text (when `match.strand = Strand::Rc`),
+/// `text_start` and `text_end` are indices into the _forward_ text, as given by the user.
+/// Thus, the pattern will match `rc(&text[text_start..text_end])`.
+/// In this case, the CIGAR tells the differences between `pattern` and `rc(&text[text_start..text_end])`.
+/// In the CIGAR, `I` represents a character in the text that is not in the pattern,
+/// and `D` represents a character in the pattern that is not in the text.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "python", pyo3::pyclass)]
 pub struct Match {
-    /// Start position in pattern and text.
-    pub start: Pos,
-    /// (Exclusive) end position in pattern and text.
-    pub end: Pos,
+    /// 0-based start position in text.
+    pub text_start: usize,
+    /// 0-based exclusive end position in text.
+    pub text_end: usize,
+    /// 0-based start position in pattern. 0 unless left-overhanging alignment.
+    pub pattern_start: usize,
+    /// 0-based exclusive end position in pattern. `m=|pattern|`, unless right-overhanging alignment.
+    pub pattern_end: usize,
+    /// Cost of the alignment.
     pub cost: Cost,
-    /// Forward pattern matches text in this direction.
+    /// Strand of the match.
     pub strand: Strand,
-    /// CIGAR representation in the direction of the forward pattern.
+    /// CIGAR representation of the alignment.
+    ///
+    /// The CIGAR should always be read in the direction of the input pattern.
+    /// `=`: match
+    /// `X`: mismatch
+    /// `I`: character in text but not in pattern.
+    /// `D`: character in pattern but not in text.
     pub cigar: Cigar,
 }
 
 impl Match {
     /// Convert the match to a list of (pattern pos, text pos) positions.
     pub fn to_path(&self) -> Vec<Pos> {
-        let mut pos = self.start;
+        let mut pos = Pos(self.pattern_start as i32, self.text_start as i32);
         let mut path = vec![pos];
         for el in &self.cigar.ops {
             for _ in 0..el.cnt {
@@ -45,8 +69,10 @@ impl Match {
     #[cfg(test)]
     pub(crate) fn without_cigar(&self) -> Match {
         Match {
-            start: self.start,
-            end: self.end,
+            text_start: self.text_start,
+            text_end: self.text_end,
+            pattern_start: self.pattern_start,
+            pattern_end: self.pattern_end,
             cost: self.cost,
             strand: self.strand,
             cigar: Cigar::default(),
@@ -303,10 +329,10 @@ impl<P: Profile> Searcher<P> {
             matches.extend(rc_matches.into_iter().map(|mut m| {
                 m.strand = Strand::Rc;
                 // Also adjust start and end positions to original text orientation
-                let org_start = m.start.1;
-                let org_end = m.end.1;
-                m.start.1 = input.text().as_ref().len() as i32 - org_end;
-                m.end.1 = input.text().as_ref().len() as i32 - org_start;
+                let rc_start = m.text_start;
+                let rc_end = m.text_end;
+                m.text_start = input.text().as_ref().len() - rc_end;
+                m.text_end = input.text().as_ref().len() - rc_start;
                 // NOTE: We keep the cigar in the direction of the pattern.
                 // Thus, passing text or rc(text) gives the same CIGAR.
                 // m.cigar.ops.reverse();
@@ -950,14 +976,13 @@ mod tests {
         let mut s = Searcher::<Iupac>::new_fwd();
         s.alpha = Some(0.5);
         let matches = s.search(prefix, text, 4);
-        let expected_end_pos = Pos(3, 20);
         let expected_edits = 2 as Cost;
         for m in matches.iter() {
             println!("Match: {:?}", m.without_cigar());
         }
         let m = matches
             .iter()
-            .find(|m| m.end == expected_end_pos && m.cost == expected_edits);
+            .find(|m| m.text_end == 20 && m.pattern_end == 3 && m.cost == expected_edits);
         assert!(m.is_some());
         assert_eq!(matches.len(), 2);
     }
@@ -1007,7 +1032,7 @@ mod tests {
         let matches = Searcher::<Dna>::new_fwd().search(pattern, &text, edits);
         let m = matches
             .iter()
-            .find(|m| (m.start.1 as usize).abs_diff(expected_idx) <= edits);
+            .find(|m| m.text_start.abs_diff(expected_idx) <= edits);
         assert!(m.is_some());
     }
 
@@ -1036,8 +1061,8 @@ mod tests {
         let text = [b"GGGGGGGG".as_ref(), &rc, b"GGGGGGGG"].concat();
         let matches = Searcher::<Dna>::new_rc().search(pattern, &text, 0);
         assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].start.1, 8);
-        assert_eq!(matches[0].end.1, 8 + pattern.len() as i32);
+        assert_eq!(matches[0].text_start, 8);
+        assert_eq!(matches[0].text_end, 8 + pattern.len());
         // Now disableing rc search should yield no matches
         let matches = Searcher::<Dna>::new_fwd().search(pattern, &text, 0);
         assert_eq!(matches.len(), 0);
@@ -1055,13 +1080,13 @@ mod tests {
         let matches =
             Searcher::<Dna>::new_fwd().search_with_fn(pattern, &text, 0, false, end_filter);
         assert_eq!(matches.len(), 1); // First match *ending* at 10 should be discarded
-        assert_eq!(matches[0].start.1, 50);
+        assert_eq!(matches[0].text_start, 50);
 
         // Sanity check, run the same without filter
         let matches = Searcher::<Dna>::new_fwd().search(pattern, &text, 0);
         assert_eq!(matches.len(), 2);
-        assert_eq!(matches[0].start.1, 10);
-        assert_eq!(matches[1].start.1, 50);
+        assert_eq!(matches[0].text_start, 10);
+        assert_eq!(matches[1].text_start, 50);
     }
 
     fn rc(text: &[u8]) -> Vec<u8> {
@@ -1113,8 +1138,8 @@ mod tests {
         let matches =
             Searcher::<Dna>::new_rc().search_with_fn(pattern_fwd, &text, 0, false, end_filter);
         assert_eq!(matches.len(), 2); // Both matches should be found
-        assert_eq!(matches[0].start.1, 10);
-        assert_eq!(matches[1].start.1, 50);
+        assert_eq!(matches[0].text_start, 10);
+        assert_eq!(matches[1].text_start, 50);
     }
 
     #[test]
@@ -1200,7 +1225,7 @@ mod tests {
                 // eprintln!("matches {matches:?}");
                 // let m = matches
                 //     .iter()
-                //     .find(|m| (m.start.1 as usize).abs_diff(expected_idx) <= edits);
+                //     .find(|m| (m.text_start as usize).abs_diff(expected_idx) <= edits);
                 // assert!(m.is_some());
 
                 // // Also rc search, should still find the same match
@@ -1209,7 +1234,7 @@ mod tests {
                 // eprintln!("matches {matches:?}");
                 // let m = matches
                 //     .iter()
-                //     .find(|m| (m.start.1 as usize).abs_diff(expected_idx) <= edits);
+                //     .find(|m| (m.text_start as usize).abs_diff(expected_idx) <= edits);
                 // assert!(m.is_some());
 
                 // Check if fwd and rev give the same
@@ -1285,7 +1310,9 @@ mod tests {
 
         // Verify all matches are found
         for expected_idx in expected_matches {
-            let found = matches.iter().any(|m| m.start.1 as usize == expected_idx);
+            let found = matches
+                .iter()
+                .any(|m| m.text_start as usize == expected_idx);
             assert!(found, "Expected match at {} not found", expected_idx);
         }
 
@@ -1381,9 +1408,12 @@ mod tests {
             let expected_locs = [expected_prefix_end_pos, expected_suffix_end_pos];
             let expected_costs = [expected_prefix_cost, expected_suffix_cost];
             for m in matches {
-                println!("m: {:?} {:?} {}", m.start, m.end, m.cost);
+                println!(
+                    "m: {}-{} {}-{} {}",
+                    m.text_start, m.text_end, m.pattern_start, m.pattern_end, m.cost
+                );
                 for i in 0..expected_locs.len() {
-                    if m.end.1 == expected_locs[i] as i32 && m.cost == expected_costs[i] as Cost {
+                    if m.text_end == expected_locs[i] && m.cost == expected_costs[i] as Cost {
                         found[i] = true;
                     }
                 }
@@ -1408,7 +1438,8 @@ mod tests {
         let path = matches[0].to_path();
         assert_eq!(path, vec![Pos(0, 4), Pos(1, 5), Pos(2, 6), Pos(3, 7)]);
         // Ends are exclusive
-        assert_eq!(matches[0].end, *path.last().unwrap() + Pos(1, 1));
+        assert_eq!(matches[0].pattern_end, path.last().unwrap().0 as usize + 1);
+        assert_eq!(matches[0].text_end, path.last().unwrap().1 as usize + 1);
     }
 
     #[test]
@@ -1423,7 +1454,8 @@ mod tests {
             vec![Pos(0, 4), Pos(1, 5), Pos(1, 6), Pos(2, 7), Pos(3, 8)]
         );
         // Ends are exclusive
-        assert_eq!(matches[0].end, *path.last().unwrap() + Pos(1, 1));
+        assert_eq!(matches[0].pattern_end, path.last().unwrap().0 as usize + 1);
+        assert_eq!(matches[0].text_end, path.last().unwrap().1 as usize + 1);
     }
 
     #[test]
@@ -1437,7 +1469,8 @@ mod tests {
         // This "skips" the first 4 character of the pattern as they are in the overhang
         assert_eq!(path, vec![Pos(4, 0), Pos(5, 1), Pos(6, 2), Pos(7, 3)]);
         // Ends are exclusive
-        assert_eq!(matches[0].end, *path.last().unwrap() + Pos(1, 1));
+        assert_eq!(matches[0].pattern_end, path.last().unwrap().0 as usize + 1);
+        assert_eq!(matches[0].text_end, path.last().unwrap().1 as usize + 1);
     }
 
     #[test]
@@ -1451,7 +1484,8 @@ mod tests {
         let path = matches[0].to_path();
         assert_eq!(path, vec![Pos(0, 7), Pos(1, 8), Pos(2, 9), Pos(3, 10)]);
         // Ends are exclusive
-        assert_eq!(matches[0].end, *path.last().unwrap() + Pos(1, 1));
+        assert_eq!(matches[0].pattern_end, path.last().unwrap().0 as usize + 1);
+        assert_eq!(matches[0].text_end, path.last().unwrap().1 as usize + 1);
     }
 
     #[test]
@@ -1526,8 +1560,8 @@ mod tests {
         println!("[ALL MATCHES]");
         let mut all_found = false;
         for m in all_matches {
-            println!("\t{}-{} c: {}", m.start, m.end, m.cost);
-            if m.end.1 == expected_end_pos && m.cost == expected_cost {
+            println!("\t{}-{} c: {}", m.text_start, m.text_end, m.cost);
+            if m.text_end == expected_end_pos && m.cost == expected_cost {
                 all_found = true;
                 break;
             }
@@ -1536,8 +1570,8 @@ mod tests {
         println!("[LOCAL MATCHES]");
         let mut local_found = false;
         for m in matches {
-            println!("\t{}-{} c: {}", m.start, m.end, m.cost);
-            if m.end.1 == expected_end_pos && m.cost == expected_cost {
+            println!("\t{}-{} c: {}", m.text_start, m.text_end, m.cost);
+            if m.text_end == expected_end_pos && m.cost == expected_cost {
                 local_found = true;
                 break;
             }
@@ -1582,8 +1616,8 @@ mod tests {
 
         for fwd_match in fwd_matches.iter() {
             let matching_rc = rc_matches.iter().find(|rc_match| {
-                rc_match.start == fwd_match.start
-                    && rc_match.end == fwd_match.end
+                rc_match.text_start == fwd_match.text_start
+                    && rc_match.text_end == fwd_match.text_end
                     && rc_match.cost == fwd_match.cost
             });
             assert!(
@@ -1615,14 +1649,14 @@ mod tests {
         for m in fwd_matches.iter() {
             println!("  {:?}", m.without_cigar());
             let matching_slice =
-                String::from_utf8_lossy(&text[m.start.1 as usize..m.end.1 as usize]);
+                String::from_utf8_lossy(&text[m.text_start as usize..m.text_end as usize]);
             println!("\tM slice: {}", matching_slice);
         }
         println!("\nReverse complement matches:");
         for m in rc_matches.iter() {
             println!("  {:?}", m.without_cigar());
             let matching_slice =
-                String::from_utf8_lossy(&text[m.start.1 as usize..m.end.1 as usize]);
+                String::from_utf8_lossy(&text[m.text_start as usize..m.text_end as usize]);
             println!("\tM slice: {}", matching_slice);
         }
 
@@ -1635,8 +1669,8 @@ mod tests {
         // For each fwd, there should be matching rc (just strand difference)
         for fwd_match in fwd_matches.iter() {
             let matching_rc = rc_matches.iter().find(|rc_match| {
-                rc_match.start == fwd_match.start
-                    && rc_match.end == fwd_match.end
+                rc_match.text_start == fwd_match.text_start
+                    && rc_match.text_end == fwd_match.text_end
                     && rc_match.cost == fwd_match.cost
             });
             assert!(
@@ -1677,16 +1711,16 @@ mod tests {
         let matches = searcher.search(pattern, &text, edits);
         for fw_m in matches.iter() {
             println!("fw_m: {:?}", fw_m.without_cigar());
-            let (text_start, text_end) = (fw_m.start, fw_m.end);
+            let (text_start, text_end) = (fw_m.text_start, fw_m.text_end);
             println!(
                 "Text slice: {}",
-                String::from_utf8_lossy(&text[text_start.1 as usize..text_end.1 as usize])
+                String::from_utf8_lossy(&text[text_start..text_end])
             );
         }
 
         let m = matches
             .iter()
-            .find(|m| (m.start.1 as usize).abs_diff(expected_idx) <= edits);
+            .find(|m| (m.text_start as usize).abs_diff(expected_idx) <= edits);
         assert!(m.is_some(), "Fwd searcher failed");
     }
 
@@ -1714,16 +1748,16 @@ mod tests {
         let matches = searcher.search(pattern, &text, edits);
         for fw_m in matches.iter() {
             println!("fw_m: {:?}", fw_m.without_cigar());
-            let (text_start, text_end) = (fw_m.start, fw_m.end);
+            let (text_start, text_end) = (fw_m.text_start, fw_m.text_end);
             println!(
                 "Text slice: {}",
-                String::from_utf8_lossy(&text[text_start.1 as usize..text_end.1 as usize])
+                String::from_utf8_lossy(&text[text_start..text_end])
             );
         }
 
         let m = matches
             .iter()
-            .find(|m| (m.start.1 as usize).abs_diff(expected_idx) <= edits);
+            .find(|m| (m.text_start as usize).abs_diff(expected_idx) <= edits);
         assert!(m.is_some(), "Fwd searcher failed");
     }
 
@@ -1751,16 +1785,16 @@ mod tests {
         let matches = searcher.search(pattern, &text, edits);
         for fw_m in matches.iter() {
             println!("fw_m: {:?}", fw_m.without_cigar());
-            let (text_start, text_end) = (fw_m.start, fw_m.end);
+            let (text_start, text_end) = (fw_m.text_start, fw_m.text_end);
             println!(
                 "Text slice: {}",
-                String::from_utf8_lossy(&text[text_start.1 as usize..text_end.1 as usize])
+                String::from_utf8_lossy(&text[text_start..text_end])
             );
         }
 
         let m = matches
             .iter()
-            .find(|m| (m.start.1 as usize).abs_diff(expected_idx) <= edits);
+            .find(|m| (m.text_start as usize).abs_diff(expected_idx) <= edits);
         assert!(m.is_some(), "Fwd searcher failed");
     }
 
@@ -1895,7 +1929,7 @@ mod tests {
         let fwd_cigar = matches[0].cigar.to_string();
         println!(
             "start - end: {} - {}",
-            matches[0].start.1 as usize, matches[0].end.1 as usize
+            matches[0].text_start as usize, matches[0].text_end as usize
         );
         println!("FWD: {}", fwd_cigar);
         // RC search
@@ -1903,7 +1937,7 @@ mod tests {
         let rc_cigar = matches[0].cigar.to_string();
         println!(
             "start - end: {} - {}",
-            matches[0].start.1 as usize, matches[0].end.1 as usize
+            matches[0].text_start as usize, matches[0].text_end as usize
         );
         println!("RC: {}", rc_cigar);
     }
@@ -1949,8 +1983,8 @@ mod tests {
         let matches = searcher.search(pattern, &text, 2);
 
         for m in matches {
-            let start = m.start.1 as usize;
-            let end = m.end.1 as usize;
+            let start = m.text_start as usize;
+            let end = m.text_end as usize;
             let m_text = &text[start..end];
             println!(
                 "m_text: {}",
@@ -1963,8 +1997,8 @@ mod tests {
         let mut searcher = Searcher::<Iupac>::new_rc();
         let matches = searcher.search(&pattern_rc, &text, 2);
         for m in matches {
-            let start = m.start.1 as usize;
-            let end = m.end.1 as usize;
+            let start = m.text_start as usize;
+            let end = m.text_end as usize;
             let m_text = &text[start..end];
             println!(
                 "m_text: {}",
@@ -2000,8 +2034,8 @@ mod tests {
         for m in matches {
             println!(
                 "m start {} end {} cost {}, cigar: {}",
-                m.start,
-                m.end,
+                m.text_start,
+                m.text_end,
                 m.cost,
                 m.cigar.to_string()
             );
@@ -2013,8 +2047,8 @@ mod tests {
         for m in matches {
             println!(
                 "m start {} end {} cost {}, cigar: {}",
-                m.start,
-                m.end,
+                m.text_start,
+                m.text_end,
                 m.cost,
                 m.cigar.to_string()
             );
@@ -2032,7 +2066,7 @@ mod tests {
         let matches = searcher.search(q, &text, 12);
         for m in matches.iter() {
             println!("m: {:?}", m.without_cigar());
-            let (m_start, m_end) = (m.start.1 as usize, m.end.1 as usize);
+            let (m_start, m_end) = (m.text_start as usize, m.text_end as usize);
             let m_text = &text[m_start..m_end];
             let path = m.to_path();
             println!("Cigar: {}", m.cigar.to_string());
@@ -2052,7 +2086,7 @@ mod tests {
         println!("Reverse matches");
         let matches = searcher.search(q, &text_rc, 12);
         for m in matches.iter() {
-            let (m_start, m_end) = (m.start.1 as usize, m.end.1 as usize);
+            let (m_start, m_end) = (m.text_start, m.text_end as usize);
             let m_text = &text_rc[m_start..m_end];
             println!("Match text: {}", String::from_utf8_lossy(m_text));
             let path = m.to_path();

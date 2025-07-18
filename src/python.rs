@@ -2,7 +2,6 @@ use crate::profiles::{Ascii, Dna, Iupac};
 use crate::search::{self, Match, Strand};
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
-use rand::Rng;
 
 /// A Python module implemented in Rust.
 #[pymodule]
@@ -27,8 +26,8 @@ pub struct Searcher {
 
 #[pyfunction]
 fn features() {
-    test_cpu_features();
-    test_throughput();
+    crate::test_cpu_features();
+    crate::test_throughput();
 }
 
 #[pymethods]
@@ -82,23 +81,23 @@ impl Searcher {
 #[pymethods]
 impl Match {
     #[getter]
-    fn pattern_start(&self) -> i32 {
-        self.start.0
+    fn text_start(&self) -> usize {
+        self.text_start
     }
 
     #[getter]
-    fn text_start(&self) -> i32 {
-        self.start.1
+    fn text_end(&self) -> usize {
+        self.text_end
     }
 
     #[getter]
-    fn pattern_end(&self) -> i32 {
-        self.end.0
+    fn pattern_start(&self) -> usize {
+        self.pattern_start
     }
 
     #[getter]
-    fn text_end(&self) -> i32 {
-        self.end.1
+    fn pattern_end(&self) -> usize {
+        self.pattern_end
     }
 
     #[getter]

@@ -7,7 +7,6 @@ use crate::search::init_deltas_for_overshoot_scalar;
 use pa_types::Cigar;
 use pa_types::Cost;
 use pa_types::I;
-use pa_types::Pos;
 
 use crate::LANES;
 use crate::S;
@@ -162,13 +161,13 @@ pub fn get_trace<P: Profile>(
 
     let mut cigar = Cigar::default();
 
-    let mut query_start = 0;
-    let mut query_end = query.len();
+    let mut pattern_start = 0;
+    let mut pattern_end = query.len();
 
     // Overshoot at end.
     if i > text.len() {
         let overshoot = i - text.len();
-        query_end -= overshoot;
+        pattern_end -= overshoot;
         let overshoot_cost = (overshoot as f32 * alpha.unwrap()).floor() as Cost;
 
         total_cost += overshoot_cost;
@@ -192,7 +191,7 @@ pub fn get_trace<P: Profile>(
             && let Some(alpha) = alpha
         {
             let overshoot = j;
-            query_start = overshoot;
+            pattern_start = overshoot;
             // Overshoot at start.
             let overshoot_cost = (overshoot as f32 * alpha).floor() as Cost;
             g -= overshoot_cost;
@@ -241,8 +240,10 @@ pub fn get_trace<P: Profile>(
 
     Match {
         cost: total_cost,
-        start: Pos(query_start as I, (text_offset + i) as I),
-        end: Pos(query_end as I, (text_offset + text.len()) as I),
+        text_start: text_offset + i,
+        text_end: text_offset + text.len(),
+        pattern_start,
+        pattern_end,
         strand: Strand::Fwd,
         cigar,
     }

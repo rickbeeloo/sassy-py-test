@@ -99,8 +99,8 @@ fn as_output_line(
     alphabet: &Alphabet,
 ) -> String {
     let cost = m.cost;
-    let start = m.start.1 as usize;
-    let end = m.end.1 as usize;
+    let start = m.text_start;
+    let end = m.text_end;
     let slice = &cached_text.text.as_ref()[start..end];
 
     // If we match reverse complement, reverse complement the slice to make it easier to read

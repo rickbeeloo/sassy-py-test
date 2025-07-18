@@ -223,8 +223,8 @@ pub fn crispr(args: CrisprArgs) {
                         let mut writer_guard = writer.lock().unwrap();
 
                         for m in matches {
-                            let start = m.start.1 as usize;
-                            let end = m.end.1 as usize;
+                            let start = m.text_start;
+                            let end = m.text_end;
                             let text = text.text();
                             let slice = &text.as_ref()[start..end];
 

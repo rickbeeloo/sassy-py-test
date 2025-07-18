@@ -5,7 +5,7 @@
 #include <string.h>
 
 static void print_match(const sassy_Match* m, size_t idx) {
-	printf("#%zu  pat[%d-%d]  txt[%d-%d]  cost=%d  strand=%c\n", idx, m->pattern_start,
+	printf("#%zu  pat[%zu-%zu]  txt[%zu-%zu]  cost=%d  strand=%c\n", idx, m->pattern_start,
 	       m->pattern_end, m->text_start, m->text_end, m->cost, m->strand == 0 ? '+' : '-');
 }
 

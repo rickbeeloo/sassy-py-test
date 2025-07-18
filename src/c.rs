@@ -16,10 +16,10 @@ pub enum SearcherType {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct Match {
-    pub pattern_start: i32,
-    pub text_start: i32,
-    pub pattern_end: i32,
-    pub text_end: i32,
+    pub text_start: usize,
+    pub text_end: usize,
+    pub pattern_start: usize,
+    pub pattern_end: usize,
     pub cost: i32,
     /// 0 = Fwd, 1 = Rc
     pub strand: u8,
@@ -28,10 +28,10 @@ pub struct Match {
 impl From<search::Match> for Match {
     fn from(m: search::Match) -> Self {
         Match {
-            pattern_start: m.start.0,
-            text_start: m.start.1,
-            pattern_end: m.end.0,
-            text_end: m.end.1,
+            text_start: m.text_start,
+            text_end: m.text_end,
+            pattern_start: m.pattern_start,
+            pattern_end: m.pattern_end,
             cost: m.cost,
             strand: match m.strand {
                 Strand::Fwd => 0,

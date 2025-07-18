@@ -9,16 +9,18 @@
 typedef struct sassy_SearcherType sassy_SearcherType;
 
 typedef struct sassy_Match {
-  int32_t pattern_start;
-  int32_t text_start;
-  int32_t pattern_end;
-  int32_t text_end;
+  uintptr_t text_start;
+  uintptr_t text_end;
+  uintptr_t pattern_start;
+  uintptr_t pattern_end;
   int32_t cost;
   /**
    * 0 = Fwd, 1 = Rc
    */
   uint8_t strand;
 } sassy_Match;
+
+
 
 #ifdef __cplusplus
 extern "C" {
@@ -29,7 +31,7 @@ extern "C" {
  *
  * `alphabet`: one of "ascii", "dna", "iupac" (case-insensitive).
  * `rc`: whether to also search the reverse-complement strand.
- * `alpha`: overhang parameter. Pass `NAN` or -1 to disable.
+ * `alpha`: overhang parameter. Pass `NAN` to disable.
  *
  * Returns a pointer to an opaque `Searcher` object, or panics on error.
  */

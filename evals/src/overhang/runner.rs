@@ -72,7 +72,7 @@ pub fn run(config: &str) {
         let mut end_pos_counts = std::collections::HashMap::new();
 
         for m in matches {
-            let end_pos = m.end.1 as usize;
+            let end_pos = m.text_end;
             let count = end_pos_counts.entry(end_pos).or_insert(0);
             *count += 1;
 
