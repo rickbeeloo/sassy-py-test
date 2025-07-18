@@ -25,8 +25,6 @@ for _ in range(10):
     matches = searcher.search(pattern, text, k=k)
     print(f"GB/s: {n / (time.time()-start) / 10**9}")
 
-exit(0)
-
 # Example 1: Simple DNA search
 print("=== DNA Search Example ===")
 pattern = b"ATCGATCG"

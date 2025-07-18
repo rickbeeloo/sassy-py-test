@@ -1,26 +1,29 @@
-# simd-sassy Python Bindings
+# Sassy Python Bindings
 
-This directory contains the Python interface for the simd-sassy sequence search library, powered by Rust and PyO3.
+🐍 The python bindings for Sassy
 
 ## Installation
 
-You can install the package using [maturin](https://github.com/PyO3/maturin):
 
-```bash
-maturin develop --features python
-```
-
-Or install from PyPI (once published):
-
+### From pip
 ```bash
 pip install simd-sassy
 ```
+
+### From source
+In the root after git clone, run: 
+```bash
+maturin develop --features python
+```
+You need Maturin for this, see [maturin](https://github.com/PyO3/maturin):
+
 
 ## Usage
 
 A simple usage is as follows:
 
 ``` python
+import sassy
 pattern = b"ATCGATCG"
 text = b"GGGGATCGATCGTTTT"
 # alphabet: ascii, dna, uipac
@@ -63,3 +66,6 @@ and `sassy.Searcher("dna", rc=False)` to disable reverse complements for DNA
 or IUPAC strings.
 
 See [example.py](sassy/example.py) for a larger example.
+
+## Troubleshooting
+When creating an issue please include the output of `print(dir(sassy))` if you were able to install `sassy-rs` but no functions/modules were found. 
