@@ -36,7 +36,6 @@ jobs:
         uses: dtolnay/rust-toolchain@nightly
         with:
           targets: ${{ matrix.target }}
-          override: true
 
       - name: Build wheel
         uses: PyO3/maturin-action@v1

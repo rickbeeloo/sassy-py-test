@@ -7,8 +7,9 @@
 
 ### From pip
 ```bash
-pip install simd-sassy
+pip install sassy-rs
 ```
+(as sassy as already taken we chose sassy-rs)
 
 ### From source
 In the root after git clone, run: 
@@ -68,4 +69,13 @@ or IUPAC strings.
 See [example.py](sassy/example.py) for a larger example.
 
 ## Troubleshooting
-When creating an issue please include the output of `print(dir(sassy))` if you were able to install `sassy-rs` but no functions/modules were found. 
+
+
+### 1. I could install `sassy-rc` but no modules/functions are found
+When creating an issue please include the output of `print(dir(sassy))` if you were able to install `sassy-rs` but no functions/modules were found. The expected output would be:
+```python
+['Searcher', '__all__', '__builtins__', '__cached__', '__doc__', '__file__', '__loader__', '__name__', '__package__', '__path__', '__spec__', 'features', 'sassy']
+```
+
+#### 2. Sassy is slow
+Please run `sassy.stats()` 
