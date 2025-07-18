@@ -1,2 +1,6 @@
 [build]
 rustflags = ["-C", "target-cpu=native"]
+
+# Prevent pyo3 rebuilding all the time.
+[env]
+PYO3_PYTHON = "/usr/bin/python3"
